@@ -10,7 +10,8 @@ conflicts with your intuition, this file wins.
 config into `agent_versions`, so past runs stay reproducible.
 
 **Run** — one agent's single attempt at one PR. Row in `agent_runs` with
-`status ∈ {running, done, failed, cancelled}`, timings, token counts, grounding summary.
+`status ∈ {running, done, failed, cancelled}`, timings, token counts, USD cost (`null` when
+the model is unpriced — distinct from `0`, a genuinely free model), grounding summary.
 The `run_id` exists **before** any LLM call so the UI can subscribe to its SSE stream.
 
 **Review** — the persisted *result* of a run: verdict, summary, score, model. Row in

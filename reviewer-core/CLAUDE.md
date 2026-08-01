@@ -43,7 +43,8 @@ npm run typecheck # this IS the build; the package never emits JS
   engine is path-coupled to the server.
 - `skills` / `memory` / `specs` are accepted but never passed by the starter server
   (L02 / L07 / L05). They are not dead parameters.
-- `costUsd` is computed and returned, but the server deliberately does not persist it (L01).
+- `costUsd` is `null` if **any** LLM call in the run was unpriced — one unknown price poisons
+  the sum rather than contributing zero, so the server can tell "unknown" from "free".
 - `auto` strategy picks map-reduce only when the diff is **both** >400 lines **and**
   multi-file; `map-reduce` on a single-file diff silently falls back to single-pass.
 

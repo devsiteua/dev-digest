@@ -68,6 +68,23 @@ Status:   open — fix opportunistically when touching those files
 
 ## Codebase Patterns
 
+### 2026-08-01 · A contract that also serializes a persisted jsonb doc needs `.nullish()`, not `.nullable()`
+
+Trigger:  adding `cost_usd` to `RunStats` for L01, mirroring how the pre-removal code
+          (commit `d45ab0d`) had declared it as `z.number().nullable()`
+Cause:    `RunStats` is not only a response shape — it is the `stats` block **inside** the
+          jsonb document stored in `run_traces.trace`, and rows written before the field
+          existed have no `cost_usd` key at all. `.nullable()` requires the key to be
+          present, so `GET /runs/:id/trace` would have 500'd on every historical run. The
+          old code got away with `.nullable()` only because that field had been written
+          since day one. Same trap waits on any future `RunStats`/`RunTrace` field.
+Takeaway: before tightening or adding a field on `contracts/trace.ts`, ask whether old rows
+          in `run_traces` carry it. If not, `.nullish()`. Response-only contracts read
+          straight from a table (e.g. `RunSummary`) are free to use `.nullable()`.
+Evidence: server/src/vendor/shared/contracts/trace.ts (RunStats.cost_usd);
+          server/test/contracts.test.ts ("RunTrace parses a LEGACY stats block")
+Status:   resolved — guarded by the legacy-stats fixture test
+
 ### 2026-08-01 · The two `vendor/shared` trees have already diverged
 
 Trigger:  comparing `server/src/vendor/shared` with `client/src/vendor/shared`
@@ -93,6 +110,21 @@ Evidence: server/src/db/schema/
 Status:   → promoted to `CLAUDE.md` (Gotchas)
 
 ## Tool & Library Notes
+
+### 2026-08-01 · `pnpm db:seed` creates zero `agent_runs` — run-related UI cannot be eyeballed
+
+Trigger:  booting `./scripts/dev.sh` to visually confirm the new run-cost column, timeline
+          badge, and trace Stats tile
+Cause:    the seed populates repos, PRs, agents, reviews, and findings, but **no** runs —
+          `select count(*) from agent_runs` on a freshly seeded dev DB is 0. So the PR-list
+          COST column, the Agent-runs timeline, and the run trace drawer all render their
+          empty state no matter what you changed. Filling them needs a real review, which
+          means a real API key and a billable model call.
+Takeaway: for anything keyed off `agent_runs` or `run_traces`, the `*.it.test.ts` lane
+          (testcontainers + `MockLLMProvider`, which reports usage and cost) is the
+          verification — not a browser click-through. Don't burn time booting the stack.
+Evidence: server/src/db/seed.ts; server/test/reviews.it.test.ts
+Status:   open — seeding a demo run would make run UI reviewable without a model call
 
 ### 2026-08-01 · `skills-lock.json` does not describe the skills that are actually on disk
 

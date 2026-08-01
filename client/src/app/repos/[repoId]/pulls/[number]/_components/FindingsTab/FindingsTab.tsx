@@ -162,6 +162,7 @@ export function FindingsTab({
             defaultOpen={i === 0}
             repoFullName={repoFullName}
             headSha={headSha}
+            costUsd={prRuns?.find((r) => r.run_id === review.run_id)?.cost_usd ?? null}
             targetRunId={target?.runId ?? null}
             targetNonce={target?.n ?? 0}
           />

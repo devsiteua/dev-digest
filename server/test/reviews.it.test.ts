@@ -159,7 +159,7 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
 
   it('runs a review: map-reduce + grounding drops the hallucinated finding, keeps the valid one', async () => {
     const app = await appWith(REVIEW_FIXTURE);
-    const { pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+    const { repo, pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
 
     const agent = (
       await app.inject({
@@ -208,6 +208,59 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     expect(run!.status).toBe('done');
     expect(run!.findingsCount).toBe(1);
     expect(run!.grounding).toBe('1/2 passed');
+
+    // ---- cost round-trips DB → run list → trace → PR list -------------------
+    // MockLLMProvider reports costUsd on every structured call and the engine
+    // sums them, so a completed run must land with a real (non-null) cost.
+    expect(run!.costUsd).toBeGreaterThan(0);
+    expect(trace.stats.cost_usd).toBe(run!.costUsd);
+
+    const runs = (await app.inject({ method: 'GET', url: `/pulls/${pr.id}/runs` })).json();
+    expect(runs[0].cost_usd).toBe(run!.costUsd);
+
+    // The PR list surfaces the LATEST done run's cost, not a sum.
+    const pulls = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
+    const listed = pulls.find((p: { number: number }) => p.number === pr.number);
+    expect(listed.cost_usd).toBe(run!.costUsd);
+
+    await app.close();
+  });
+
+  it('PR list reports the latest done run cost; a never-reviewed PR reports null', async () => {
+    const app = await appWith(REVIEW_FIXTURE);
+    const { repo, pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+
+    // Before any review, cost is unknown — null, so the UI renders "—" not "$0.00".
+    const before = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
+    expect(before.find((p: { number: number }) => p.number === pr.number).cost_usd).toBeNull();
+
+    const agent = (
+      await app.inject({
+        method: 'POST',
+        url: '/agents',
+        payload: { name: 'CostAgent', provider: 'openai', model: 'gpt-4.1', system_prompt: 's' },
+      })
+    ).json();
+    await app.inject({ method: 'POST', url: `/pulls/${pr.id}/review`, payload: { agentId: agent.id } });
+    await waitForPrRuns(pg.handle.db, pr.id, { expected: 1 });
+
+    const after = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
+    const listed = after.find((p: { number: number }) => p.number === pr.number);
+    expect(listed.cost_usd).toBeGreaterThan(0);
+
+    // A newer run that is still `running` must NOT blank out the last real cost.
+    await pg.handle.db.insert(t.agentRuns).values({
+      workspaceId,
+      agentId: agent.id,
+      prId: pr.id,
+      status: 'running',
+      provider: 'openai',
+      model: 'gpt-4.1',
+    });
+    const withRunning = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
+    expect(withRunning.find((p: { number: number }) => p.number === pr.number).cost_usd).toBe(
+      listed.cost_usd,
+    );
 
     await app.close();
   });
