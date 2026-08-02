@@ -24,6 +24,22 @@ _None yet._
 
 ## Codebase Patterns
 
+### 2026-08-02 · A card with `overflow: hidden` silently clips anything its rows pop up
+
+Trigger:  the PR list's new findings popover rendered in the DOM, passed its test, and was
+          invisible in the browser
+Cause:    `pulls/styles.ts` `tableCard` carried `overflow: hidden` to clip the rows to its
+          rounded corners. That clips every absolutely-positioned descendant too — popover,
+          dropdown, tooltip — no matter how high its `z-index`. The design's own dashboard sets
+          `overflow: visible` on the same container for exactly this reason.
+Takeaway: before adding a hover popover, dropdown or tooltip to a table row, check the
+          container's `overflow` first — the symptom is "renders, but nothing appears", which
+          reads like a state bug and is not one. The trade is that the last row's corners no
+          longer clip; the design accepts it.
+Evidence: client/src/app/repos/[repoId]/pulls/styles.ts (tableCard);
+          DevDigest-Design-unpacked/src/14-screen_dashboard.jsx:111
+Status:   resolved
+
 ### 2026-08-01 · There is no landing page — `/` is a redirect
 
 Trigger:  writing anything that assumes a stable home screen
@@ -35,6 +51,21 @@ Evidence: src/app/page.tsx
 Status:   → promoted to `CLAUDE.md` (Gotchas)
 
 ## Tool & Library Notes
+
+### 2026-08-02 · jsdom drops any CSS declaration containing `var()`, so `toHaveStyle` is blind to every design token
+
+Trigger:  asserting that the severity counters render as dotted-underlined text in the
+          severity colour; the component was correct and the test failed with an empty diff
+Cause:    React writes `style="border-bottom: 1px dotted var(--crit)"` onto the element — the
+          attribute is verifiably there — but jsdom's computed-style parser refuses to accept a
+          declaration containing `var()`, so `toHaveStyle` sees nothing. Longhands
+          (`borderBottomColor`) behave identically. Since nothing in this codebase styles with
+          literal colours, this defeats every token-based visual assertion, not just border ones.
+Takeaway: assert on `element.getAttribute("style")` with `toContain("... var(--crit)")`. Do not
+          reach for `getComputedStyle` or try to inject the token — the parser, not the
+          cascade, is what drops it.
+Evidence: client/src/app/repos/[repoId]/pulls/_components/SeverityCounters/SeverityCounters.test.tsx
+Status:   resolved
 
 ### 2026-08-02 · `borderColor` is itself a shorthand — pairing it with `borderLeftColor` makes React warn
 

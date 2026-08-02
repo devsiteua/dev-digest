@@ -50,6 +50,26 @@ _None yet._
 
 ## What Doesn't Work
 
+### 2026-08-02 · Building a screen from design screenshots — the prototype's source says things a PNG cannot
+
+Trigger:  re-doing the L01 severity feature against the unpacked design prototype, after
+          round 1 had shipped from two screenshots of it
+Cause:    three of the five gaps were invisible in a still image. Both counter surfaces open a
+          hover popover listing the findings behind the numbers
+          (`src/12-prdetail_runs.jsx:38-54`); the chip row *rests* with all three severities
+          active (`src/10-findings.jsx:105`), and a screenshot of that is indistinguishable
+          from a screenshot taken after one click; and the counters are bare text on a dotted
+          rule, which at screenshot scale reads as a filled pill. A fourth trap runs the other
+          way — `FindingsPanel` is defined in the prototype but mounted on **no** screen
+          (`src/main.jsx` renders only Overview / Agent runs / Files changed), so a component
+          existing there is not evidence it belongs anywhere.
+Takeaway: get the prototype's source before building, and ask for it when only images are
+          offered — the redo cost more than the original build. Grep `src/main.jsx` for what is
+          actually mounted, then read the screen file end to end: hover states, empty states
+          and resting states live in the source and nowhere else.
+Evidence: DevDigest-Design-unpacked/src/{10-findings,12-prdetail_runs,14-screen_dashboard,main}.jsx
+Status:   resolved for L01 — applies to every remaining lesson
+
 ### 2026-08-01 · Docs drift found during the first full repo walkthrough
 
 Trigger:  onboarding pass over the whole repository
@@ -67,6 +87,24 @@ Evidence: server/src/platform/config.ts
 Status:   open — fix opportunistically when touching those files
 
 ## Codebase Patterns
+
+### 2026-08-02 · Two severity tallies with different rules now coexist, deliberately
+
+Trigger:  adding the PR-header scoreboard to a product whose PR list already had a FINDINGS
+          column, and having to answer "which findings does this number count?" twice
+Cause:    they cannot be the same rule. The list column counts the **latest review only** — it
+          sits beside a SCORE ring describing exactly one review, and summing runs there would
+          triple-count one defect three agents each found. The header counts **every finding on
+          the PR** — it sits above the accordions listing those findings and must match the
+          "Agent runs" tab count, which is what "the counters agree with the list" means.
+Takeaway: a third surface must pick one on purpose, not by copying whichever neighbour is
+          closer. The server's rule (newest `kind='review'`, summaries excluded) has a client
+          twin in `latestReviewFindings` (`client/src/lib/findings.ts`) precisely so the PR-list
+          hover popover cannot list findings the numbers above it never counted — keep the two
+          in step if either changes.
+Evidence: server/src/modules/pulls/routes.ts; client/src/lib/findings.ts;
+          client/.../[number]/_components/PrSeveritySummary/PrSeveritySummary.tsx
+Status:   open
 
 ### 2026-08-02 · A feature cut from the starter leaves its scaffold behind — grep before building
 
@@ -151,31 +189,31 @@ Evidence: server/src/vendor/shared/contracts/trace.ts (RunStats.cost_usd);
           server/test/contracts.test.ts ("RunTrace parses a LEGACY stats block")
 Status:   resolved — guarded by the legacy-stats fixture test
 
-### 2026-08-01 · The two `vendor/shared` trees have already diverged
-
-Trigger:  comparing `server/src/vendor/shared` with `client/src/vendor/shared`
-Cause:    there is no workspace and no build step keeping them in sync — they are two
-          physical copies. Five files differ today. The server copy is ahead: it has
-          `sessionId` on LLM options, `openrouter` in the `LLMProvider.id` union,
-          `CommitFiles`, `AgentManifest`, and `AgentVersionConfig`.
-Takeaway: harmless right now (the drift is confined to server-only ports the client never
-          imports), but a contract edit **must** be applied to both copies. Diff them before
-          committing anything under `vendor/shared`.
-Evidence: server/src/vendor/shared vs client/src/vendor/shared
-Status:   → promoted to `CLAUDE.md` (Gotchas)
-
-### 2026-08-01 · An empty table in the schema is a future lesson, not dead code
-
-Trigger:  `db/schema/` defines ~35 tables while the starter reads maybe a third of them
-Cause:    the schema is intentionally complete from day 1 so lessons L01–L08 only ever add
-          columns, never restructure. Same idea in `reviewer-core`: the `skills`, `memory`,
-          and `specs` prompt slots exist and are simply never filled by the starter.
-Takeaway: never "clean up" an unused table, contract, or prompt slot. Check the lesson table
-          in `README.md` first.
-Evidence: server/src/db/schema/
-Status:   → promoted to `CLAUDE.md` (Gotchas)
+> Two promoted entries from 2026-08-01 — *the two `vendor/shared` trees have already diverged*
+> and *an empty table in the schema is a future lesson* — moved to
+> [`docs/insights-archive.md`](docs/insights-archive.md) on 2026-08-02 to keep this file under
+> ~250 lines. Both are live rules in `CLAUDE.md` (Gotchas); the archive keeps their reasoning.
 
 ## Tool & Library Notes
+
+### 2026-08-02 · `defaultNow()` is transaction start time, so "newest row wins" can tie exactly
+
+Trigger:  writing an integration test for "the PR list counts the latest review" and finding
+          there was nothing safe to assert about *which* review wins
+Cause:    Postgres `now()` — what `defaultNow()` compiles to — returns the **transaction's**
+          start timestamp, not the statement's. Rows written in one transaction (three agents'
+          reviews, a batch seed) therefore share `created_at` to the microsecond, and
+          `orderBy(desc(createdAt))` + "first row wins" degenerates into planner order. No
+          column can break the tie by recency either: every id in this schema is
+          `uuid().defaultRandom()`.
+Takeaway: for any "latest per group" read, add `desc(<pk>)` as a secondary sort key. It does not
+          make the pick *correct* — it makes it **stable**, which is the property a test can
+          assert ("two identical requests return the same tally") and the one users notice.
+          Real ordering under a tie needs `clock_timestamp()` or a monotonic column, i.e. a
+          migration.
+Evidence: server/src/db/schema/_shared.ts:9; server/src/modules/pulls/routes.ts;
+          server/test/reviews.it.test.ts ("two reviews share a timestamp")
+Status:   resolved for stability; ordering correctness deferred to a migration
 
 ### 2026-08-02 · The seed now creates one `agent_run`, and the guard that made it upgradeable
 
