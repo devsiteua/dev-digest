@@ -32,6 +32,25 @@ _None yet._
 
 ## Recurring Errors & Fixes
 
+### 2026-08-02 · `wait --url` is not "the page is ready" — flows 04 and 05 clicked into a skeleton
+
+Trigger:  the first `pnpm e2e:hermetic` run on a machine with a freshly installed
+          `agent-browser`; flows 04 and 05 failed at *"open the PR row"* while 02, which clicks
+          the same row, passed
+Cause:    `wait --url /pulls` resolves the moment the route changes, and the PR list is fetched
+          client-side after that. Flow 02 happened to be safe because it carries an extra
+          `wait --text` before the click; 04 and 05 went straight from the URL check to
+          `find text … click` and raced the query. `test-results/04-pr-findings-fail.png` shows
+          it exactly: "Loading pull requests…" and four skeleton rows. Nothing was wrong with
+          the app, and the flake had been latent since the flows were written.
+Takeaway: `--url` asserts navigation only. Before the first `find … click` on a screen whose
+          content is fetched, add a `wait --text` for something that only exists once the data
+          has rendered. When a flow fails on an interaction step, read the `-fail.png` in
+          `test-results/` before suspecting the code — a skeleton in the screenshot means a
+          missing wait, not a bug.
+Evidence: e2e/specs/04-pr-findings.flow.json; e2e/specs/05-pr-diff.flow.json
+Status:   resolved — both flows now wait for the row before clicking it
+
 ### 2026-08-01 · Flows fail locally because the dev DB has more than one repo
 
 Trigger:  `npm test` passing in CI but failing on flows 02 / 04 / 05 locally
