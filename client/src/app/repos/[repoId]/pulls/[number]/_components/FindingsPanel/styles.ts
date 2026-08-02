@@ -9,14 +9,17 @@ export const s = {
     marginBottom: 16,
     flexWrap: "wrap",
   } satisfies CSSProperties,
+  /** Separates the severity filter from the confidence toggle. Carries the
+   *  `marginLeft: auto` so it and the toggle group both sit hard right, however
+   *  many chips are on the left. */
   divider: {
     width: 1,
     height: 18,
     background: "var(--border)",
     margin: "0 2px",
+    marginLeft: "auto",
   } satisfies CSSProperties,
   toggleGroup: {
-    marginLeft: "auto",
     display: "flex",
     alignItems: "center",
     gap: 10,
