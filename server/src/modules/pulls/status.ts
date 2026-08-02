@@ -25,6 +25,24 @@ export function rollupSeverities(rows: { severity: string }[]): SeverityCounts {
 }
 
 /**
+ * Same tally, but for many reviews at once — the PR list fetches the findings of
+ * every listed PR's latest review in one query and needs them split back apart.
+ * Delegates per group, so tolerance for severities outside the enum is inherited
+ * rather than reimplemented.
+ */
+export function rollupSeveritiesByReview(
+  rows: { reviewId: string; severity: string }[],
+): Map<string, SeverityCounts> {
+  const byReview = new Map<string, { severity: string }[]>();
+  for (const r of rows) {
+    const bucket = byReview.get(r.reviewId);
+    if (bucket) bucket.push(r);
+    else byReview.set(r.reviewId, [r]);
+  }
+  return new Map([...byReview].map(([id, group]) => [id, rollupSeverities(group)]));
+}
+
+/**
  * Review-freshness status for the PR list. Merged/closed PRs keep their GitHub
  * merge state; open PRs map to:
  *  - `needs_review` — never reviewed, OR head moved since the last review

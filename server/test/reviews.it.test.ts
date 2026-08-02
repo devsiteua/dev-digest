@@ -265,6 +265,84 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     await app.close();
   });
 
+  it('PR list reports the latest review severity tally, counting only grounded findings', async () => {
+    const app = await appWith(REVIEW_FIXTURE);
+    const { repo, pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+
+    // Never reviewed → null, not zeros. The UI renders "—" for one and "0" for
+    // the other, and they mean different things.
+    const before = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
+    expect(
+      before.find((p: { number: number }) => p.number === pr.number).findings_by_severity,
+    ).toBeNull();
+
+    const agent = (
+      await app.inject({
+        method: 'POST',
+        url: '/agents',
+        payload: { name: 'SevAgent', provider: 'openai', model: 'gpt-4.1', system_prompt: 's' },
+      })
+    ).json();
+    await app.inject({ method: 'POST', url: `/pulls/${pr.id}/review`, payload: { agentId: agent.id } });
+    await waitForPrRuns(pg.handle.db, pr.id, { expected: 1 });
+
+    // REVIEW_FIXTURE returns one CRITICAL on a real diff line and one WARNING on
+    // line 999, which the citation gate drops. The tally therefore follows the
+    // findings that were persisted, not what the model claimed to have found.
+    const after = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
+    const listed = after.find((p: { number: number }) => p.number === pr.number);
+    expect(listed.findings_by_severity).toEqual({ critical: 1, warning: 0, suggestion: 0 });
+
+    // And it agrees with the findings the detail page shows.
+    const reviews = (await app.inject({ method: 'GET', url: `/pulls/${pr.id}/reviews` })).json();
+    expect(reviews[0].findings).toHaveLength(1);
+
+    await app.close();
+  });
+
+  it('a review that kept no findings reports zeros on the PR list, not null', async () => {
+    // Everything the model returned was ungrounded, so the review exists but has
+    // no findings. "Reviewed and clean" must not read as "never reviewed".
+    const allHallucinated: Review = {
+      verdict: 'approve',
+      summary: 'Nothing real found.',
+      score: 100,
+      findings: [
+        {
+          id: 'f-ghost',
+          severity: 'CRITICAL',
+          category: 'bug',
+          title: 'Phantom finding on a line not in the diff',
+          file: 'src/config.ts',
+          start_line: 999,
+          end_line: 999,
+          rationale: 'Not in the diff.',
+          suggestion: null,
+          confidence: 0.5,
+          kind: 'finding',
+        },
+      ],
+    };
+    const app = await appWith(allHallucinated);
+    const { repo, pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+    const agent = (
+      await app.inject({
+        method: 'POST',
+        url: '/agents',
+        payload: { name: 'GhostAgent', provider: 'openai', model: 'gpt-4.1', system_prompt: 's' },
+      })
+    ).json();
+    await app.inject({ method: 'POST', url: `/pulls/${pr.id}/review`, payload: { agentId: agent.id } });
+    await waitForPrRuns(pg.handle.db, pr.id, { expected: 1 });
+
+    const after = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
+    expect(
+      after.find((p: { number: number }) => p.number === pr.number).findings_by_severity,
+    ).toEqual({ critical: 0, warning: 0, suggestion: 0 });
+
+    await app.close();
+  });
+
   it('dual-provider structured output: anthropic provider returns the same Review shape', async () => {
     const app = await appWith(REVIEW_FIXTURE, 'anthropic');
     const { pr } = await setupRepoAndPr(pg.handle.db, workspaceId);

@@ -6,7 +6,12 @@
  * + age, so it gets unit coverage independent of the route's queries.
  */
 import { describe, it, expect } from 'vitest';
-import { deriveReviewStatus, rollupSeverities, STALE_DAYS } from '../src/modules/pulls/status.js';
+import {
+  deriveReviewStatus,
+  rollupSeverities,
+  rollupSeveritiesByReview,
+  STALE_DAYS,
+} from '../src/modules/pulls/status.js';
 
 const DAY = 86_400_000;
 const now = Date.UTC(2026, 5, 11);
@@ -64,5 +69,32 @@ describe('rollupSeverities', () => {
 
   it('is all-zero for no findings', () => {
     expect(rollupSeverities([])).toEqual({ critical: 0, warning: 0, suggestion: 0 });
+  });
+});
+
+describe('rollupSeveritiesByReview', () => {
+  it('splits one findings query back apart per review', () => {
+    const counts = rollupSeveritiesByReview([
+      { reviewId: 'rev-a', severity: 'CRITICAL' },
+      { reviewId: 'rev-b', severity: 'WARNING' },
+      { reviewId: 'rev-a', severity: 'CRITICAL' },
+      { reviewId: 'rev-a', severity: 'SUGGESTION' },
+    ]);
+    expect(counts.get('rev-a')).toEqual({ critical: 2, warning: 0, suggestion: 1 });
+    expect(counts.get('rev-b')).toEqual({ critical: 0, warning: 1, suggestion: 0 });
+  });
+
+  it('inherits rollupSeverities tolerance for an unknown severity', () => {
+    const counts = rollupSeveritiesByReview([
+      { reviewId: 'rev-a', severity: 'WEIRD' },
+      { reviewId: 'rev-a', severity: 'WARNING' },
+    ]);
+    expect(counts.get('rev-a')).toEqual({ critical: 0, warning: 1, suggestion: 0 });
+  });
+
+  it('omits reviews with no findings entirely (the caller supplies the zero)', () => {
+    expect(rollupSeveritiesByReview([]).size).toBe(0);
+    expect(rollupSeveritiesByReview([{ reviewId: 'rev-a', severity: 'WARNING' }]).get('rev-b'))
+      .toBeUndefined();
   });
 });
