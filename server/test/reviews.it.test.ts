@@ -343,6 +343,90 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     await app.close();
   });
 
+  it('PR list counts only the newest review, and never a summary row', async () => {
+    // The rule the whole column rests on. Summing every review would triple-count
+    // one defect three agents each found; counting a `summary` row would count
+    // findings no reviewer produced. Both are seeded directly — no model call is
+    // needed to exercise a read-time aggregate.
+    const app = await appWith(REVIEW_FIXTURE);
+    const { repo, pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+
+    const seedReview = async (
+      kind: 'review' | 'summary',
+      createdAt: Date,
+      severities: string[],
+    ) => {
+      const [row] = await pg.handle.db
+        .insert(t.reviews)
+        .values({ workspaceId, prId: pr.id, kind, verdict: 'comment', summary: kind, score: 50, model: 'm', createdAt })
+        .returning({ id: t.reviews.id });
+      if (severities.length > 0) {
+        await pg.handle.db.insert(t.findings).values(
+          severities.map((severity, i) => ({
+            reviewId: row!.id,
+            file: 'src/config.ts',
+            startLine: i + 1,
+            endLine: i + 1,
+            severity,
+            category: 'bug',
+            title: `${kind} ${severity} ${i}`,
+            rationale: 'r',
+            confidence: 0.9,
+          })),
+        );
+      }
+      return row!.id;
+    };
+
+    await seedReview('review', new Date('2026-06-11T10:00:00Z'), ['CRITICAL', 'CRITICAL', 'WARNING']);
+    await seedReview('review', new Date('2026-06-12T10:00:00Z'), ['WARNING', 'SUGGESTION']);
+    // Newest row of all, and deliberately fat — if summaries counted, it would win.
+    await seedReview('summary', new Date('2026-06-13T10:00:00Z'), ['CRITICAL', 'CRITICAL', 'CRITICAL']);
+
+    const listed = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` }))
+      .json()
+      .find((p: { number: number }) => p.number === pr.number);
+    expect(listed.findings_by_severity).toEqual({ critical: 0, warning: 1, suggestion: 1 });
+
+    await app.close();
+  });
+
+  it('PR list picks the same review twice when two reviews share a timestamp', async () => {
+    // `created_at` defaults to now(), which is transaction start time, so agents
+    // reviewing in one transaction tie exactly. Nothing can say which is newer,
+    // but the answer must at least not change between two identical requests.
+    const app = await appWith(REVIEW_FIXTURE);
+    const { repo, pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+    const sameInstant = new Date('2026-06-12T10:00:00Z');
+
+    for (const severity of ['CRITICAL', 'SUGGESTION']) {
+      const [row] = await pg.handle.db
+        .insert(t.reviews)
+        .values({ workspaceId, prId: pr.id, kind: 'review', verdict: 'comment', summary: severity, score: 50, model: 'm', createdAt: sameInstant })
+        .returning({ id: t.reviews.id });
+      await pg.handle.db.insert(t.findings).values({
+        reviewId: row!.id,
+        file: 'src/config.ts',
+        startLine: 1,
+        endLine: 1,
+        severity,
+        category: 'bug',
+        title: severity,
+        rationale: 'r',
+        confidence: 0.9,
+      });
+    }
+
+    const tally = async () =>
+      (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` }))
+        .json()
+        .find((p: { number: number }) => p.number === pr.number).findings_by_severity;
+
+    expect(await tally()).toEqual(await tally());
+
+    await app.close();
+  });
+
   it('dual-provider structured output: anthropic provider returns the same Review shape', async () => {
     const app = await appWith(REVIEW_FIXTURE, 'anthropic');
     const { pr } = await setupRepoAndPr(pg.handle.db, workspaceId);

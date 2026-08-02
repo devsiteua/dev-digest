@@ -130,7 +130,13 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
         .select({ prId: t.reviews.prId, id: t.reviews.id, score: t.reviews.score })
         .from(t.reviews)
         .where(and(inArray(t.reviews.prId, prIds), eq(t.reviews.kind, 'review')))
-        .orderBy(desc(t.reviews.createdAt));
+        // `created_at` defaults to now(), which in Postgres is TRANSACTION start
+        // time — three agents whose reviews land in one transaction share a
+        // timestamp exactly. `id` is a random uuid, so it cannot say which of them
+        // is newer, but it does make the choice STABLE: without it the winner is
+        // whatever order the planner happened to return, and the same request can
+        // report different numbers twice in a row.
+        .orderBy(desc(t.reviews.createdAt), desc(t.reviews.id));
       // Rows are newest-first → first seen per PR is the latest review.
       for (const rv of reviewRows) {
         if (!latestReviewByPr.has(rv.prId))
@@ -158,7 +164,8 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
         .select({ prId: t.agentRuns.prId, costUsd: t.agentRuns.costUsd })
         .from(t.agentRuns)
         .where(and(inArray(t.agentRuns.prId, prIds), eq(t.agentRuns.status, 'done')))
-        .orderBy(desc(t.agentRuns.ranAt));
+        // Same tie-break, same reason as the review query above.
+        .orderBy(desc(t.agentRuns.ranAt), desc(t.agentRuns.id));
       for (const run of runRows) {
         if (run.prId && !latestCostByPr.has(run.prId)) latestCostByPr.set(run.prId, run.costUsd);
       }
