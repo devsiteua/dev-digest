@@ -89,6 +89,18 @@ describe("FindingsPanel — severity counters", () => {
 });
 
 describe("FindingsPanel — click to filter", () => {
+  it("rests with every severity on, so the row reads as a summary", () => {
+    // The design shows all three chips active on load; the tooltip is how a chip
+    // advertises what the next click does, so it doubles as the state assertion.
+    renderWithIntl(<FindingsPanel findings={FINDINGS} prId="pr1" />);
+    expect(chip("Critical").parentElement).toHaveAttribute(
+      "title",
+      "Critical · 2 — click to show only these",
+    );
+    expect(screen.getByText("N+1 query")).toBeInTheDocument();
+    expect(screen.getByText("Hardcoded secret")).toBeInTheDocument();
+  });
+
   it("narrows the list to the clicked severity", () => {
     renderWithIntl(<FindingsPanel findings={FINDINGS} prId="pr1" />);
     fireEvent.click(chip("Warning"));
@@ -96,7 +108,7 @@ describe("FindingsPanel — click to filter", () => {
     expect(screen.queryByText("Hardcoded secret")).not.toBeInTheDocument();
   });
 
-  it("shows the union when two severities are selected (multi-select)", () => {
+  it("shows the union when a second severity is added", () => {
     renderWithIntl(<FindingsPanel findings={FINDINGS} prId="pr1" />);
     fireEvent.click(chip("Warning"));
     fireEvent.click(chip("Critical"));
@@ -105,12 +117,25 @@ describe("FindingsPanel — click to filter", () => {
     expect(screen.getByText("Unauthenticated webhook")).toBeInTheDocument();
   });
 
-  it("clicking the same severity twice clears the filter", () => {
+  it("drops a severity back out of a multi-selection", () => {
+    renderWithIntl(<FindingsPanel findings={FINDINGS} prId="pr1" />);
+    fireEvent.click(chip("Warning"));
+    fireEvent.click(chip("Critical"));
+    fireEvent.click(chip("Warning"));
+    expect(screen.queryByText("N+1 query")).not.toBeInTheDocument();
+    expect(screen.getByText("Hardcoded secret")).toBeInTheDocument();
+  });
+
+  it("clicking the last remaining severity returns to showing everything", () => {
     renderWithIntl(<FindingsPanel findings={FINDINGS} prId="pr1" />);
     fireEvent.click(chip("Warning"));
     expect(screen.queryByText("Hardcoded secret")).not.toBeInTheDocument();
     fireEvent.click(chip("Warning"));
     expect(screen.getByText("Hardcoded secret")).toBeInTheDocument();
+    expect(chip("Warning").parentElement).toHaveAttribute(
+      "title",
+      "Warning · 1 — click to show only these",
+    );
   });
 
   it("keeps the counters at their unfiltered values while a filter is active", () => {

@@ -11,7 +11,7 @@ import { FindingCard } from "../FindingCard";
 import { useFindingAction } from "../../../../../../../lib/hooks/reviews";
 import { SeverityFilterChips } from "./_components/SeverityFilterChips";
 import { KEY_TO_ACTION } from "./constants";
-import { confidenceFiltered, visibleFindings } from "./helpers";
+import { confidenceFiltered, nextSelection, visibleFindings } from "./helpers";
 import { s } from "./styles";
 
 export function FindingsPanel({
@@ -33,7 +33,10 @@ export function FindingsPanel({
   // run, and a filter lifted any higher would narrow every run at once. A new run
   // gets a new panel instance (FindingsTab keys accordions by review id), so the
   // filter resets by itself without any explicit reset.
-  const [selected, setSelected] = React.useState<readonly SeverityKey[]>([]);
+  //
+  // `null` is the resting state: all three chips read as active, as the design
+  // shows them, and nothing is narrowed. See `nextSelection` for the transitions.
+  const [selected, setSelected] = React.useState<readonly SeverityKey[] | null>(null);
 
   const counted = React.useMemo(
     () => severityCounts(confidenceFiltered(findings, hideLow)),
@@ -45,7 +48,7 @@ export function FindingsPanel({
   );
 
   const toggleSeverity = React.useCallback((key: SeverityKey) => {
-    setSelected((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
+    setSelected((prev) => nextSelection(prev, key));
     setFocusIdx(0);
   }, []);
 

@@ -32,6 +32,8 @@
     "noMatchBody": "Adjust the filters above, or run a review to generate findings.",
     "severityFilterLabel": "Filter by severity",
     "severityToggle": "{severity} · {count} — click to toggle this filter",
+    "severityIsolate": "{severity} · {count} — click to show only these",
+    "severityShowAll": "{severity} · {count} — click to show every severity again",
     "severityEmpty": "No {severity} findings in this run"
   },
   "runReview": {

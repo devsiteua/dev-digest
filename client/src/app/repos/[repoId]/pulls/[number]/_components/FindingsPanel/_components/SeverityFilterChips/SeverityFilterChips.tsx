@@ -1,6 +1,10 @@
 /* SeverityFilterChips — the severity counters above a run's findings, doubling as
-   a multi-select filter. Selecting nothing shows everything, so the row reads as a
-   summary until the user decides to narrow it.
+   a filter. The row rests with every chip active, as the design shows it, so it
+   reads as a summary of the run until the user decides to narrow it.
+
+   `selected === null` is that resting state. The first click isolates one level
+   ("show me only the critical ones"); from there the row is a plain multi-select,
+   and clearing it returns to all-active. Transitions live in `nextSelection`.
 
    All three chips always render, including a zero. Hiding a zero would reflow the
    row under the cursor the moment a toggle emptied a level — and the count itself
@@ -22,22 +26,31 @@ export function SeverityFilterChips({
   /** Tallied over the same set the list shows, so a chip never advertises a
    *  finding the confidence toggle has hidden. */
   counts: SeverityCounts;
-  selected: readonly SeverityKey[];
+  /** `null` = nothing narrowed, every chip active. */
+  selected: readonly SeverityKey[] | null;
   onToggle: (key: SeverityKey) => void;
 }) {
   const t = useTranslations("prReview");
+  const all = selected === null;
 
   return (
     <div style={s.row} role="group" aria-label={t("panel.severityFilterLabel")}>
       {SEVERITY_KEYS.map((key) => {
         const count = countFor(counts, key);
         const label = t(`severity.${key.toLowerCase()}`);
+        const active = all || selected.includes(key);
+        // What the next click will do, so the tooltip never lies about it.
+        const hint = all
+          ? "panel.severityIsolate"
+          : selected.length === 1 && active
+            ? "panel.severityShowAll"
+            : "panel.severityToggle";
         const chip = (
           <Chip
             icon={SEV[key].icon}
             color={SEV[key].c}
             count={count}
-            active={selected.includes(key)}
+            active={active}
             onClick={count > 0 ? () => onToggle(key) : undefined}
           >
             {label}
@@ -48,7 +61,7 @@ export function SeverityFilterChips({
         // state is the same chip made inert by its wrapper — identical geometry,
         // so toggling never shifts the row.
         return count > 0 ? (
-          <span key={key} title={t("panel.severityToggle", { severity: label, count })}>
+          <span key={key} title={t(hint, { severity: label, count })}>
             {chip}
           </span>
         ) : (

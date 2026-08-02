@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from "vitest";
 import type { FindingRecord } from "@devdigest/shared";
-import { visibleFindings, confidenceFiltered } from "./helpers";
+import { visibleFindings, confidenceFiltered, nextSelection } from "./helpers";
 
 function f(id: string, severity: string, confidence = 0.9): FindingRecord {
   return {
@@ -69,6 +69,10 @@ describe("visibleFindings", () => {
     ]);
   });
 
+  it("treats the resting state (null) as no filter", () => {
+    expect(visibleFindings(FINDINGS, false, null)).toHaveLength(4);
+  });
+
   it("treats an empty selection as no filter", () => {
     expect(visibleFindings(FINDINGS, false, [])).toHaveLength(4);
   });
@@ -89,5 +93,32 @@ describe("visibleFindings", () => {
 
   it("empties the list only when the underlying set is empty", () => {
     expect(visibleFindings([], false, ["CRITICAL"])).toEqual([]);
+  });
+});
+
+describe("nextSelection", () => {
+  it("isolates on the first click, rather than un-toggling", () => {
+    // The row rests with everything on. "Click a level → see only that level" is
+    // the behaviour the lesson asks for, and it only works if this first click
+    // narrows instead of subtracting.
+    expect(nextSelection(null, "CRITICAL")).toEqual(["CRITICAL"]);
+  });
+
+  it("adds a severity to an existing selection", () => {
+    expect(nextSelection(["CRITICAL"], "WARNING")).toEqual(["CRITICAL", "WARNING"]);
+  });
+
+  it("removes a severity from a selection of several", () => {
+    expect(nextSelection(["CRITICAL", "WARNING"], "CRITICAL")).toEqual(["WARNING"]);
+  });
+
+  it("returns to the resting state when the last selected severity is clicked off", () => {
+    expect(nextSelection(["WARNING"], "WARNING")).toBeNull();
+  });
+
+  it("collapses a full selection back to the resting state", () => {
+    // All three selected and every chip active are the same view; keeping one
+    // canonical representation is what makes the next click predictable.
+    expect(nextSelection(["CRITICAL", "WARNING"], "SUGGESTION")).toBeNull();
   });
 });
