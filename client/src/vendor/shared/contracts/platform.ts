@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { Provider } from './knowledge.js';
+import { SeverityCounts } from './findings.js';
 
 /**
  * Platform / scaffolding DTOs owned by F1:
@@ -173,6 +174,12 @@ export const PrMeta = z.object({
   // Latest completed run's USD cost (list endpoint only). Null = never reviewed
   // or the model is unpriced; 0 = a genuinely free model.
   cost_usd: z.number().nullish(),
+  // Latest-review findings tally (list endpoint only). Null = never reviewed;
+  // a reviewed PR that kept no findings reports all-zero, which is a different
+  // thing and renders differently. `.nullish()`, not `.nullable()`: PrDetail
+  // extends PrMeta and GET /pulls/:id omits the list-only fields entirely, so
+  // requiring the key would break that endpoint.
+  findings_by_severity: SeverityCounts.nullish(),
 });
 export type PrMeta = z.infer<typeof PrMeta>;
 

@@ -15,6 +15,7 @@ import {
   Settings,
   Repo,
   PrDetail,
+  PrMeta,
 } from '@devdigest/shared';
 
 /**
@@ -225,5 +226,50 @@ describe('platform DTOs', () => {
         commits: [],
       }),
     ).not.toThrow();
+  });
+
+  // findings_by_severity is list-only. PrDetail extends PrMeta and GET /pulls/:id
+  // never emits it, so the field has to be .nullish() — .nullable() would make the
+  // key required and 400 the detail endpoint. The PrDetail case above is the guard;
+  // these pin the list shape itself.
+  it('PrMeta.findings_by_severity: absent, null, and a full tally all parse', () => {
+    const base = {
+      number: 482,
+      title: 't',
+      author: 'a',
+      branch: 'b',
+      base: 'main',
+      head_sha: 'sha',
+      additions: 1,
+      deletions: 0,
+      files_count: 1,
+      status: 'open' as const,
+    };
+    expect(PrMeta.parse(base).findings_by_severity).toBeUndefined();
+    expect(PrMeta.parse({ ...base, findings_by_severity: null }).findings_by_severity).toBeNull();
+    expect(
+      PrMeta.parse({
+        ...base,
+        findings_by_severity: { critical: 2, warning: 1, suggestion: 1 },
+      }).findings_by_severity,
+    ).toEqual({ critical: 2, warning: 1, suggestion: 1 });
+  });
+
+  it('PrMeta rejects a non-integer severity tally', () => {
+    expect(() =>
+      PrMeta.parse({
+        number: 482,
+        title: 't',
+        author: 'a',
+        branch: 'b',
+        base: 'main',
+        head_sha: 'sha',
+        additions: 1,
+        deletions: 0,
+        files_count: 1,
+        status: 'open',
+        findings_by_severity: { critical: 1.5, warning: 0, suggestion: 0 },
+      }),
+    ).toThrow();
   });
 });
