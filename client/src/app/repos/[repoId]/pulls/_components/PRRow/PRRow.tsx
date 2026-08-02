@@ -10,6 +10,7 @@ import { SIZE_COLOR, STATUS_META } from "../../constants";
 import { relativeTime, sizeOf } from "../../helpers";
 import { s } from "../../styles";
 import { RunCostBadge } from "../RunCostBadge";
+import { SeverityCounters } from "../SeverityCounters";
 
 export function PRRow({ pr, repoId }: { pr: PrMeta; repoId: string }) {
   const t = useTranslations("prReview");
@@ -53,6 +54,9 @@ export function PRRow({ pr, repoId }: { pr: PrMeta; repoId: string }) {
         ) : (
           <span style={s.muted}>—</span>
         )}
+      </div>
+      <div style={s.findingsCell}>
+        <SeverityCounters counts={pr.findings_by_severity} />
       </div>
       <div>
         <Badge dot color={st.c} bg="transparent">
