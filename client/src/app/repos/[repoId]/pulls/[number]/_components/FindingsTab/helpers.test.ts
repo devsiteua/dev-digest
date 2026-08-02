@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from "vitest";
 import type { ReviewRecord, FindingRecord } from "@devdigest/shared";
-import { severityCountsByRun } from "./helpers";
+import { findingsByRun, severityCountsByRun } from "./helpers";
 
 function finding(severity: string): FindingRecord {
   return {
@@ -73,5 +73,24 @@ describe("severityCountsByRun", () => {
   it("reports zeros for a review that kept no findings", () => {
     const map = severityCountsByRun([review({ id: "rev-1", run_id: "run-a", findings: [] })]);
     expect(map["run-a"]).toEqual({ critical: 0, warning: 0, suggestion: 0 });
+  });
+});
+
+describe("findingsByRun", () => {
+  it("keys each review's findings by its run id", () => {
+    const items = [finding("CRITICAL"), finding("WARNING")];
+    const map = findingsByRun([review({ id: "rev-1", run_id: "run-a", findings: items })]);
+    expect(map["run-a"]).toBe(items);
+  });
+
+  it("agrees with the tally about which runs it knows", () => {
+    // The counters and the popover they open must never disagree about a run.
+    const reviews = [
+      review({ id: "rev-1", run_id: "run-a", findings: [finding("CRITICAL")] }),
+      review({ id: "rev-2", run_id: null, findings: [finding("WARNING")] }),
+    ];
+    expect(Object.keys(findingsByRun(reviews))).toEqual(
+      Object.keys(severityCountsByRun(reviews)),
+    );
   });
 });

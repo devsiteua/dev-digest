@@ -3,27 +3,42 @@
 
    Zero severities are hidden here, unlike the panel's filter chips. Nothing is
    clickable, so nothing reflows when a count changes, and "⛔2 ⚠1" reads faster
-   than "⛔2 ⚠1 💡0". The full tally is still in the tooltip.
+   than "⛔2 ⚠1 💡0". The full tally is still in the `title`.
 
-   Font-agnostic on purpose, like the sibling RunCostBadge: it inherits size and
-   colour from its container so the same component fits a table cell and an 11px
-   muted timeline column. */
+   On hover it opens `FindingsTooltip`, as both design surfaces do — the numbers
+   alone say how bad the PR is, the popover says why. The component never fetches:
+   the caller supplies `items` (the timeline already holds them; the PR list
+   lazy-loads them) and may use `onHover` to start that load on first entry. */
 "use client";
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { SeverityBadge } from "@devdigest/ui";
-import type { SeverityCounts } from "@devdigest/shared";
+import { Icon, SEV } from "@devdigest/ui";
+import type { SeverityCounts, FindingRecord } from "@devdigest/shared";
 import { SEVERITY_KEYS, countFor, totalCount } from "@/lib/severity";
+import { FindingsTooltip } from "../FindingsTooltip";
 import { s } from "./styles";
 
 export function SeverityCounters({
   counts,
+  items,
+  placement = "down",
+  tooltipWidth,
+  gap = 8,
+  onHover,
 }: {
   /** Null/undefined = never reviewed, which is not the same as reviewed-and-clean. */
   counts: SeverityCounts | null | undefined;
+  /** Findings behind the numbers. Absent or empty = no popover, just the tally. */
+  items?: FindingRecord[];
+  placement?: "up" | "down";
+  tooltipWidth?: number;
+  gap?: number;
+  /** Fired on the first pointer entry, so a caller can begin loading `items`. */
+  onHover?: () => void;
 }) {
   const t = useTranslations("prReview");
+  const [hovered, setHovered] = React.useState(false);
 
   if (counts == null) {
     return (
@@ -44,16 +59,30 @@ export function SeverityCounters({
 
   return (
     <span
-      style={s.row}
+      style={s.row(gap)}
       title={t("severity.summary", {
         critical: counts.critical,
         warning: counts.warning,
         suggestion: counts.suggestion,
       })}
+      onMouseEnter={() => {
+        setHovered(true);
+        onHover?.();
+      }}
+      onMouseLeave={() => setHovered(false)}
     >
-      {SEVERITY_KEYS.filter((key) => countFor(counts, key) > 0).map((key) => (
-        <SeverityBadge key={key} severity={key} count={countFor(counts, key)} compact />
-      ))}
+      {SEVERITY_KEYS.filter((key) => countFor(counts, key) > 0).map((key) => {
+        const SevIcon = Icon[SEV[key].icon];
+        return (
+          <span key={key} style={s.counter(SEV[key].c)}>
+            <SevIcon size={12} />
+            <span className="tnum">{countFor(counts, key)}</span>
+          </span>
+        );
+      })}
+      {hovered && items && items.length > 0 && (
+        <FindingsTooltip items={items} placement={placement} width={tooltipWidth} />
+      )}
     </span>
   );
 }

@@ -5,9 +5,9 @@
  * and shows the review score ring.
  */
 import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
-import type { RunSummary } from "@devdigest/shared";
+import type { FindingRecord, RunSummary } from "@devdigest/shared";
 import messages from "../../../../../../../../messages/en/prReview.json";
 import { RunHistory } from "./RunHistory";
 
@@ -38,10 +38,16 @@ function run(o: Partial<RunSummary>): RunSummary {
 function renderRuns(
   runs: RunSummary[],
   severityByRun?: React.ComponentProps<typeof RunHistory>["severityByRun"],
+  findingsByRun?: React.ComponentProps<typeof RunHistory>["findingsByRun"],
 ) {
   return render(
     <NextIntlClientProvider locale="en" messages={{ prReview: messages }}>
-      <RunHistory runs={runs} severityByRun={severityByRun} onOpenTrace={() => {}} />
+      <RunHistory
+        runs={runs}
+        severityByRun={severityByRun}
+        findingsByRun={findingsByRun}
+        onOpenTrace={() => {}}
+      />
     </NextIntlClientProvider>,
   );
 }
@@ -112,5 +118,34 @@ describe("RunHistory — severity counters", () => {
       "run-1": { critical: 9, warning: 9, suggestion: 9 },
     });
     expect(screen.queryByTitle(/critical ·/)).not.toBeInTheDocument();
+  });
+
+  it("opens that run's findings on hover, without leaving the timeline", () => {
+    const finding: FindingRecord = {
+      id: "f1",
+      severity: "CRITICAL",
+      category: "security",
+      title: "Hardcoded Stripe secret key",
+      file: "src/config.ts",
+      start_line: 12,
+      end_line: 12,
+      rationale: "why",
+      suggestion: null,
+      confidence: 0.98,
+      kind: "finding",
+      trifecta_components: null,
+      evidence: null,
+      review_id: "r1",
+      accepted_at: null,
+      dismissed_at: null,
+    };
+    renderRuns(
+      [run({ status: "done", findings_count: 1, blockers: 1, score: 38 })],
+      { "run-1": { critical: 1, warning: 0, suggestion: 0 } },
+      { "run-1": [finding] },
+    );
+    fireEvent.mouseEnter(screen.getByTitle("1 critical · 0 warning · 0 suggestion"));
+    expect(screen.getByText("Hardcoded Stripe secret key")).toBeInTheDocument();
+    expect(screen.getByText("src/config.ts:12")).toBeInTheDocument();
   });
 });

@@ -5,7 +5,7 @@ import { Icon, Badge, Button, SectionLabel, EmptyState } from "@devdigest/ui";
 import { RunStatus } from "../RunStatus";
 import { RunHistory } from "../RunHistory/RunHistory";
 import { ReviewRunAccordion } from "../ReviewRunAccordion";
-import { severityCountsByRun } from "./helpers";
+import { findingsByRun, severityCountsByRun } from "./helpers";
 import { s } from "./styles";
 import type { FindingRecord, ReviewRecord, RunSummary, PrCommit } from "@devdigest/shared";
 import type { UseMutationResult } from "@tanstack/react-query";
@@ -69,6 +69,8 @@ export function FindingsTab({
   // scroll even when the same run is clicked twice.
   // The timeline's RunSummary has no per-severity breakdown; the reviews here do.
   const severityByRun = React.useMemo(() => severityCountsByRun(runs), [runs]);
+  // …and the same reviews back the popover those counters open on hover.
+  const itemsByRun = React.useMemo(() => findingsByRun(runs), [runs]);
 
   const [target, setTarget] = React.useState<{ runId: string; n: number } | null>(null);
   const handleGoToReview = useCallback((runId: string) => {
@@ -136,6 +138,7 @@ export function FindingsTab({
             runs={prRuns ?? []}
             commits={prCommits}
             severityByRun={severityByRun}
+            findingsByRun={itemsByRun}
             onOpenTrace={handleOpenTrace}
             onGoToReview={handleGoToReview}
             onDelete={handleDelete}

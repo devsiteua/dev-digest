@@ -123,5 +123,9 @@
     "summary": "{critical} critical · {warning} warning · {suggestion} suggestion",
     "none": "No findings",
     "unreviewed": "Not reviewed yet"
+  },
+  "tooltip": {
+    "title": "{count} findings",
+    "loading": "Loading findings…"
   }
 }

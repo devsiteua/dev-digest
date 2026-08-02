@@ -1,4 +1,4 @@
-import type { ReviewRecord, SeverityCounts } from "@devdigest/shared";
+import type { FindingRecord, ReviewRecord, SeverityCounts } from "@devdigest/shared";
 import { severityCounts } from "@/lib/severity";
 
 /**
@@ -19,6 +19,22 @@ export function severityCountsByRun(reviews: ReviewRecord[]): Record<string, Sev
   const byRun: Record<string, SeverityCounts> = {};
   for (const review of reviews) {
     if (review.run_id) byRun[review.run_id] = severityCounts(review.findings);
+  }
+  return byRun;
+}
+
+/**
+ * run_id → that run's findings, for the popover the timeline counters open.
+ *
+ * Same pairing as `severityCountsByRun`, kept separate because the two feed
+ * different props and a run can legitimately have counts worth showing while its
+ * popover stays closed. Nothing is fetched: the accordions below already render
+ * these exact findings.
+ */
+export function findingsByRun(reviews: ReviewRecord[]): Record<string, FindingRecord[]> {
+  const byRun: Record<string, FindingRecord[]> = {};
+  for (const review of reviews) {
+    if (review.run_id) byRun[review.run_id] = review.findings;
   }
   return byRun;
 }
