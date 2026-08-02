@@ -36,7 +36,22 @@ Status:   → promoted to `CLAUDE.md` (Gotchas)
 
 ## Tool & Library Notes
 
-_None yet._
+### 2026-08-02 · `borderColor` is itself a shorthand — pairing it with `borderLeftColor` makes React warn
+
+Trigger:  adding a filter to `FindingsPanel`, which made its cards rerender for the first
+          time; every click printed "Updating a style property during rerender (borderColor)
+          when a conflicting property is set (borderLeftColor)"
+Cause:    `FindingCard/styles.ts` already carried a comment saying it used all-longhand to
+          avoid exactly this, but `borderColor` sets all four sides, so it still conflicts
+          with the `borderLeftColor` that draws the severity stripe. The warning had simply
+          never fired, because nothing in the panel used to rerender. Fixed by spelling out
+          `borderTopColor` / `borderRightColor` / `borderBottomColor`.
+Takeaway: "longhand" in React's warning means *per-side*, not merely "not `border`".
+          `borderColor`, `borderWidth`, `margin`, `padding` are all shorthands. If a style
+          object sets one side explicitly, set the other three explicitly too — and note that
+          a static component can hide this class of bug indefinitely.
+Evidence: client/src/app/repos/[repoId]/pulls/[number]/_components/FindingCard/styles.ts
+Status:   resolved
 
 ## Recurring Errors & Fixes
 

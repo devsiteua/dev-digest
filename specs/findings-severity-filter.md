@@ -1,6 +1,6 @@
 # Findings severity counters and filter
 
-Status: in-progress
+Status: done
 Owner: —
 Packages touched: server, client, e2e
 
@@ -99,20 +99,20 @@ Several pieces of this feature are already in the tree, unused:
 
 ## Acceptance criteria
 
-- [ ] Selecting a severity changes the visible list; selecting two shows the union.
-- [ ] With no severity selected, the panel renders exactly as it does today.
-- [ ] Filtering does not refetch from the API and triggers no model call.
-- [ ] A filter that matches nothing shows the existing "no findings match" empty state.
-- [ ] A severity whose count is zero renders muted, is not clickable, and cannot strand the
+- [x] Selecting a severity changes the visible list; selecting two shows the union.
+- [x] With no severity selected, the panel renders exactly as it does today.
+- [x] Filtering does not refetch from the API and triggers no model call.
+- [x] A filter that matches nothing shows the existing "no findings match" empty state.
+- [x] A severity whose count is zero renders muted, is not clickable, and cannot strand the
       panel on an empty list.
-- [ ] Two run panels on the same PR filter independently.
-- [ ] The PR list shows the latest review's counts; a never-reviewed PR shows `—`; a reviewed
+- [x] Two run panels on the same PR filter independently.
+- [x] The PR list shows the latest review's counts; a never-reviewed PR shows `—`; a reviewed
       PR with no findings shows `0`, not `—`.
-- [ ] A timeline row for a settled run shows its severity counters and keeps its blockers
+- [x] A timeline row for a settled run shows its severity counters and keeps its blockers
       suffix; a run whose review was deleted falls back to the plain "{n} finding(s)" text.
-- [ ] `GET /pulls/:id` still succeeds without `findings_by_severity` in its payload.
-- [ ] The counters sum to the finding count already shown in the accordion header.
-- [ ] `git status server/src/db/migrations` stays clean.
+- [x] `GET /pulls/:id` still succeeds without `findings_by_severity` in its payload.
+- [x] The counters sum to the finding count already shown in the accordion header.
+- [x] `git status server/src/db/migrations` stays clean.
 
 ## Test plan
 

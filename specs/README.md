@@ -28,7 +28,7 @@ lesson starts, not upfront.
 
 | Lesson | Scope | Spec |
 |--------|-------|------|
-| L01 | Run cost badge · severity counters and filter on findings | [`L01-run-cost.md`](L01-run-cost.md) `done` · [`findings-severity-filter.md`](findings-severity-filter.md) `in-progress` |
+| L01 | Run cost badge · severity counters and filter on findings | [`L01-run-cost.md`](L01-run-cost.md) `done` · [`findings-severity-filter.md`](findings-severity-filter.md) `done` |
 | L02 | Skills in the product · Conventions extractor | — |
 | L03 | Intent layer · Smart Diff | — |
 | L04 | `devdigest-mcp` server · Blast Radius | — |

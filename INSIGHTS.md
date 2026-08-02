@@ -68,6 +68,72 @@ Status:   open — fix opportunistically when touching those files
 
 ## Codebase Patterns
 
+### 2026-08-02 · A feature cut from the starter leaves its scaffold behind — grep before building
+
+Trigger:  building the L01 findings-severity counters, expecting a from-scratch feature
+Cause:    every removed feature was cut at the leaves, not at the root. Waiting in the tree
+          before a line was written: `rollupSeverities()` + a `SeverityCounts` type in
+          `pulls/status.ts`, pure and unit-tested with **no importers**; an unused `divider`
+          style in `FindingsPanel/styles.ts`; `panel.noMatchBody` reading "Adjust the filters
+          **above**" for filters that no longer existed; `toggleGroup` already carrying
+          `marginLeft: auto` to leave room on the left; and a comment in `pulls/routes.ts`
+          asserting the breakdown was *intentionally* withheld. Roughly half the feature was
+          already there.
+Takeaway: before starting any L02–L08 feature, grep for its vocabulary across `src/`,
+          `messages/en/*.json` and the `styles.ts` files. An unused export, an orphan style,
+          or copy referring to a control that does not exist is the removed feature's
+          outline — and it encodes decisions already made. Also treat such comments as
+          suspect: that `routes.ts` one described the cut, not a design position.
+Evidence: server/src/modules/pulls/status.ts; client/.../FindingsPanel/styles.ts
+Status:   open — expect the same on every remaining lesson
+
+### 2026-08-02 · Correction: `PrMeta` needs `.nullish()` too, for a different reason
+
+Trigger:  adding `findings_by_severity` to `PrMeta`, and reading the 2026-08-01 entry below,
+          which says response-only contracts read straight from a table are free to use
+          `.nullable()`
+Cause:    that rule is incomplete. `PrMeta` is exactly such a shape, yet `.nullable()` would
+          break it: `PrDetail = PrMeta.extend({...})` and `GET /pulls/:id` never emits the
+          list-only fields at all. `.nullable()` requires the key to be *present*, so the
+          detail endpoint would fail on a field it deliberately does not compute. That is why
+          `score` and `cost_usd` are already `.nullish()` — the reason is structural, not the
+          legacy-jsonb one.
+Takeaway: before choosing `.nullable()`, check whether the schema is `.extend()`ed anywhere
+          and whether every endpoint building the extended shape actually emits the field.
+          The guard is cheap: `PrDetail.parse({...})` without the key, in `contracts.test.ts`.
+Evidence: server/src/vendor/shared/contracts/platform.ts (PrMeta.findings_by_severity);
+          server/test/contracts.test.ts
+Status:   resolved — amends the entry below, which stays as written
+
+### 2026-08-02 · `@devdigest/ui` declares a fourth severity the API can never produce
+
+Trigger:  building severity counters and wondering whether `INFO` needed a chip
+Cause:    `vendor/ui/primitives/tokens.ts` types `Severity` as
+          `CRITICAL | WARNING | SUGGESTION | INFO` and gives `INFO` a colour, icon and label,
+          while the contract enum has only the first three. Two client constants maps carry
+          an `INFO` bucket as well, and `FindingCard` casts the 3-value contract type to the
+          4-value UI type. Nothing rejects `INFO` — it is simply unreachable, because Zod
+          would refuse it on the way in.
+Takeaway: iterate severities from `SEVERITY_KEYS` (`client/src/lib/severity.ts`), never from
+          `Object.keys(SEV)` — the latter yields a level that is always zero. In a file
+          importing both, alias one of the two `Severity` types. `vendor/ui/**` is
+          do-not-touch, so the divergence is permanent.
+Evidence: client/src/vendor/ui/primitives/tokens.ts:3; client/src/lib/severity.ts
+Status:   open — harmless as long as nothing enumerates the UI type
+
+### 2026-08-02 · e2e flows assert seed literals, so `seed.ts` is part of their contract
+
+Trigger:  adding findings to the demo review, from the server package
+Cause:    `e2e/specs/04-pr-findings.flow.json` waits on the literal strings `"2 findings"` and
+          `"Hardcoded Stripe secret key in commit"`. Neither `seed.ts` nor anything in
+          `server/` mentions this; the coupling is only visible from the e2e side. Changing
+          the number of seeded findings silently breaks a flow in another package.
+Takeaway: after editing `server/src/db/seed.ts`, grep `e2e/specs/*.json` for the values you
+          changed. Note also that flows follow the home redirect to the **first** repo, so
+          they need a freshly seeded single-repo DB — the dev DB will not do.
+Evidence: e2e/specs/04-pr-findings.flow.json; server/src/db/seed.ts
+Status:   open
+
 ### 2026-08-01 · A contract that also serializes a persisted jsonb doc needs `.nullish()`, not `.nullable()`
 
 Trigger:  adding `cost_usd` to `RunStats` for L01, mirroring how the pre-removal code
@@ -110,6 +176,23 @@ Evidence: server/src/db/schema/
 Status:   → promoted to `CLAUDE.md` (Gotchas)
 
 ## Tool & Library Notes
+
+### 2026-08-02 · The seed now creates one `agent_run`, and the guard that made it upgradeable
+
+Trigger:  closing the entry below, so the timeline counters could be demoed at all
+Cause:    the whole demo block sits inside `if (!pr)`, which only fires when PR #482 is
+          created. Anything added there is invisible on an already-seeded database — the two
+          extra findings this session added are exactly that. The new `agent_runs` row is
+          instead guarded on *"this PR has no runs yet"*, so it backfills an existing dev DB
+          without dropping the volume.
+Takeaway: seed additions come in two flavours. Data attached to a row created by `if (!pr)`
+          needs a fresh volume to appear — plan a reset, or the demo runs on stale data.
+          Anything guarded on its own absence upgrades in place; prefer that shape. Also do
+          **not** set `pullRequests.lastReviewedSha` while seeding: `deriveReviewStatus` would
+          flip #482 to `reviewed`, and the PR list opens on the `needs_review` filter, so the
+          demo PR would disappear and take e2e flows 02/04/05 with it.
+Evidence: server/src/db/seed.ts (the `existingRuns.length === 0` block)
+Status:   resolved — supersedes the entry below
 
 ### 2026-08-01 · `pnpm db:seed` creates zero `agent_runs` — run-related UI cannot be eyeballed
 
