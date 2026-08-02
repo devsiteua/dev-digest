@@ -18,8 +18,10 @@ const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash';
  *
  * Seeds: default workspace + system user + membership, default settings,
  * demo repo (acme/payments-api), PR #482 with files/commits, a sample review
- * with a few findings, and the three built-in agents (General + Security +
- * Performance), all on the default openrouter/deepseek-v4-flash provider+model.
+ * with four findings (2 CRITICAL / 1 WARNING / 1 SUGGESTION — one per severity,
+ * so the findings counters have something to show), a settled agent_run for that
+ * review, and the three built-in agents (General + Security + Performance), all
+ * on the default openrouter/deepseek-v4-flash provider+model.
  *
  * Course lessons populate the other tables (skills, conventions, memory, eval,
  * …) once their features are built — they start empty here.
@@ -162,6 +164,19 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
       },
       {
         reviewId: review!.id,
+        file: 'src/api/public/webhooks.ts',
+        startLine: 61,
+        endLine: 74,
+        severity: 'CRITICAL',
+        category: 'security',
+        title: 'Unauthenticated webhook endpoint bypasses the new limiter',
+        rationale:
+          'The handler is registered outside the rate-limit middleware and reads an attacker-controlled callback URL.',
+        suggestion: 'Move the route behind the limiter and allow-list the callback host.',
+        confidence: 0.91,
+      },
+      {
+        reviewId: review!.id,
         file: 'src/api/users.ts',
         startLine: 45,
         endLine: 52,
@@ -171,6 +186,21 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
         rationale: 'Loop issues one query per user → N+1.',
         suggestion: 'Use a single IN query and group in memory.',
         confidence: 0.86,
+      },
+      {
+        reviewId: review!.id,
+        file: 'src/middleware/ratelimit.ts',
+        startLine: 28,
+        endLine: 28,
+        severity: 'SUGGESTION',
+        category: 'style',
+        title: 'Extract the magic number 3600 into a named constant',
+        rationale: 'The number 3600 appears twice without explanation; a reader has to infer seconds-in-an-hour.',
+        suggestion: 'Name it WINDOW_SECONDS and reuse it in both places.',
+        // Below LOW_CONFIDENCE_THRESHOLD (0.65) on purpose: toggling "hide low
+        // confidence" then empties the SUGGESTION chip, which is the state the
+        // zero-count guard exists for.
+        confidence: 0.62,
       },
     ]);
   }
@@ -219,6 +249,63 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
       .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.name, a.name)));
     if (!existing) await db.insert(t.agents).values(a);
   }
+
+  // ---- a settled run for the demo review ----
+  // The seed used to create zero agent_runs, which left the PR-detail timeline,
+  // the run-cost column and the trace drawer rendering their empty states on a
+  // freshly seeded DB — none of that UI could be looked at without a real,
+  // billable review. This backfills one `done` run and attaches the demo review
+  // to it.
+  //
+  // Guarded on "this PR has no runs yet" rather than on the `if (!pr)` block
+  // above, so an already-seeded dev database picks it up too, without dropping
+  // the volume.
+  const [demoPr] = await db
+    .select()
+    .from(t.pullRequests)
+    .where(and(eq(t.pullRequests.repoId, repoId), eq(t.pullRequests.number, 482)));
+  if (demoPr) {
+    const existingRuns = await db
+      .select({ id: t.agentRuns.id })
+      .from(t.agentRuns)
+      .where(eq(t.agentRuns.prId, demoPr.id));
+    const [demoReview] = await db
+      .select()
+      .from(t.reviews)
+      .where(and(eq(t.reviews.prId, demoPr.id), eq(t.reviews.model, 'seed')));
+
+    if (existingRuns.length === 0 && demoReview) {
+      const [generalAgent] = await db
+        .select({ id: t.agents.id })
+        .from(t.agents)
+        .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.name, 'General Reviewer')));
+      const [run] = await db
+        .insert(t.agentRuns)
+        .values({
+          workspaceId,
+          agentId: generalAgent?.id ?? null,
+          prId: demoPr.id,
+          provider: DEFAULT_PROVIDER,
+          model: DEFAULT_MODEL,
+          status: 'done',
+          source: 'local',
+          durationMs: 8_420,
+          tokensIn: 7_310,
+          tokensOut: 1_809,
+          costUsd: 0.0041,
+          findingsCount: 4,
+          blockers: 2,
+          score: 61,
+          grounding: '4/4 passed',
+        })
+        .returning();
+      await db.update(t.reviews).set({ runId: run!.id }).where(eq(t.reviews.id, demoReview.id));
+    }
+  }
+
+  // NOTE: deliberately no `lastReviewedSha` on the demo PR. Setting it would flip
+  // deriveReviewStatus to `reviewed`, and the PR list opens on the `needs_review`
+  // filter — the demo PR would vanish from the list it is meant to demonstrate.
 
   return { workspaceId, userId };
 }
