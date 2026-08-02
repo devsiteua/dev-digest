@@ -6,6 +6,7 @@ import React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, API_BASE } from "../api";
 import { notify } from "../toast";
+import { latestReviewFindings } from "../findings";
 import type {
   FindingActionKind,
   PrReviewComment,
@@ -53,6 +54,29 @@ export function usePrReviews(prId: string | null | undefined) {
     queryKey: ["reviews", prId],
     queryFn: () => api.get<ReviewRecord[]>(`/pulls/${prId}/reviews`),
     enabled: !!prId,
+  });
+}
+
+/**
+ * The latest review's findings, fetched only once someone asks for them.
+ *
+ * The PR list's FINDINGS column receives counts and no findings, so its hover
+ * popover has to load them — but loading every visible PR's findings up front
+ * would mean N requests for a panel most rows never open. `enabled` is flipped by
+ * the first hover instead.
+ *
+ * Deliberately the same query key as `usePrReviews`: the row the user hovers is
+ * usually the row they then click, and sharing the cache means the PR page opens
+ * with its reviews already in hand. `select` is per-observer, so the detail page
+ * still sees the full list.
+ */
+export function useLatestReviewFindings(prId: string | null | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: ["reviews", prId],
+    queryFn: () => api.get<ReviewRecord[]>(`/pulls/${prId}/reviews`),
+    enabled: !!prId && enabled,
+    staleTime: 5 * 60_000,
+    select: latestReviewFindings,
   });
 }
 

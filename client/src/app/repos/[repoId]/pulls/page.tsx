@@ -127,7 +127,17 @@ export default function PullsPage() {
             }
           />
         ) : (
-          filtered.map((pr) => <PRRow key={pr.number} pr={pr} repoId={repoId} />)
+          // `index`/`total` only decide which way the findings popover opens, so
+          // a row in the lower half never pushes it past the viewport bottom.
+          filtered.map((pr, i) => (
+            <PRRow
+              key={pr.number}
+              pr={pr}
+              repoId={repoId}
+              index={i}
+              total={filtered.length}
+            />
+          ))
         )}
       </div>
     </AppShell>

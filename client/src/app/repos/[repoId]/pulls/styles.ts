@@ -88,11 +88,14 @@ export const s = {
     gap: 10,
     alignItems: "center",
   } satisfies CSSProperties,
+  /** `overflow: visible`, not `hidden`: the FINDINGS column opens a popover that
+   *  has to escape the card. The design makes the same trade — rows no longer
+   *  clip to the rounded corners, and only the last row's border is affected. */
   tableCard: {
     margin: "14px 32px 44px",
     border: "1px solid var(--border)",
     borderRadius: 10,
-    overflow: "hidden",
+    overflow: "visible",
     background: "var(--bg-elevated)",
   } satisfies CSSProperties,
   headRow: {
