@@ -24,6 +24,27 @@ _None yet._
 
 ## Codebase Patterns
 
+### 2026-08-05 · `CLAUDE.md` and `docs/component-anatomy.md` disagree on how many files a component folder needs
+
+Trigger:  writing the `frontend-architecture` skill's acceptance criteria for "add a new
+          component", and needing a decidable answer to "which files are mandatory?"
+Cause:    the two documents state opposite rules. `CLAUDE.md:25-27` lists all six files
+          (`<Name>.tsx · styles.ts · constants.ts · helpers.ts · index.ts · <Name>.test.tsx`)
+          and says *"follow it rather than inventing a shorter one"*; `docs/component-anatomy.md:20`
+          says *"Only `<Name>.tsx` and `index.ts` are mandatory; add the others as soon as the
+          corresponding content appears"*. The tree follows the second: a dozen component folders
+          ship without `styles.ts`, and `RunHistory/` has no `index.ts`. So the "12 folders violate
+          the convention" reading of the tree is wrong — they satisfy the narrower rule, and the
+          count is an artefact of comparing against the wider one.
+Takeaway: follow `docs/component-anatomy.md` — it is the more specific document and the one
+          `CLAUDE.md`'s own "Read when" section points to for this task. Read `CLAUDE.md`'s sentence
+          as "do not invent a *different* shape", not "create six files regardless of content". The
+          real violation to look for is a component with styles that keeps them inline anyway.
+Evidence: client/CLAUDE.md:25-27; client/docs/component-anatomy.md:20;
+          .claude/skills/frontend-architecture/references/devdigest-profile.md
+Status:   open — one of the two sentences should be reworded; not done here to avoid changing a
+          convention as a side effect of writing a skill
+
 ### 2026-08-02 · A card with `overflow: hidden` silently clips anything its rows pop up
 
 Trigger:  the PR list's new findings popover rendered in the DOM, passed its test, and was

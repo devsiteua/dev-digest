@@ -54,6 +54,8 @@ pnpm typecheck
 
 - Adding a screen or a data hook → read `README.md` (UI route map) and
   `docs/component-anatomy.md`
+- Unsure where a file belongs, or reshaping folders → run `/frontend-architecture`; its
+  `references/devdigest-profile.md` maps the general rules onto this package
 - Writing a component test → read `../TESTING.md`
 - The UI or query cache behaves unexpectedly → read `INSIGHTS.md` first
 - Starting a task → read `specs/README.md`

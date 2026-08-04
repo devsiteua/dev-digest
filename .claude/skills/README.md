@@ -9,6 +9,7 @@ Reusable AI skills that provide specialized knowledge and workflows. Canonical l
 | [fastify-best-practices](fastify-best-practices/SKILL.md) | Backend | Fastify routes, plugins, JSON-schema validation, error handling |
 | [drizzle-orm-patterns](drizzle-orm-patterns/SKILL.md) | Backend | Drizzle schema, queries, relations, transactions, migrations |
 | [postgresql-table-design](postgresql-table-design/SKILL.md) | Backend | Postgres schema design, data types, indexing, constraints |
+| [frontend-architecture](frontend-architecture/SKILL.md) | Frontend | Where code goes: component placement, layering, constants, utils, server/client boundaries |
 | [next-best-practices](next-best-practices/SKILL.md) | Frontend | Next.js App Router, RSC boundaries, data fetching, optimization |
 | [react-best-practices](react-best-practices/SKILL.md) | Frontend | React anti-patterns, state management, hooks rules |
 | [react-testing-library](react-testing-library/SKILL.md) | Frontend | General-purpose React Testing Library guide with Vitest |
@@ -18,8 +19,10 @@ Reusable AI skills that provide specialized knowledge and workflows. Canonical l
 | [mermaid-diagram](mermaid-diagram/SKILL.md) | Shared | Mermaid diagrams in markdown (flowcharts, sequence, ERD, …) |
 | [engineering-insights](engineering-insights/SKILL.md) | Repo | Reads and appends session learnings to the touched package's `INSIGHTS.md` |
 
-All skills except `engineering-insights` are vendored from GitHub and tracked by hash in
-`skills-lock.json`. `engineering-insights` is hand-authored and maintained here.
+`skills-lock.json` is the only authority on which skills are vendored from GitHub by hash — do not
+infer it from this table or from the directory listing. Hand-authored and maintained here:
+`engineering-insights` and `frontend-architecture`. Several other directories are also absent from
+the lock; see the 2026-08-01 entry in the root `INSIGHTS.md`.
 
 ## What Are Skills?
 

@@ -113,6 +113,24 @@ Status:   open — fix opportunistically when touching those files
 
 ## Codebase Patterns
 
+### 2026-08-05 · `allowed-tools` in a skill narrows the session's tools — advisory skills must omit it
+
+Trigger:  drafting frontmatter for the hand-authored `frontend-architecture` skill and copying
+          `allowed-tools` from `engineering-insights` because it looked like house style
+Cause:    `allowed-tools` restricts what may be used *while the skill is active*, so it splits
+          hand-authored skills into two kinds. `engineering-insights` is procedural — it runs, edits
+          `INSIGHTS.md`, and finishes — so `Read, Edit, Grep, Glob` is correct and protective. An
+          advisory skill is loaded **in the middle of someone else's implementation**; declaring
+          `Read, Grep, Glob` there would forbid `Write`/`Edit` at the exact moment the caller needs
+          them. Only two skills on disk declare the field, and both are the procedural kind — the
+          omission everywhere else is the convention, not an oversight.
+Takeaway: declare `allowed-tools` only when the skill itself performs a bounded action. Leave it out
+          for reference skills. Unknown frontmatter keys are tolerated, so a `version:` can be added
+          freely — `typescript-expert` already carries `category`, `risk`, `source`, `date_added`.
+Evidence: .claude/skills/engineering-insights/SKILL.md vs
+          .claude/skills/frontend-architecture/SKILL.md; .claude/skills/typescript-expert/SKILL.md
+Status:   open — applies to every skill authored from here on
+
 ### 2026-08-02 · Two severity tallies with different rules now coexist, deliberately
 
 Trigger:  adding the PR-header scoreboard to a product whose PR list already had a FINDINGS
