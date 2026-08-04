@@ -50,6 +50,31 @@ _None yet._
 
 ## What Doesn't Work
 
+### 2026-08-04 · Inheriting a neighbouring column's aggregation rule — `cost` is additive, `score` and `findings` are not
+
+Trigger:  the L01 mentor review: the PR-list COST column showed one run's cost where a sum
+          across the review's agents was expected
+Cause:    the column was built by mirroring `PrMeta.score` (latest-review-only), and the
+          comment in `pulls/routes.ts` stated one justification for all three fields at once —
+          *"summing would triple-count one defect found by three agents"*. That is true of
+          defects and of the score derived from them, and false of money. `runReview()` creates
+          one `agent_runs` row **per target agent**
+          (`server/src/modules/reviews/service.ts`), so a three-agent review put a third of the
+          bill in the column — and an arbitrary third, whichever agent finished last. The
+          2026-08-02 "Two severity tallies" entry below already warned that a third surface must
+          pick its rule on purpose; COST is exactly the surface that copied the nearest
+          neighbour instead.
+Takeaway: before reusing the aggregation of the column next door, ask whether the quantity is
+          additive. Counts of one event double-count across agents; money, tokens and durations
+          do not — each run is a separate expenditure. A comment that covers several fields in
+          one breath is where this hides: state the rule per field, or the field it does not fit
+          inherits it silently. Note the follow-on for sums: `null` is *unknown*, so one
+          unpriced run must poison the whole total to `—` rather than let a partial sum pass as
+          exact.
+Evidence: server/src/modules/pulls/routes.ts (`totalCostByPr`); specs/L01-run-cost.md
+          (Decisions); server/test/reviews.it.test.ts ("PR list sums the cost of every done run")
+Status:   resolved
+
 ### 2026-08-02 · Building a screen from design screenshots — the prototype's source says things a PNG cannot
 
 Trigger:  re-doing the L01 severity feature against the unpacked design prototype, after

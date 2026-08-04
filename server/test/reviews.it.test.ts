@@ -218,7 +218,8 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     const runs = (await app.inject({ method: 'GET', url: `/pulls/${pr.id}/runs` })).json();
     expect(runs[0].cost_usd).toBe(run!.costUsd);
 
-    // The PR list surfaces the LATEST done run's cost, not a sum.
+    // The PR list sums every done run of the PR; with exactly one run so far,
+    // that total is this run's cost.
     const pulls = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
     const listed = pulls.find((p: { number: number }) => p.number === pr.number);
     expect(listed.cost_usd).toBe(run!.costUsd);
@@ -226,7 +227,7 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     await app.close();
   });
 
-  it('PR list reports the latest done run cost; a never-reviewed PR reports null', async () => {
+  it('PR list sums the cost of every done run; a never-reviewed PR reports null', async () => {
     const app = await appWith(REVIEW_FIXTURE);
     const { repo, pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
 
@@ -248,7 +249,23 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     const listed = after.find((p: { number: number }) => p.number === pr.number);
     expect(listed.cost_usd).toBeGreaterThan(0);
 
-    // A newer run that is still `running` must NOT blank out the last real cost.
+    // A second done run — a second agent on the same review, or a re-review —
+    // ADDS to the column. Money is additive: two runs, two real bills.
+    await pg.handle.db.insert(t.agentRuns).values({
+      workspaceId,
+      agentId: agent.id,
+      prId: pr.id,
+      status: 'done',
+      provider: 'openai',
+      model: 'gpt-4.1',
+      costUsd: 0.25,
+    });
+    const withSecond = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
+    const summed = withSecond.find((p: { number: number }) => p.number === pr.number).cost_usd;
+    expect(summed).toBeCloseTo(listed.cost_usd + 0.25, 10);
+
+    // A newer run that is still `running` has no cost yet and must NOT change
+    // the total (and must not blank it).
     await pg.handle.db.insert(t.agentRuns).values({
       workspaceId,
       agentId: agent.id,
@@ -259,8 +276,32 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     });
     const withRunning = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
     expect(withRunning.find((p: { number: number }) => p.number === pr.number).cost_usd).toBe(
-      listed.cost_usd,
+      summed,
     );
+
+    await app.close();
+  });
+
+  it('PR list reports null when any done run of the PR is unpriced', async () => {
+    const app = await appWith(REVIEW_FIXTURE);
+    const { repo, pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+
+    // One priced run and one unpriced one. Null means UNKNOWN, so the total is
+    // unknown too — reporting $0.04 here would present a partial sum as exact.
+    for (const costUsd of [0.04, null]) {
+      await pg.handle.db.insert(t.agentRuns).values({
+        workspaceId,
+        agentId: null,
+        prId: pr.id,
+        status: 'done',
+        provider: 'openai',
+        model: 'gpt-4.1',
+        costUsd,
+      });
+    }
+
+    const pulls = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
+    expect(pulls.find((p: { number: number }) => p.number === pr.number).cost_usd).toBeNull();
 
     await app.close();
   });

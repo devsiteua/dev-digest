@@ -120,9 +120,10 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
     // Latest-review SCORE and FINDINGS breakdown per PR, for the list's score
     // ring and its severity counters. Computed on read from reviews (no FK
     // denorm); the list is small, so one IN-query + JS grouping is cheap.
-    // Latest-review-only, like `score` and `cost_usd`: summing across reviews
-    // would triple-count one defect found by three agents, and would disagree
-    // with the score ring beside it, which describes exactly one review.
+    // Latest-review-only: summing findings across reviews would triple-count one
+    // defect found by three agents, and would disagree with the score ring beside
+    // it, which describes exactly one review. That argument is about DEFECTS — it
+    // does NOT carry over to money, which is why the COST column below sums.
     const prIds = rows.map((r) => r.id);
     const latestReviewByPr = new Map<string, { id: string; score: number | null }>();
     if (prIds.length > 0) {
@@ -154,20 +155,31 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
       severityByReview = rollupSeveritiesByReview(findingRows);
     }
 
-    // Latest-run COST per PR for the list's COST column. Same read-time shape as
-    // the score above. Only `done` runs count: a `running` row has no cost yet,
-    // and `reapStaleRunningRuns` leaves failed orphans with NULL usage — either
-    // would blank out the cost of the last run that actually finished.
-    const latestCostByPr = new Map<string, number | null>();
+    // TOTAL COST per PR for the list's COST column: the sum over EVERY completed
+    // run of this PR. Cost is additive in a way score and findings are not — one
+    // review by three agents burns three real bills, and a re-review burns more
+    // still, so the column answers "what has reviewing this PR cost so far".
+    // Only `done` runs count: a `running` row has no cost yet, and failed or
+    // cancelled runs are completed with NULL usage — both would poison the sum.
+    // Order is irrelevant to a sum, so this query needs no tie-break.
+    const totalCostByPr = new Map<string, number | null>();
     if (prIds.length > 0) {
       const runRows = await container.db
         .select({ prId: t.agentRuns.prId, costUsd: t.agentRuns.costUsd })
         .from(t.agentRuns)
-        .where(and(inArray(t.agentRuns.prId, prIds), eq(t.agentRuns.status, 'done')))
-        // Same tie-break, same reason as the review query above.
-        .orderBy(desc(t.agentRuns.ranAt), desc(t.agentRuns.id));
+        .where(and(inArray(t.agentRuns.prId, prIds), eq(t.agentRuns.status, 'done')));
+      // Null is UNKNOWN, not zero: a single unpriced model poisons the whole sum
+      // to null (the UI renders "—") instead of silently under-reporting a total
+      // as if it were exact. Same rule the engine applies to an unpriced call.
       for (const run of runRows) {
-        if (run.prId && !latestCostByPr.has(run.prId)) latestCostByPr.set(run.prId, run.costUsd);
+        if (!run.prId) continue;
+        const total = totalCostByPr.get(run.prId);
+        if (total === null) continue;
+        if (run.costUsd == null) {
+          totalCostByPr.set(run.prId, null);
+          continue;
+        }
+        totalCostByPr.set(run.prId, (total ?? 0) + run.costUsd);
       }
     }
 
@@ -195,7 +207,7 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
         opened_at: r.openedAt?.toISOString() ?? null,
         updated_at: r.updatedAt?.toISOString() ?? null,
         score: review ? review.score : null,
-        cost_usd: latestCostByPr.get(r.id) ?? null,
+        cost_usd: totalCostByPr.get(r.id) ?? null,
         // Null = never reviewed. A review that kept no findings reports zeros —
         // a different thing, and the UI renders it differently.
         findings_by_severity: review

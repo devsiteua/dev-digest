@@ -6,8 +6,9 @@ Packages touched: server, client, reviewer-core (test only)
 
 ## Goal
 
-The user can see what a review run cost — in the PR list, on the PR detail timeline, on each
-review-run header, and in the run trace — without a single extra model call.
+The user can see what reviewing costs — the running total per PR in the PR list, and the cost
+of each individual run on the PR detail timeline, on each review-run header, and in the run
+trace — without a single extra model call.
 
 ## Context
 
@@ -35,8 +36,8 @@ What was left in place, and what this lesson reconnects to:
   failure and cancellation paths persist `null`.
 - `cost_usd` on `RunSummary` (`GET /pulls/:id/runs`), `RunStats` (the trace document), and
   `PrMeta` (`GET /repos/:id/pulls`) — mirrored in **both** `vendor/shared` copies.
-- A per-PR aggregate on the list endpoint: the **latest `done` run's** cost, computed on read
-  exactly like the existing latest-review `score`.
+- A per-PR aggregate on the list endpoint: the **sum over every `done` run** of that PR,
+  computed on read.
 - Client: `lib/format.ts` (`formatCost`, `formatTokenCount`) and a `RunCostBadge` component,
   rendered in four places — PR list column, Agent runs timeline row, review-run accordion
   header, run trace Stats tile.
@@ -54,18 +55,26 @@ What was left in place, and what this lesson reconnects to:
 
 ## Decisions
 
-- **PR-list cost is the latest run's cost, not a sum.** It mirrors `PrMeta.score`, which is
-  already latest-review-only, and keeps the column meaning "what a review of this PR costs".
+- **PR-list cost is the SUM over every `done` run of the PR.** Corrected after the L01 mentor
+  review; the column first shipped as the latest run's cost only. One review by three agents is
+  three `agent_runs` rows, so "latest run" showed one third of the bill — an arbitrary third, at
+  that (whichever agent finished last). Cost is additive in a way `score` and `findings` are
+  not: the argument against summing those (three agents finding one defect must not count it
+  three times) is about **defects**, and it was wrongly carried over to **money**. Three agents
+  burn three real bills; a re-review burns another. The column means "what has reviewing this PR
+  cost so far", and it is the one place in the row that is not latest-review-only.
 - **`null` and `0` are different.** `null` = unknown (unpriced model, or never reviewed) and
   renders `—`. `0` = a genuinely free model (e.g. `z-ai/glm-4.7-flash`, priced 0/0) and renders
   `$0.00`. The engine already encodes this: one unpriced call poisons the whole outcome to
-  `null` rather than contributing zero.
+  `null` rather than contributing zero. **The per-PR sum inherits that rule** — one unpriced run
+  makes the total `null`, because a partial sum shown as a total is a wrong number stated as
+  fact.
 - **One formatter, adaptive precision.** Four decimals minus trailing zeros, floored at two —
   reproducing every value in the design (`$0.06`, `$0.014`, `$0.003`, `$0.0013`) with no
   per-call-site precision flag.
-- **Only `done` runs feed the PR-list column.** A `running` row has no cost yet, and
-  `reapStaleRunningRuns` leaves failed orphans with NULL usage; either would blank out the cost
-  of the last run that actually finished.
+- **Only `done` runs feed the PR-list column.** A `running` row has no cost yet, and failed,
+  cancelled and reaped runs are completed with NULL usage; either would poison the sum to `—`
+  even though every finished run was priced.
 
 ## Acceptance criteria
 
@@ -73,7 +82,9 @@ What was left in place, and what this lesson reconnects to:
 - [x] A run on a model with no known price completes normally and stores `null`.
 - [x] Failed and cancelled runs still complete their row and trace; cost is `null`.
 - [x] The UI shows `—` for unknown cost and `$0.00` for a genuinely free run.
-- [x] The PR list shows the latest `done` run's cost; a newer `running` row does not blank it.
+- [x] The PR list shows the sum of every `done` run of the PR; a newer `running` row neither
+      changes nor blanks that total.
+- [x] A PR with one unpriced `done` run reports `null` for the whole total, not a partial sum.
 - [x] A trace document written **before** this lesson still parses and renders (`RunStats.cost_usd`
       is `.nullish()`, not `.nullable()`).
 - [x] Server and client `vendor/shared` copies gain byte-identical edits.
@@ -85,8 +96,9 @@ What was left in place, and what this lesson reconnects to:
 - server unit — `RunTrace` parses a **legacy** `stats` block with no `cost_usd` key
   (`server/test/contracts.test.ts`).
 - server `*.it.test.ts` — cost round-trips DB → `GET /pulls/:id/runs` → trace → `GET
-  /repos/:id/pulls`; a never-reviewed PR reports `null`; a `running` row does not blank the
-  last real cost (`server/test/reviews.it.test.ts`).
+  /repos/:id/pulls`; a never-reviewed PR reports `null`; a second `done` run adds to the PR-list
+  total; a `running` row neither changes nor blanks it; one unpriced `done` run makes the total
+  `null` (`server/test/reviews.it.test.ts`).
 - client — `lib/format.test.ts` (every value in the design, plus the `≥ $1` case a naive
   trailing-zero strip gets wrong) and `RunCostBadge.test.tsx` (both shapes, `—` vs `$0.00`).
 - e2e — not required; no new user journey, and flows must stay LLM-free.

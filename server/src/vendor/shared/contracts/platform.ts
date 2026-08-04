@@ -171,8 +171,9 @@ export const PrMeta = z.object({
   updated_at: z.string().nullish(),
   // Latest-review score (list endpoint only; null/absent until reviewed).
   score: z.number().int().nullish(),
-  // Latest completed run's USD cost (list endpoint only). Null = never reviewed
-  // or the model is unpriced; 0 = a genuinely free model.
+  // Total USD cost of EVERY completed run on this PR (list endpoint only) — one
+  // review by several agents is several runs, and each one costs. Null = never
+  // reviewed or at least one run's model is unpriced; 0 = a genuinely free model.
   cost_usd: z.number().nullish(),
   // Latest-review findings tally (list endpoint only). Null = never reviewed;
   // a reviewed PR that kept no findings reports all-zero, which is a different
