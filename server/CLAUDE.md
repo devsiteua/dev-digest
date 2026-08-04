@@ -7,6 +7,7 @@ pnpm dev          # :3001
 pnpm db:migrate   # never runs on boot
 pnpm db:seed      # idempotent demo data
 pnpm typecheck
+pnpm arch:check   # onion guard (~1s) — layer violations, known ones baselined
 ```
 
 Test lane split is in the root `CLAUDE.md`.
@@ -58,6 +59,8 @@ Test lane split is in the root `CLAUDE.md`.
 ## Read when
 
 - Adding an endpoint or a module → read `README.md` (Request & DI flow, API map)
+- Unsure which layer a piece of code belongs to, or `pnpm arch:check` failed → skill
+  `onion-architecture` (rings, forbidden imports, the frozen-debt baseline)
 - Working on repo indexing → read `src/modules/repo-intel/README.md`
 - Changing an agent's system prompt → read `../docs/agent-prompts/README.md`, and mirror the
   change into `src/db/seed-prompts.ts` (two sources, synced by hand)

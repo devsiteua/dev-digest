@@ -9,6 +9,7 @@ Reusable AI skills that provide specialized knowledge and workflows. Canonical l
 | [fastify-best-practices](fastify-best-practices/SKILL.md) | Backend | Fastify routes, plugins, JSON-schema validation, error handling |
 | [drizzle-orm-patterns](drizzle-orm-patterns/SKILL.md) | Backend | Drizzle schema, queries, relations, transactions, migrations |
 | [postgresql-table-design](postgresql-table-design/SKILL.md) | Backend | Postgres schema design, data types, indexing, constraints |
+| [onion-architecture](onion-architecture/SKILL.md) | Backend | Where backend code goes: rings, forbidden imports, `pnpm arch:check` |
 | [frontend-architecture](frontend-architecture/SKILL.md) | Frontend | Where code goes: component placement, layering, constants, utils, server/client boundaries |
 | [next-best-practices](next-best-practices/SKILL.md) | Frontend | Next.js App Router, RSC boundaries, data fetching, optimization |
 | [react-best-practices](react-best-practices/SKILL.md) | Frontend | React anti-patterns, state management, hooks rules |
@@ -21,7 +22,7 @@ Reusable AI skills that provide specialized knowledge and workflows. Canonical l
 
 `skills-lock.json` is the only authority on which skills are vendored from GitHub by hash — do not
 infer it from this table or from the directory listing. Hand-authored and maintained here:
-`engineering-insights` and `frontend-architecture`. Several other directories are also absent from
+`engineering-insights`, `frontend-architecture`, and `onion-architecture`. Several other directories are also absent from
 the lock; see the 2026-08-01 entry in the root `INSIGHTS.md`.
 
 ## What Are Skills?

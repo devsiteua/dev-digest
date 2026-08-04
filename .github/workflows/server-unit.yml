@@ -5,7 +5,8 @@
 #    agent-runner both run on. We deliberately do NOT matrix over Windows/macOS:
 #    macOS is covered by daily local dev, Windows is not a ship target, and
 #    `@ast-grep/napi` is exact-pinned so its native binary only changes on a
-#    deliberate version bump.
+#    deliberate version bump. This job also runs the onion architecture guard
+#    (dependency-cruiser), which needs the same reviewer-core install.
 #  - unit: the ~19 DB-free test files (everything that is NOT `*.it.test.ts`).
 #    LLM/git/embeddings are mocked via src/adapters/mocks.ts — no Docker.
 #
@@ -64,6 +65,15 @@ jobs:
         run: npm ci
 
       - run: pnpm typecheck
+
+      # Onion guard: the dependency rule as a check (see the onion-architecture
+      # skill). Violations that predate it are frozen in
+      # .dependency-cruiser-known-violations.json; anything NEW fails here.
+      # Inlined rather than `pnpm arch:check` for the same reason the unit job
+      # inlines vitest — package.json can be a local variant. The cruise also
+      # covers ../reviewer-core/src through the tsconfig alias, which is why it
+      # runs after the reviewer-core install above.
+      - run: pnpm exec depcruise src --config .dependency-cruiser-onion.cjs --ignore-known --output-type err
 
   unit:
     name: tests

@@ -1,0 +1,226 @@
+[
+  {
+    "type": "dependency",
+    "from": "src/modules/polling/routes.ts",
+    "to": "src/db/schema.ts",
+    "unresolvedTo": "../../db/schema.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "db-schema-only-in-data-layer"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/modules/pulls/routes.ts",
+    "to": "src/db/schema.ts",
+    "unresolvedTo": "../../db/schema.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "db-schema-only-in-data-layer"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/modules/repos/helpers.ts",
+    "to": "src/db/schema.ts",
+    "unresolvedTo": "../../db/schema.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "db-schema-only-in-data-layer"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/modules/reviews/diff-loader.ts",
+    "to": "src/db/schema.ts",
+    "unresolvedTo": "../../db/schema.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "db-schema-only-in-data-layer"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/modules/reviews/run-executor.ts",
+    "to": "src/db/schema.ts",
+    "unresolvedTo": "../../db/schema.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "db-schema-only-in-data-layer"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/modules/settings/feature-models.ts",
+    "to": "src/db/schema.ts",
+    "unresolvedTo": "../../db/schema.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "db-schema-only-in-data-layer"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/modules/settings/routes.ts",
+    "to": "src/db/schema.ts",
+    "unresolvedTo": "../../db/schema.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "db-schema-only-in-data-layer"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/modules/workspace/routes.ts",
+    "to": "src/db/schema.ts",
+    "unresolvedTo": "../../db/schema.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "db-schema-only-in-data-layer"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/modules/repo-intel/service.ts",
+    "to": "src/adapters/astgrep/index.ts",
+    "unresolvedTo": "../../adapters/astgrep/index.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-concrete-adapter-in-app-layer"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/modules/repo-intel/service.ts",
+    "to": "src/adapters/codeindex/extract.ts",
+    "unresolvedTo": "../../adapters/codeindex/extract.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-concrete-adapter-in-app-layer"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/modules/polling/routes.ts",
+    "to": "node_modules/drizzle-orm/index.cjs",
+    "unresolvedTo": "drizzle-orm",
+    "dependencyTypes": [
+      "npm",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "orm-only-in-data-layer"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/modules/pulls/routes.ts",
+    "to": "node_modules/drizzle-orm/index.cjs",
+    "unresolvedTo": "drizzle-orm",
+    "dependencyTypes": [
+      "npm",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "orm-only-in-data-layer"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/modules/settings/feature-models.ts",
+    "to": "node_modules/drizzle-orm/index.cjs",
+    "unresolvedTo": "drizzle-orm",
+    "dependencyTypes": [
+      "npm",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "orm-only-in-data-layer"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/modules/settings/routes.ts",
+    "to": "node_modules/drizzle-orm/index.cjs",
+    "unresolvedTo": "drizzle-orm",
+    "dependencyTypes": [
+      "npm",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "orm-only-in-data-layer"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/modules/workspace/routes.ts",
+    "to": "node_modules/drizzle-orm/index.cjs",
+    "unresolvedTo": "drizzle-orm",
+    "dependencyTypes": [
+      "npm",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "orm-only-in-data-layer"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/modules/repos/service.ts",
+    "to": "src/modules/repo-intel/constants.ts",
+    "unresolvedTo": "../repo-intel/constants.js",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "warn",
+      "name": "no-cross-module-import"
+    }
+  }
+]

@@ -113,6 +113,24 @@ Status:   open — fix opportunistically when touching those files
 
 ## Codebase Patterns
 
+### 2026-08-05 · One dependency-cruiser run over `server/src` also polices `reviewer-core`'s purity
+
+Trigger:  wiring the onion guard and expecting to need a second config inside `reviewer-core`
+          (which has no dependency-cruiser of its own — it installs with npm, not pnpm)
+Cause:    `tsConfig: { fileName: 'tsconfig.json' }` makes the cruise follow the
+          `@devdigest/reviewer-core` path alias, so `../reviewer-core/src/**` shows up as
+          ordinary modules in the same graph (149 modules, 463 dependencies, ~1 s). Rules keyed
+          on `from: { path: 'reviewer-core/src' }` therefore work from `server/`. The same is
+          true of `@devdigest/shared`. This is why the CI step sits in the `typecheck` job of
+          `server-unit.yml`, after the `npm ci` that installs reviewer-core's deps — without
+          them the alias resolves but `openai` does not, and the graph quietly changes shape.
+Takeaway: cross-package architecture rules go in `server/.dependency-cruiser-onion.cjs`, not in
+          a new per-package config. `pnpm arch:check` ignores the 16 frozen violations in
+          `.dependency-cruiser-known-violations.json`; never append to that file to unblock a
+          change — it is the debt list, and anything new must fail.
+Evidence: server/.dependency-cruiser-onion.cjs; .github/workflows/server-unit.yml (typecheck job)
+Status:   open — baseline shrinks as touched files are fixed
+
 ### 2026-08-05 · `allowed-tools` in a skill narrows the session's tools — advisory skills must omit it
 
 Trigger:  drafting frontmatter for the hand-authored `frontend-architecture` skill and copying
@@ -238,6 +256,24 @@ Status:   resolved — guarded by the legacy-stats fixture test
 > ~250 lines. Both are live rules in `CLAUDE.md` (Gotchas); the archive keeps their reasoning.
 
 ## Tool & Library Notes
+
+### 2026-08-05 · A dependency-cruiser rule that matches nothing looks exactly like a rule that passes
+
+Trigger:  the first onion-guard config reported "no violations" while `modules/pulls/routes.ts`
+          was demonstrably importing `drizzle-orm`
+Cause:    npm dependencies resolve to their on-disk path, `node_modules/drizzle-orm/index.cjs`,
+          so `to: { path: '^drizzle-orm' }` matches no module. It must be
+          `to: { dependencyTypes: ['npm'], path: 'node_modules/(drizzle-orm|postgres)/' }`.
+          Two neighbouring traps: `to: { anyOf: [...] }` is not valid schema (split it into two
+          rules, the CLI errors out), and a rule listing a module's own barrel — e.g.
+          `repo-intel/index.ts` re-exporting `./routes.js` — fires a false positive unless
+          `^src/modules/[^/]+/index\.ts$` is in `pathNot`.
+Takeaway: never trust a green depcruise run you have not seen fail. Prove each new rule by
+          planting a violation (`mkdir src/modules/__probe && echo "import { eq } from
+          'drizzle-orm'" > src/modules/__probe/service.ts`), confirming exit code 1, then
+          removing it. `pnpm arch:check:all` shows the frozen list for comparison.
+Evidence: server/.dependency-cruiser-onion.cjs (header comment)
+Status:   resolved
 
 ### 2026-08-02 · `defaultNow()` is transaction start time, so "newest row wins" can tie exactly
 
