@@ -1,13 +1,19 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { and, desc, eq, inArray } from 'drizzle-orm';
-import type { PrMeta, PrDetail, GitHubClient, PrReviewComment } from '@devdigest/shared';
+import type {
+  PrMeta,
+  PrDetail,
+  GitHubClient,
+  PrReviewComment,
+  SeverityCounts,
+} from '@devdigest/shared';
 import { PrCommentInput } from '@devdigest/shared';
 import * as t from '../../db/schema.js';
 import { getContext } from '../_shared/context.js';
 import { IdParams } from '../_shared/schemas.js';
 import { AppError, NotFoundError } from '../../platform/errors.js';
-import { deriveReviewStatus } from './status.js';
+import { deriveReviewStatus, rollupSeveritiesByReview } from './status.js';
 
 /**
  * F1 — pulls module. PR import via Octokit (list + per-PR detail).
@@ -111,21 +117,69 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
       }
     }
 
-    // Latest-review SCORE per PR for the list's score ring. Computed on read
-    // from reviews (no FK denorm); the list is small, so one IN-query + JS
-    // grouping is cheap. (The per-severity FINDINGS breakdown is intentionally
-    // not surfaced on the list — findings live on the PR detail page.)
+    // Latest-review SCORE and FINDINGS breakdown per PR, for the list's score
+    // ring and its severity counters. Computed on read from reviews (no FK
+    // denorm); the list is small, so one IN-query + JS grouping is cheap.
+    // Latest-review-only: summing findings across reviews would triple-count one
+    // defect found by three agents, and would disagree with the score ring beside
+    // it, which describes exactly one review. That argument is about DEFECTS — it
+    // does NOT carry over to money, which is why the COST column below sums.
     const prIds = rows.map((r) => r.id);
-    const latestReviewByPr = new Map<string, { score: number | null }>();
+    const latestReviewByPr = new Map<string, { id: string; score: number | null }>();
     if (prIds.length > 0) {
       const reviewRows = await container.db
-        .select({ prId: t.reviews.prId, score: t.reviews.score })
+        .select({ prId: t.reviews.prId, id: t.reviews.id, score: t.reviews.score })
         .from(t.reviews)
         .where(and(inArray(t.reviews.prId, prIds), eq(t.reviews.kind, 'review')))
-        .orderBy(desc(t.reviews.createdAt));
+        // `created_at` defaults to now(), which in Postgres is TRANSACTION start
+        // time — three agents whose reviews land in one transaction share a
+        // timestamp exactly. `id` is a random uuid, so it cannot say which of them
+        // is newer, but it does make the choice STABLE: without it the winner is
+        // whatever order the planner happened to return, and the same request can
+        // report different numbers twice in a row.
+        .orderBy(desc(t.reviews.createdAt), desc(t.reviews.id));
       // Rows are newest-first → first seen per PR is the latest review.
       for (const rv of reviewRows) {
-        if (!latestReviewByPr.has(rv.prId)) latestReviewByPr.set(rv.prId, { score: rv.score });
+        if (!latestReviewByPr.has(rv.prId))
+          latestReviewByPr.set(rv.prId, { id: rv.id, score: rv.score });
+      }
+    }
+
+    const latestReviewIds = [...latestReviewByPr.values()].map((rv) => rv.id);
+    let severityByReview = new Map<string, SeverityCounts>();
+    if (latestReviewIds.length > 0) {
+      const findingRows = await container.db
+        .select({ reviewId: t.findings.reviewId, severity: t.findings.severity })
+        .from(t.findings)
+        .where(inArray(t.findings.reviewId, latestReviewIds));
+      severityByReview = rollupSeveritiesByReview(findingRows);
+    }
+
+    // TOTAL COST per PR for the list's COST column: the sum over EVERY completed
+    // run of this PR. Cost is additive in a way score and findings are not — one
+    // review by three agents burns three real bills, and a re-review burns more
+    // still, so the column answers "what has reviewing this PR cost so far".
+    // Only `done` runs count: a `running` row has no cost yet, and failed or
+    // cancelled runs are completed with NULL usage — both would poison the sum.
+    // Order is irrelevant to a sum, so this query needs no tie-break.
+    const totalCostByPr = new Map<string, number | null>();
+    if (prIds.length > 0) {
+      const runRows = await container.db
+        .select({ prId: t.agentRuns.prId, costUsd: t.agentRuns.costUsd })
+        .from(t.agentRuns)
+        .where(and(inArray(t.agentRuns.prId, prIds), eq(t.agentRuns.status, 'done')));
+      // Null is UNKNOWN, not zero: a single unpriced model poisons the whole sum
+      // to null (the UI renders "—") instead of silently under-reporting a total
+      // as if it were exact. Same rule the engine applies to an unpriced call.
+      for (const run of runRows) {
+        if (!run.prId) continue;
+        const total = totalCostByPr.get(run.prId);
+        if (total === null) continue;
+        if (run.costUsd == null) {
+          totalCostByPr.set(run.prId, null);
+          continue;
+        }
+        totalCostByPr.set(run.prId, (total ?? 0) + run.costUsd);
       }
     }
 
@@ -153,6 +207,12 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
         opened_at: r.openedAt?.toISOString() ?? null,
         updated_at: r.updatedAt?.toISOString() ?? null,
         score: review ? review.score : null,
+        cost_usd: totalCostByPr.get(r.id) ?? null,
+        // Null = never reviewed. A review that kept no findings reports zeros —
+        // a different thing, and the UI renders it differently.
+        findings_by_severity: review
+          ? severityByReview.get(review.id) ?? { critical: 0, warning: 0, suggestion: 0 }
+          : null,
       };
     });
   });

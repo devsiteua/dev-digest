@@ -5,6 +5,7 @@ import { Icon, Badge, Button, SectionLabel, EmptyState } from "@devdigest/ui";
 import { RunStatus } from "../RunStatus";
 import { RunHistory } from "../RunHistory/RunHistory";
 import { ReviewRunAccordion } from "../ReviewRunAccordion";
+import { findingsByRun, severityCountsByRun } from "./helpers";
 import { s } from "./styles";
 import type { FindingRecord, ReviewRecord, RunSummary, PrCommit } from "@devdigest/shared";
 import type { UseMutationResult } from "@tanstack/react-query";
@@ -66,6 +67,11 @@ export function FindingsTab({
   // Timeline → Review-runs navigation: clicking an agent name in the timeline
   // opens + scrolls to that run's accordion below. The nonce re-triggers the
   // scroll even when the same run is clicked twice.
+  // The timeline's RunSummary has no per-severity breakdown; the reviews here do.
+  const severityByRun = React.useMemo(() => severityCountsByRun(runs), [runs]);
+  // …and the same reviews back the popover those counters open on hover.
+  const itemsByRun = React.useMemo(() => findingsByRun(runs), [runs]);
+
   const [target, setTarget] = React.useState<{ runId: string; n: number } | null>(null);
   const handleGoToReview = useCallback((runId: string) => {
     setTarget((p) => ({ runId, n: (p?.n ?? 0) + 1 }));
@@ -131,6 +137,8 @@ export function FindingsTab({
           <RunHistory
             runs={prRuns ?? []}
             commits={prCommits}
+            severityByRun={severityByRun}
+            findingsByRun={itemsByRun}
             onOpenTrace={handleOpenTrace}
             onGoToReview={handleGoToReview}
             onDelete={handleDelete}
@@ -162,6 +170,7 @@ export function FindingsTab({
             defaultOpen={i === 0}
             repoFullName={repoFullName}
             headSha={headSha}
+            costUsd={prRuns?.find((r) => r.run_id === review.run_id)?.cost_usd ?? null}
             targetRunId={target?.runId ?? null}
             targetNonce={target?.n ?? 0}
           />

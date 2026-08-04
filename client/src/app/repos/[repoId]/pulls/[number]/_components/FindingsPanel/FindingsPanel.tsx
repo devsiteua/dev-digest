@@ -1,15 +1,17 @@
-/* FindingsPanel — hide-low-confidence + j/k navigation + FindingCard list,
-   wiring the accept/dismiss action hook (A2). */
+/* FindingsPanel — severity counters/filter + hide-low-confidence + j/k navigation
+   + FindingCard list, wiring the accept/dismiss action hook (A2). */
 "use client";
 
 import React from "react";
 import { useTranslations } from "next-intl";
 import { Toggle, EmptyState } from "@devdigest/ui";
 import type { FindingRecord } from "@devdigest/shared";
+import { severityCounts, type SeverityKey } from "@/lib/severity";
 import { FindingCard } from "../FindingCard";
 import { useFindingAction } from "../../../../../../../lib/hooks/reviews";
+import { SeverityFilterChips } from "./_components/SeverityFilterChips";
 import { KEY_TO_ACTION } from "./constants";
-import { visibleFindings } from "./helpers";
+import { confidenceFiltered, nextSelection, visibleFindings } from "./helpers";
 import { s } from "./styles";
 
 export function FindingsPanel({
@@ -27,8 +29,28 @@ export function FindingsPanel({
   const action = useFindingAction();
   const [hideLow, setHideLow] = React.useState(false);
   const [focusIdx, setFocusIdx] = React.useState(0);
+  // Per-panel, deliberately: the accordion renders one FindingsPanel per review
+  // run, and a filter lifted any higher would narrow every run at once. A new run
+  // gets a new panel instance (FindingsTab keys accordions by review id), so the
+  // filter resets by itself without any explicit reset.
+  //
+  // `null` is the resting state: all three chips read as active, as the design
+  // shows them, and nothing is narrowed. See `nextSelection` for the transitions.
+  const [selected, setSelected] = React.useState<readonly SeverityKey[] | null>(null);
 
-  const shown = React.useMemo(() => visibleFindings(findings, hideLow), [findings, hideLow]);
+  const counted = React.useMemo(
+    () => severityCounts(confidenceFiltered(findings, hideLow)),
+    [findings, hideLow],
+  );
+  const shown = React.useMemo(
+    () => visibleFindings(findings, hideLow, selected),
+    [findings, hideLow, selected],
+  );
+
+  const toggleSeverity = React.useCallback((key: SeverityKey) => {
+    setSelected((prev) => nextSelection(prev, key));
+    setFocusIdx(0);
+  }, []);
 
   // j/k navigation + a/d shortcuts on the focused finding (keyboard).
   React.useEffect(() => {
@@ -48,6 +70,8 @@ export function FindingsPanel({
   return (
     <div>
       <div style={s.toolbar}>
+        <SeverityFilterChips counts={counted} selected={selected} onToggle={toggleSeverity} />
+        <div style={s.divider} />
         <div style={s.toggleGroup}>
           {t("panel.hideLowConfidence")}
           <Toggle on={hideLow} onChange={setHideLow} size={16} />

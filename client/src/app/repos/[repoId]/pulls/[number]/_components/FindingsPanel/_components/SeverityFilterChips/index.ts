@@ -1,0 +1,1 @@
+export { SeverityFilterChips } from "./SeverityFilterChips";

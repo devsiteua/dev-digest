@@ -1,4 +1,4 @@
-import type { PrStatus } from '@devdigest/shared';
+import type { PrStatus, SeverityCounts } from '@devdigest/shared';
 
 /**
  * PR-list rollup helpers (pure — no DB / `this`, so they unit-test cleanly).
@@ -13,12 +13,6 @@ import type { PrStatus } from '@devdigest/shared';
 /** Open PRs whose current head was reviewed but untouched this long read "stale". */
 export const STALE_DAYS = 7;
 
-export interface SeverityCounts {
-  critical: number;
-  warning: number;
-  suggestion: number;
-}
-
 /** Tally finding severities (CRITICAL / WARNING / SUGGESTION) for one review. */
 export function rollupSeverities(rows: { severity: string }[]): SeverityCounts {
   const c: SeverityCounts = { critical: 0, warning: 0, suggestion: 0 };
@@ -28,6 +22,24 @@ export function rollupSeverities(rows: { severity: string }[]): SeverityCounts {
     else if (r.severity === 'SUGGESTION') c.suggestion += 1;
   }
   return c;
+}
+
+/**
+ * Same tally, but for many reviews at once — the PR list fetches the findings of
+ * every listed PR's latest review in one query and needs them split back apart.
+ * Delegates per group, so tolerance for severities outside the enum is inherited
+ * rather than reimplemented.
+ */
+export function rollupSeveritiesByReview(
+  rows: { reviewId: string; severity: string }[],
+): Map<string, SeverityCounts> {
+  const byReview = new Map<string, { severity: string }[]>();
+  for (const r of rows) {
+    const bucket = byReview.get(r.reviewId);
+    if (bucket) bucket.push(r);
+    else byReview.set(r.reviewId, [r]);
+  }
+  return new Map([...byReview].map(([id, group]) => [id, rollupSeverities(group)]));
 }
 
 /**

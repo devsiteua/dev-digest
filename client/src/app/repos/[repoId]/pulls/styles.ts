@@ -40,6 +40,11 @@ export const s = {
   } satisfies CSSProperties,
   sizeBadgeBorder: (color: string): CSSProperties => ({ border: `1px solid ${color}` }),
   scoreCell: { display: "flex", alignItems: "center" } satisfies CSSProperties,
+  findingsCell: { display: "flex", alignItems: "center", fontSize: 12 } satisfies CSSProperties,
+  costCell: {
+    fontSize: 12,
+    color: "var(--text-secondary)",
+  } satisfies CSSProperties,
   updatedCell: {
     fontSize: 12,
     color: "var(--text-muted)",
@@ -83,11 +88,14 @@ export const s = {
     gap: 10,
     alignItems: "center",
   } satisfies CSSProperties,
+  /** `overflow: visible`, not `hidden`: the FINDINGS column opens a popover that
+   *  has to escape the card. The design makes the same trade — rows no longer
+   *  clip to the rounded corners, and only the last row's border is affected. */
   tableCard: {
     margin: "14px 32px 44px",
     border: "1px solid var(--border)",
     borderRadius: 10,
-    overflow: "hidden",
+    overflow: "visible",
     background: "var(--bg-elevated)",
   } satisfies CSSProperties,
   headRow: {

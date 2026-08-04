@@ -6,14 +6,34 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Icon, Avatar, Badge, CircularScore } from "@devdigest/ui";
 import type { PrMeta } from "@/lib/types";
+import { useLatestReviewFindings } from "@/lib/hooks/reviews";
 import { SIZE_COLOR, STATUS_META } from "../../constants";
 import { relativeTime, sizeOf } from "../../helpers";
 import { s } from "../../styles";
+import { RunCostBadge } from "../RunCostBadge";
+import { SeverityCounters } from "../SeverityCounters";
 
-export function PRRow({ pr, repoId }: { pr: PrMeta; repoId: string }) {
+export function PRRow({
+  pr,
+  repoId,
+  index = 0,
+  total = 1,
+}: {
+  pr: PrMeta;
+  repoId: string;
+  /** Position in the rendered list — only used to flip the findings popover
+   *  upwards for rows in the lower half, so it never opens off-screen. */
+  index?: number;
+  total?: number;
+}) {
   const t = useTranslations("prReview");
   const router = useRouter();
   const [h, setH] = React.useState(false);
+  // The list endpoint sends counts, not findings. Loading every row's findings up
+  // front would be N requests for a popover most rows never open, so the first
+  // hover arms the query and React Query keeps it for the rest of the session.
+  const [wantFindings, setWantFindings] = React.useState(false);
+  const { data: findings } = useLatestReviewFindings(pr.id, wantFindings);
   const st = STATUS_META[pr.status] ?? STATUS_META.needs_review!;
   const { size, lines } = sizeOf(pr);
   const reviewed = pr.score != null; // null score ⇒ PR has never been reviewed
@@ -53,10 +73,21 @@ export function PRRow({ pr, repoId }: { pr: PrMeta; repoId: string }) {
           <span style={s.muted}>—</span>
         )}
       </div>
+      <div style={s.findingsCell}>
+        <SeverityCounters
+          counts={pr.findings_by_severity}
+          items={findings}
+          placement={index >= Math.ceil(total / 2) ? "up" : "down"}
+          onHover={() => setWantFindings(true)}
+        />
+      </div>
       <div>
         <Badge dot color={st.c} bg="transparent">
           {t(`list.status.${st.labelKey}`)}
         </Badge>
+      </div>
+      <div style={s.costCell}>
+        <RunCostBadge costUsd={pr.cost_usd} />
       </div>
       <div style={s.updatedCell}>{relativeTime(pr.updated_at)}</div>
     </div>

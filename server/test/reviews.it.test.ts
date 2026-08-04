@@ -159,7 +159,7 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
 
   it('runs a review: map-reduce + grounding drops the hallucinated finding, keeps the valid one', async () => {
     const app = await appWith(REVIEW_FIXTURE);
-    const { pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+    const { repo, pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
 
     const agent = (
       await app.inject({
@@ -208,6 +208,262 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     expect(run!.status).toBe('done');
     expect(run!.findingsCount).toBe(1);
     expect(run!.grounding).toBe('1/2 passed');
+
+    // ---- cost round-trips DB → run list → trace → PR list -------------------
+    // MockLLMProvider reports costUsd on every structured call and the engine
+    // sums them, so a completed run must land with a real (non-null) cost.
+    expect(run!.costUsd).toBeGreaterThan(0);
+    expect(trace.stats.cost_usd).toBe(run!.costUsd);
+
+    const runs = (await app.inject({ method: 'GET', url: `/pulls/${pr.id}/runs` })).json();
+    expect(runs[0].cost_usd).toBe(run!.costUsd);
+
+    // The PR list sums every done run of the PR; with exactly one run so far,
+    // that total is this run's cost.
+    const pulls = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
+    const listed = pulls.find((p: { number: number }) => p.number === pr.number);
+    expect(listed.cost_usd).toBe(run!.costUsd);
+
+    await app.close();
+  });
+
+  it('PR list sums the cost of every done run; a never-reviewed PR reports null', async () => {
+    const app = await appWith(REVIEW_FIXTURE);
+    const { repo, pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+
+    // Before any review, cost is unknown — null, so the UI renders "—" not "$0.00".
+    const before = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
+    expect(before.find((p: { number: number }) => p.number === pr.number).cost_usd).toBeNull();
+
+    const agent = (
+      await app.inject({
+        method: 'POST',
+        url: '/agents',
+        payload: { name: 'CostAgent', provider: 'openai', model: 'gpt-4.1', system_prompt: 's' },
+      })
+    ).json();
+    await app.inject({ method: 'POST', url: `/pulls/${pr.id}/review`, payload: { agentId: agent.id } });
+    await waitForPrRuns(pg.handle.db, pr.id, { expected: 1 });
+
+    const after = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
+    const listed = after.find((p: { number: number }) => p.number === pr.number);
+    expect(listed.cost_usd).toBeGreaterThan(0);
+
+    // A second done run — a second agent on the same review, or a re-review —
+    // ADDS to the column. Money is additive: two runs, two real bills.
+    await pg.handle.db.insert(t.agentRuns).values({
+      workspaceId,
+      agentId: agent.id,
+      prId: pr.id,
+      status: 'done',
+      provider: 'openai',
+      model: 'gpt-4.1',
+      costUsd: 0.25,
+    });
+    const withSecond = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
+    const summed = withSecond.find((p: { number: number }) => p.number === pr.number).cost_usd;
+    expect(summed).toBeCloseTo(listed.cost_usd + 0.25, 10);
+
+    // A newer run that is still `running` has no cost yet and must NOT change
+    // the total (and must not blank it).
+    await pg.handle.db.insert(t.agentRuns).values({
+      workspaceId,
+      agentId: agent.id,
+      prId: pr.id,
+      status: 'running',
+      provider: 'openai',
+      model: 'gpt-4.1',
+    });
+    const withRunning = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
+    expect(withRunning.find((p: { number: number }) => p.number === pr.number).cost_usd).toBe(
+      summed,
+    );
+
+    await app.close();
+  });
+
+  it('PR list reports null when any done run of the PR is unpriced', async () => {
+    const app = await appWith(REVIEW_FIXTURE);
+    const { repo, pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+
+    // One priced run and one unpriced one. Null means UNKNOWN, so the total is
+    // unknown too — reporting $0.04 here would present a partial sum as exact.
+    for (const costUsd of [0.04, null]) {
+      await pg.handle.db.insert(t.agentRuns).values({
+        workspaceId,
+        agentId: null,
+        prId: pr.id,
+        status: 'done',
+        provider: 'openai',
+        model: 'gpt-4.1',
+        costUsd,
+      });
+    }
+
+    const pulls = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
+    expect(pulls.find((p: { number: number }) => p.number === pr.number).cost_usd).toBeNull();
+
+    await app.close();
+  });
+
+  it('PR list reports the latest review severity tally, counting only grounded findings', async () => {
+    const app = await appWith(REVIEW_FIXTURE);
+    const { repo, pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+
+    // Never reviewed → null, not zeros. The UI renders "—" for one and "0" for
+    // the other, and they mean different things.
+    const before = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
+    expect(
+      before.find((p: { number: number }) => p.number === pr.number).findings_by_severity,
+    ).toBeNull();
+
+    const agent = (
+      await app.inject({
+        method: 'POST',
+        url: '/agents',
+        payload: { name: 'SevAgent', provider: 'openai', model: 'gpt-4.1', system_prompt: 's' },
+      })
+    ).json();
+    await app.inject({ method: 'POST', url: `/pulls/${pr.id}/review`, payload: { agentId: agent.id } });
+    await waitForPrRuns(pg.handle.db, pr.id, { expected: 1 });
+
+    // REVIEW_FIXTURE returns one CRITICAL on a real diff line and one WARNING on
+    // line 999, which the citation gate drops. The tally therefore follows the
+    // findings that were persisted, not what the model claimed to have found.
+    const after = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
+    const listed = after.find((p: { number: number }) => p.number === pr.number);
+    expect(listed.findings_by_severity).toEqual({ critical: 1, warning: 0, suggestion: 0 });
+
+    // And it agrees with the findings the detail page shows.
+    const reviews = (await app.inject({ method: 'GET', url: `/pulls/${pr.id}/reviews` })).json();
+    expect(reviews[0].findings).toHaveLength(1);
+
+    await app.close();
+  });
+
+  it('a review that kept no findings reports zeros on the PR list, not null', async () => {
+    // Everything the model returned was ungrounded, so the review exists but has
+    // no findings. "Reviewed and clean" must not read as "never reviewed".
+    const allHallucinated: Review = {
+      verdict: 'approve',
+      summary: 'Nothing real found.',
+      score: 100,
+      findings: [
+        {
+          id: 'f-ghost',
+          severity: 'CRITICAL',
+          category: 'bug',
+          title: 'Phantom finding on a line not in the diff',
+          file: 'src/config.ts',
+          start_line: 999,
+          end_line: 999,
+          rationale: 'Not in the diff.',
+          suggestion: null,
+          confidence: 0.5,
+          kind: 'finding',
+        },
+      ],
+    };
+    const app = await appWith(allHallucinated);
+    const { repo, pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+    const agent = (
+      await app.inject({
+        method: 'POST',
+        url: '/agents',
+        payload: { name: 'GhostAgent', provider: 'openai', model: 'gpt-4.1', system_prompt: 's' },
+      })
+    ).json();
+    await app.inject({ method: 'POST', url: `/pulls/${pr.id}/review`, payload: { agentId: agent.id } });
+    await waitForPrRuns(pg.handle.db, pr.id, { expected: 1 });
+
+    const after = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` })).json();
+    expect(
+      after.find((p: { number: number }) => p.number === pr.number).findings_by_severity,
+    ).toEqual({ critical: 0, warning: 0, suggestion: 0 });
+
+    await app.close();
+  });
+
+  it('PR list counts only the newest review, and never a summary row', async () => {
+    // The rule the whole column rests on. Summing every review would triple-count
+    // one defect three agents each found; counting a `summary` row would count
+    // findings no reviewer produced. Both are seeded directly — no model call is
+    // needed to exercise a read-time aggregate.
+    const app = await appWith(REVIEW_FIXTURE);
+    const { repo, pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+
+    const seedReview = async (
+      kind: 'review' | 'summary',
+      createdAt: Date,
+      severities: string[],
+    ) => {
+      const [row] = await pg.handle.db
+        .insert(t.reviews)
+        .values({ workspaceId, prId: pr.id, kind, verdict: 'comment', summary: kind, score: 50, model: 'm', createdAt })
+        .returning({ id: t.reviews.id });
+      if (severities.length > 0) {
+        await pg.handle.db.insert(t.findings).values(
+          severities.map((severity, i) => ({
+            reviewId: row!.id,
+            file: 'src/config.ts',
+            startLine: i + 1,
+            endLine: i + 1,
+            severity,
+            category: 'bug',
+            title: `${kind} ${severity} ${i}`,
+            rationale: 'r',
+            confidence: 0.9,
+          })),
+        );
+      }
+      return row!.id;
+    };
+
+    await seedReview('review', new Date('2026-06-11T10:00:00Z'), ['CRITICAL', 'CRITICAL', 'WARNING']);
+    await seedReview('review', new Date('2026-06-12T10:00:00Z'), ['WARNING', 'SUGGESTION']);
+    // Newest row of all, and deliberately fat — if summaries counted, it would win.
+    await seedReview('summary', new Date('2026-06-13T10:00:00Z'), ['CRITICAL', 'CRITICAL', 'CRITICAL']);
+
+    const listed = (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` }))
+      .json()
+      .find((p: { number: number }) => p.number === pr.number);
+    expect(listed.findings_by_severity).toEqual({ critical: 0, warning: 1, suggestion: 1 });
+
+    await app.close();
+  });
+
+  it('PR list picks the same review twice when two reviews share a timestamp', async () => {
+    // `created_at` defaults to now(), which is transaction start time, so agents
+    // reviewing in one transaction tie exactly. Nothing can say which is newer,
+    // but the answer must at least not change between two identical requests.
+    const app = await appWith(REVIEW_FIXTURE);
+    const { repo, pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+    const sameInstant = new Date('2026-06-12T10:00:00Z');
+
+    for (const severity of ['CRITICAL', 'SUGGESTION']) {
+      const [row] = await pg.handle.db
+        .insert(t.reviews)
+        .values({ workspaceId, prId: pr.id, kind: 'review', verdict: 'comment', summary: severity, score: 50, model: 'm', createdAt: sameInstant })
+        .returning({ id: t.reviews.id });
+      await pg.handle.db.insert(t.findings).values({
+        reviewId: row!.id,
+        file: 'src/config.ts',
+        startLine: 1,
+        endLine: 1,
+        severity,
+        category: 'bug',
+        title: severity,
+        rationale: 'r',
+        confidence: 0.9,
+      });
+    }
+
+    const tally = async () =>
+      (await app.inject({ method: 'GET', url: `/repos/${repo.id}/pulls` }))
+        .json()
+        .find((p: { number: number }) => p.number === pr.number).findings_by_severity;
+
+    expect(await tally()).toEqual(await tally());
 
     await app.close();
   });

@@ -29,7 +29,12 @@
   "panel": {
     "hideLowConfidence": "Hide low confidence",
     "noMatchTitle": "No findings match",
-    "noMatchBody": "Adjust the filters above, or run a review to generate findings."
+    "noMatchBody": "Adjust the filters above, or run a review to generate findings.",
+    "severityFilterLabel": "Filter by severity",
+    "severityToggle": "{severity} · {count} — click to toggle this filter",
+    "severityIsolate": "{severity} · {count} — click to show only these",
+    "severityShowAll": "{severity} · {count} — click to show every severity again",
+    "severityEmpty": "No {severity} findings in this run"
   },
   "runReview": {
     "runAll": "Run all enabled agents",
@@ -92,7 +97,9 @@
       "size": "Size",
       "score": "Score",
       "status": "Status",
-      "updated": "Updated"
+      "cost": "Cost",
+      "updated": "Updated",
+      "findings": "Findings"
     },
     "filesCount": "{count} files",
     "errorTitle": "Couldn’t load pull requests",
@@ -105,5 +112,20 @@
     "goToReview": "Jump to this run’s findings below",
     "openTrace": "Open run trace & logs",
     "deleteRun": "Delete run"
+  },
+  "cost": {
+    "tokensUnit": "tok"
+  },
+  "severity": {
+    "critical": "Critical",
+    "warning": "Warning",
+    "suggestion": "Suggestion",
+    "summary": "{critical} critical · {warning} warning · {suggestion} suggestion",
+    "none": "No findings",
+    "unreviewed": "Not reviewed yet"
+  },
+  "tooltip": {
+    "title": "{count} findings",
+    "loading": "Loading findings…"
   }
 }

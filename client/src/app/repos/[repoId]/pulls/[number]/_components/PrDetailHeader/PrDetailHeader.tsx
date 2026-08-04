@@ -2,7 +2,9 @@
 
 import React, { useCallback } from "react";
 import { Icon, Avatar, Badge, Button, Tabs } from "@devdigest/ui";
+import type { SeverityCounts } from "@devdigest/shared";
 import { RunReviewDropdown } from "../RunReviewDropdown";
+import { PrSeveritySummary } from "../PrSeveritySummary";
 import { s } from "./styles";
 import type { PrDetail } from "@/lib/types";
 
@@ -11,6 +13,9 @@ interface PrDetailHeaderProps {
   prId: string | null;
   tab: string;
   findingsCount: number;
+  /** Tally across every finding on the PR — the same set `findingsCount` counts,
+   *  so the header and the list below it never disagree. */
+  severity: SeverityCounts;
   /** github.com PR URL; null when the repo's full_name isn't known yet. */
   githubUrl?: string | null;
   onSetTab: (tab: string) => void;
@@ -23,6 +28,7 @@ export function PrDetailHeader({
   prId,
   tab,
   findingsCount,
+  severity,
   githubUrl,
   onSetTab,
   onRunStart,
@@ -75,6 +81,7 @@ export function PrDetailHeader({
             <Badge dot bg="transparent" color={statusColor}>
               {pr.status}
             </Badge>
+            {findingsCount > 0 && <PrSeveritySummary counts={severity} />}
           </div>
         </div>
         <div style={s.actions}>

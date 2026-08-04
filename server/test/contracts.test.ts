@@ -15,6 +15,7 @@ import {
   Settings,
   Repo,
   PrDetail,
+  PrMeta,
 } from '@devdigest/shared';
 
 /**
@@ -157,7 +158,7 @@ describe('AI contracts parse fixtures', () => {
   it('RunTrace (data2.jsx TRACE single-document)', () => {
     const trace = RunTrace.parse({
       config: { agent: 'Security Reviewer', version: 'v7', model: 'gpt-4.1', pr: 482, source: 'local' },
-      stats: { duration_ms: 8200, tokens_in: 14820, tokens_out: 1240, findings: 3, grounding: '3/3 passed' },
+      stats: { duration_ms: 8200, tokens_in: 14820, tokens_out: 1240, cost_usd: 0.06, findings: 3, grounding: '3/3 passed' },
       prompt_assembly: { system: 's', user: 'u' },
       tool_calls: [{ tool: 'read_file', args: "'src/config.ts'", meta: '1,240 bytes', ms: 120 }],
       raw_output: '{}',
@@ -166,6 +167,25 @@ describe('AI contracts parse fixtures', () => {
       log: [{ t: '00.00', kind: 'info', msg: 'started' }],
     });
     expect(trace.tool_calls).toHaveLength(1);
+    expect(trace.stats.cost_usd).toBe(0.06);
+  });
+
+  it('RunTrace parses a LEGACY stats block with no cost_usd key', () => {
+    // run_traces holds persisted documents: every trace written before cost
+    // existed has no `cost_usd` key at all. If RunStats required it, the trace
+    // drawer would 500 on every historical run — hence .nullish(), not
+    // .nullable(). This is the regression guard for that choice.
+    const trace = RunTrace.parse({
+      config: { agent: 'Security Reviewer', model: 'gpt-4.1', pr: 482, source: 'local' },
+      stats: { duration_ms: 8200, tokens_in: 14820, tokens_out: 1240, findings: 3, grounding: '3/3 passed' },
+      prompt_assembly: { system: 's', user: 'u' },
+      tool_calls: [],
+      raw_output: '{}',
+      memory_pulled: [],
+      specs_read: [],
+      log: [],
+    });
+    expect(trace.stats.cost_usd).toBeUndefined();
   });
 });
 
@@ -206,5 +226,50 @@ describe('platform DTOs', () => {
         commits: [],
       }),
     ).not.toThrow();
+  });
+
+  // findings_by_severity is list-only. PrDetail extends PrMeta and GET /pulls/:id
+  // never emits it, so the field has to be .nullish() — .nullable() would make the
+  // key required and 400 the detail endpoint. The PrDetail case above is the guard;
+  // these pin the list shape itself.
+  it('PrMeta.findings_by_severity: absent, null, and a full tally all parse', () => {
+    const base = {
+      number: 482,
+      title: 't',
+      author: 'a',
+      branch: 'b',
+      base: 'main',
+      head_sha: 'sha',
+      additions: 1,
+      deletions: 0,
+      files_count: 1,
+      status: 'open' as const,
+    };
+    expect(PrMeta.parse(base).findings_by_severity).toBeUndefined();
+    expect(PrMeta.parse({ ...base, findings_by_severity: null }).findings_by_severity).toBeNull();
+    expect(
+      PrMeta.parse({
+        ...base,
+        findings_by_severity: { critical: 2, warning: 1, suggestion: 1 },
+      }).findings_by_severity,
+    ).toEqual({ critical: 2, warning: 1, suggestion: 1 });
+  });
+
+  it('PrMeta rejects a non-integer severity tally', () => {
+    expect(() =>
+      PrMeta.parse({
+        number: 482,
+        title: 't',
+        author: 'a',
+        branch: 'b',
+        base: 'main',
+        head_sha: 'sha',
+        additions: 1,
+        deletions: 0,
+        files_count: 1,
+        status: 'open',
+        findings_by_severity: { critical: 1.5, warning: 0, suggestion: 0 },
+      }),
+    ).toThrow();
   });
 });

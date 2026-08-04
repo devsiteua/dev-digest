@@ -104,6 +104,42 @@ describe('reviewPullRequest (engine)', () => {
     ).rejects.toThrow('cancelled');
   });
 
+  it('reports null cost when ANY call is unpriced, and sums it otherwise', async () => {
+    // The server persists this straight onto agent_runs.cost_usd, and the UI
+    // renders null as "—" rather than "$0.00". A partial sum would be a lie, so
+    // one unpriced call must poison the whole outcome — not contribute zero.
+    const provider = (costs: (number | null)[]): LLMProvider => {
+      let i = 0;
+      return {
+        id: 'openrouter',
+        async completeStructured<T>(req): Promise<StructuredResult<T>> {
+          const costUsd = costs[Math.min(i++, costs.length - 1)] ?? null;
+          return { data: fixture as unknown as T, model: req.model, tokensIn: 10, tokensOut: 5, costUsd, raw: '', attempts: 1 };
+        },
+        async listModels() {
+          return [];
+        },
+        async complete() {
+          throw new Error('not used');
+        },
+        async embed() {
+          return [];
+        },
+      };
+    };
+    const diff = await new MockGitClient().diff();
+
+    const priced = await reviewPullRequest({ systemPrompt: 's', model: 'm', diff, llm: provider([0.001]) });
+    expect(priced.costUsd).toBeGreaterThan(0);
+
+    const unpriced = await reviewPullRequest({ systemPrompt: 's', model: 'm', diff, llm: provider([null]) });
+    expect(unpriced.costUsd).toBeNull();
+
+    // A free model is priced at zero — that is data, not a missing value.
+    const free = await reviewPullRequest({ systemPrompt: 's', model: 'm', diff, llm: provider([0]) });
+    expect(free.costUsd).toBe(0);
+  });
+
   it('forwards sessionId to every LLM call (OpenRouter session grouping)', async () => {
     const seen: (string | undefined)[] = [];
     const recorder: LLMProvider = {
