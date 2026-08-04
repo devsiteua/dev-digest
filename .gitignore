@@ -23,3 +23,6 @@ test-results/
 
 # emdash worktree config (local)
 .emdash.json
+
+# pr-self-review verdict — per-developer state, keyed to a local diff hash
+.claude/pr-self-review/

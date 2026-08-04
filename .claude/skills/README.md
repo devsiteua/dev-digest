@@ -19,11 +19,13 @@ Reusable AI skills that provide specialized knowledge and workflows. Canonical l
 | [security](security/SKILL.md) | Full-stack | OWASP Top 10:2025, auth, injection, uploads, secrets |
 | [mermaid-diagram](mermaid-diagram/SKILL.md) | Shared | Mermaid diagrams in markdown (flowcharts, sequence, ERD, …) |
 | [engineering-insights](engineering-insights/SKILL.md) | Repo | Reads and appends session learnings to the touched package's `INSIGHTS.md` |
+| [pr-self-review](pr-self-review/SKILL.md) | Repo | Routes the open diff to the skills that apply to it and gates `gh pr create` on a CRITICAL |
 
 `skills-lock.json` is the only authority on which skills are vendored from GitHub by hash — do not
 infer it from this table or from the directory listing. Hand-authored and maintained here:
-`engineering-insights`, `frontend-architecture`, and `onion-architecture`. Several other directories are also absent from
-the lock; see the 2026-08-01 entry in the root `INSIGHTS.md`.
+`engineering-insights`, `frontend-architecture`, `onion-architecture`, and `pr-self-review`.
+Several other directories are also absent from the lock; see the 2026-08-01 entry in the root
+`INSIGHTS.md`.
 
 ## What Are Skills?
 

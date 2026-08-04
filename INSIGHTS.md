@@ -257,6 +257,41 @@ Status:   resolved — guarded by the legacy-stats fixture test
 
 ## Tool & Library Notes
 
+### 2026-08-05 · `set -euo pipefail` turns a vanishing untracked file into a silently empty digest
+
+Trigger:  `scripts/test-pr-self-review.sh` failed 3 cases, then 5, then 0 on identical input —
+          every failure was a gate case expecting "allow"
+Cause:    `scripts/pr-self-review-hash.sh` hashed untracked files with
+          `git ls-files --others -z | xargs -0 -r shasum -a 256` inside a `pipefail` script. A
+          worktree is live: the suite itself plants and removes untracked files, so a path can
+          disappear between the listing and the hashing. `shasum` then exits non-zero, `pipefail`
+          aborts the whole script, and it prints **nothing**. Callers that do
+          `X="$(hash.sh || echo "")"` get an empty string and skip whatever it guards — in the
+          gate's case, the entire staleness check, so a verdict recorded for a different diff
+          would have sailed through without a word.
+Takeaway: any pipeline over `git ls-files --others` needs `|| true`; the digest is worth more
+          intact-minus-one-file than absent. And a consumer must distinguish "computed and
+          differs" from "could not compute" — collapsing the second into the first is how a gate
+          starts allowing silently. Reproduce with a background `rm` racing the hash.
+Evidence: scripts/pr-self-review-hash.sh (untracked-file block); scripts/pr-self-review-gate.sh
+          (the empty-`NOW_SHA` branch)
+Status:   resolved
+
+### 2026-08-05 · `git diff --name-status` letters are relative to the merge-base, not to HEAD
+
+Trigger:  a check that only fires on a modified file would not fire when the file was demonstrably
+          being modified — `server/.dependency-cruiser-known-violations.json` reported `A`
+Cause:    the review base is `git merge-base HEAD origin/main`, and that file was created by a
+          commit **on this branch**. Against the base it is an addition, and it stays one no
+          matter how many later commits edit it. Every file a branch introduces behaves this way.
+Takeaway: a status filter of `M` means "existed at the branch point", not "changed now". Rules
+          about editing something that already shipped are correct with `M`; rules about content
+          must accept `A` as well. To exercise an `M`-only rule from inside the branch that
+          created the file, re-base the single case onto the commit that added it.
+Evidence: scripts/pr-self-review-checks.sh (check 2, check 10); scripts/test-pr-self-review.sh
+          (`BASE_OVERRIDE`)
+Status:   resolved
+
 ### 2026-08-05 · A dependency-cruiser rule that matches nothing looks exactly like a rule that passes
 
 Trigger:  the first onion-guard config reported "no violations" while `modules/pulls/routes.ts`
