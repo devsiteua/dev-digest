@@ -115,7 +115,20 @@ export type MemoryItem = z.infer<typeof MemoryItem>;
 export const SkillType = z.enum(['rubric', 'convention', 'security', 'custom']);
 export type SkillType = z.infer<typeof SkillType>;
 
-export const SkillSource = z.enum(['manual', 'imported_url', 'extracted', 'community']);
+// Provenance of a skill's body — and, through that, whether the body is trusted.
+// ONLY 'manual' means "authored here, in this workspace": its body goes into the
+// prompt verbatim. Every other source is third-party text, so the server wraps it
+// in `wrapUntrusted()` before it reaches the model (prompt-contract rule 3).
+// The value is set by the server from the endpoint that created the row and is
+// never accepted from a request body — otherwise a caller could claim 'manual'
+// for imported text and opt out of the wrapping.
+export const SkillSource = z.enum([
+  'manual',
+  'imported_file',
+  'imported_url',
+  'extracted',
+  'community',
+]);
 export type SkillSource = z.infer<typeof SkillSource>;
 
 export const Skill = z.object({
@@ -140,6 +153,46 @@ export const CommunitySkill = z.object({
 });
 export type CommunitySkill = z.infer<typeof CommunitySkill>;
 
+// An immutable body snapshot from `skill_versions`, written on every save that
+// changes `body`. Mirrors AgentVersion below. Kept so an eval run can be replayed
+// against the exact text it scored.
+export const SkillVersion = z.object({
+  skill_id: z.string(),
+  version: z.number().int(),
+  body: z.string(),
+  created_at: z.string(),
+});
+export type SkillVersion = z.infer<typeof SkillVersion>;
+
+/**
+ * The parsed core of an imported skill, returned by `POST /skills/import/preview`.
+ * The preview endpoint writes NOTHING — the user confirms (and may edit) this
+ * draft, and only then does `POST /skills/import` persist it. That is what makes
+ * "nothing is saved until you confirm" a property of the API rather than a UI habit.
+ *
+ * Deliberately has NO `source` and NO `enabled`: both are decided by the server
+ * from the endpoint, so an imported body can never present itself as trusted.
+ */
+export const SkillDraft = z.object({
+  // Bounded to exactly what `POST /skills/import` accepts. A draft the confirm
+  // step would reject is worse than no draft: the failure lands after the user
+  // has already reviewed and approved it.
+  name: z.string().min(1).max(80),
+  description: z.string().max(500),
+  type: SkillType,
+  body: z.string(),
+  /**
+   * Archive entries that were NOT read: scripts, binaries, images, extra docs.
+   * We list them so the user can see what an imported bundle contained beyond its
+   * markdown core. Nothing here is parsed, written to disk, or executed — only the
+   * entry names reach this array.
+   */
+  ignored_files: z.array(z.string()),
+  /** Non-fatal notes about the parse, e.g. "no frontmatter — name taken from the first heading". */
+  warnings: z.array(z.string()),
+});
+export type SkillDraft = z.infer<typeof SkillDraft>;
+
 // ---- Conventions ----
 export const ConventionCandidate = z.object({
   id: z.string(),
@@ -152,6 +205,8 @@ export const ConventionCandidate = z.object({
 export type ConventionCandidate = z.infer<typeof ConventionCandidate>;
 
 // ---- Agents ----
+// 'openrouter' routes through the OpenAI-compatible API (OpenAIProvider with a
+// custom baseURL) — used by the CI runner for cheap models (DeepSeek/GLM/MiniMax).
 export const Provider = z.enum(['openai', 'anthropic', 'openrouter']);
 export type Provider = z.infer<typeof Provider>;
 
@@ -162,8 +217,12 @@ export type Provider = z.infer<typeof Provider>;
 export const ReviewStrategy = z.enum(['single-pass', 'map-reduce', 'auto']);
 export type ReviewStrategy = z.infer<typeof ReviewStrategy>;
 
-// CI gate policy — when a CI review should BLOCK (REQUEST_CHANGES + fail the
-// check) vs just comment. Deterministic from severities; acted on ONLY in CI.
+// CI gate policy — when a review should BLOCK (REQUEST_CHANGES + fail the check)
+// vs just comment. Deterministic from finding severities, NOT the model's verdict:
+//  - never:    never block, always comment (advisory only)
+//  - critical: block iff >=1 CRITICAL finding (default)
+//  - warning:  block iff >=1 WARNING or CRITICAL finding
+//  - any:      block iff >=1 finding of any severity
 export const CiFailOn = z.enum(['never', 'critical', 'warning', 'any']);
 export type CiFailOn = z.infer<typeof CiFailOn>;
 
@@ -191,3 +250,28 @@ export const AgentSkillLink = z.object({
   order: z.number().int(),
 });
 export type AgentSkillLink = z.infer<typeof AgentSkillLink>;
+
+// The immutable config snapshot captured in `agent_versions` whenever an agent's
+// config changes (everything but `enabled`). Mirrors the shape written by the
+// agents repository — provider/model/prompt/output_schema/strategy/gate/repo_intel
+// plus the ordered skill ids linked at snapshot time. Used for reproducibility
+// (eval replays a past version) and for surfacing an agent's edit history.
+export const AgentVersionConfig = z.object({
+  provider: Provider,
+  model: z.string(),
+  system_prompt: z.string(),
+  output_schema: z.unknown().nullish(),
+  strategy: ReviewStrategy,
+  ci_fail_on: CiFailOn,
+  repo_intel: z.boolean(),
+  skills: z.array(z.string()),
+});
+export type AgentVersionConfig = z.infer<typeof AgentVersionConfig>;
+
+export const AgentVersion = z.object({
+  agent_id: z.string(),
+  version: z.number().int(),
+  config: AgentVersionConfig,
+  created_at: z.string(),
+});
+export type AgentVersion = z.infer<typeof AgentVersion>;

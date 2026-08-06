@@ -10,8 +10,12 @@ export const skills = pgTable('skills', {
   name: text('name').notNull(),
   description: text('description').notNull(),
   type: text('type', { enum: ['rubric', 'convention', 'security', 'custom'] }).notNull(),
+  // Provenance, and therefore trust: only 'manual' bodies reach the model
+  // verbatim; everything else is delimiter-wrapped at prompt assembly. Mirrors
+  // `SkillSource` in @devdigest/shared. Widening this list is a TYPE-level change
+  // only — the column is plain `text` with no CHECK constraint, so no migration.
   source: text('source', {
-    enum: ['manual', 'imported_url', 'extracted', 'community'],
+    enum: ['manual', 'imported_file', 'imported_url', 'extracted', 'community'],
   }).notNull(),
   body: text('body').notNull(),
   enabled: boolean('enabled').notNull().default(true),

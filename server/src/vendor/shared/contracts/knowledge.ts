@@ -115,7 +115,20 @@ export type MemoryItem = z.infer<typeof MemoryItem>;
 export const SkillType = z.enum(['rubric', 'convention', 'security', 'custom']);
 export type SkillType = z.infer<typeof SkillType>;
 
-export const SkillSource = z.enum(['manual', 'imported_url', 'extracted', 'community']);
+// Provenance of a skill's body — and, through that, whether the body is trusted.
+// ONLY 'manual' means "authored here, in this workspace": its body goes into the
+// prompt verbatim. Every other source is third-party text, so the server wraps it
+// in `wrapUntrusted()` before it reaches the model (prompt-contract rule 3).
+// The value is set by the server from the endpoint that created the row and is
+// never accepted from a request body — otherwise a caller could claim 'manual'
+// for imported text and opt out of the wrapping.
+export const SkillSource = z.enum([
+  'manual',
+  'imported_file',
+  'imported_url',
+  'extracted',
+  'community',
+]);
 export type SkillSource = z.infer<typeof SkillSource>;
 
 export const Skill = z.object({
@@ -139,6 +152,46 @@ export const CommunitySkill = z.object({
   desc: z.string(),
 });
 export type CommunitySkill = z.infer<typeof CommunitySkill>;
+
+// An immutable body snapshot from `skill_versions`, written on every save that
+// changes `body`. Mirrors AgentVersion below. Kept so an eval run can be replayed
+// against the exact text it scored.
+export const SkillVersion = z.object({
+  skill_id: z.string(),
+  version: z.number().int(),
+  body: z.string(),
+  created_at: z.string(),
+});
+export type SkillVersion = z.infer<typeof SkillVersion>;
+
+/**
+ * The parsed core of an imported skill, returned by `POST /skills/import/preview`.
+ * The preview endpoint writes NOTHING — the user confirms (and may edit) this
+ * draft, and only then does `POST /skills/import` persist it. That is what makes
+ * "nothing is saved until you confirm" a property of the API rather than a UI habit.
+ *
+ * Deliberately has NO `source` and NO `enabled`: both are decided by the server
+ * from the endpoint, so an imported body can never present itself as trusted.
+ */
+export const SkillDraft = z.object({
+  // Bounded to exactly what `POST /skills/import` accepts. A draft the confirm
+  // step would reject is worse than no draft: the failure lands after the user
+  // has already reviewed and approved it.
+  name: z.string().min(1).max(80),
+  description: z.string().max(500),
+  type: SkillType,
+  body: z.string(),
+  /**
+   * Archive entries that were NOT read: scripts, binaries, images, extra docs.
+   * We list them so the user can see what an imported bundle contained beyond its
+   * markdown core. Nothing here is parsed, written to disk, or executed — only the
+   * entry names reach this array.
+   */
+  ignored_files: z.array(z.string()),
+  /** Non-fatal notes about the parse, e.g. "no frontmatter — name taken from the first heading". */
+  warnings: z.array(z.string()),
+});
+export type SkillDraft = z.infer<typeof SkillDraft>;
 
 // ---- Conventions ----
 export const ConventionCandidate = z.object({
