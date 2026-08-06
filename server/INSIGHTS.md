@@ -270,6 +270,27 @@ Status:   resolved
 
 ## Recurring Errors & Fixes
 
+### 2026-08-07 · `waitForPrRuns` gives up silently, so a loaded `.it.test` lane fails in an assertion nowhere near the cause
+
+Trigger:  `pnpm exec vitest run .it.test` failed once on `skills.it.test.ts:552`
+          (`expect(none.skills ?? null).toBeNull()` — a skills block after both skills were
+          disabled). The same file passed alone, and the same full lane passed on the next run.
+Cause:    the helper's timeout branch is `if (Date.now() - start > timeoutMs) return runs` — it
+          RETURNS the rows it has instead of throwing. So when 10 s is not enough (the lane runs
+          nine Testcontainers Postgres instances at once, and every file also runs migrations),
+          the test proceeds against a run the executor has not finished, reads whatever
+          `run_traces` holds, and fails on an assertion about prompt content. Nothing in the
+          message mentions a timeout, which is why the first instinct is to look for a logic
+          bug in skill rendering.
+Takeaway: before debugging a `.it.test` failure about run OUTPUT, re-run that file alone. If it
+          passes, the finding is timing, not logic. When a wait helper is allowed to return
+          without meeting its condition, every downstream assertion becomes a liar — the fix is
+          to throw with the counts (`expected N terminal runs, saw M after 10s`), and raise
+          `timeoutMs` for the whole-lane run. Not changed here: it is a pre-existing helper and
+          this session's diff does not touch it.
+Evidence: test/helpers/runs.ts (waitForPrRuns); test/skills.it.test.ts:502-553
+Status:   open — flaky under full-lane load only; both lanes are green on a repeat run
+
 ### 2026-08-01 · A "running" run that never finishes is usually a dead process, not a hang
 
 Trigger:  a run stuck at `running` in the UI with no events arriving
