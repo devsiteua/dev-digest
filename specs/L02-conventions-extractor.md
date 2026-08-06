@@ -1,6 +1,6 @@
 # L02 — Conventions extractor
 
-Status: in-progress
+Status: done
 Owner: —
 Packages touched: server, client
 
@@ -256,8 +256,13 @@ needed to demonstrate the feature.
       baseline is unchanged.
 - [x] **Regression:** both `vendor/shared/contracts/knowledge.ts` copies are
       byte-identical.
-- [ ] **Regression:** an agent with no skills still produces a byte-identical
+- [x] **Regression:** an agent with no skills still produces a byte-identical
       prompt; the merged skill reaches a prompt only once attached and enabled.
+      Pinned by `skills.it.test.ts` (no links ⇒ `prompt_assembly.skills` is null
+      and the user message has no `## Skills / rules`; disabling a skill removes
+      its block without touching the link) and confirmed live by the control
+      experiment's unskilled arm — see `docs/skills-control-experiment.md`
+      § Recorded result.
 
 ## Test plan
 

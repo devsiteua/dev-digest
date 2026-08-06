@@ -64,6 +64,29 @@ Status:   resolved
 
 ## What Doesn't Work
 
+### 2026-08-07 · "The model proposed N rules" is derived, not measured — and a re-scan inflates it by every previously-decided row
+
+Trigger:  the first live scan's summary line read "read 12 files. The model proposed 22 rules:
+          21 kept, 1 discarded", while the model had actually returned 20 (the prompt's own
+          ceiling) and only 19 rows were new
+Cause:    `scanSummary` computes `returned = result.candidates.length + result.discarded.length`.
+          There is no proposed-count in the contract, so this is the only way to get one — but
+          `candidates` is deliberately the screen's WHOLE state after a pass (new rows *plus*
+          the accepted/rejected rows that survived, see `ConventionsService.extract` step f),
+          not the rows this pass produced. Two `accepted` rules from an earlier scan were
+          therefore counted as things the model had just proposed. On a first scan the number is
+          exact, which is why it reads as correct; the error appears only on a re-scan, and it
+          grows with every rule the user has decided on.
+Takeaway: do not quote that line as a measurement of model output — subtract the non-`pending`
+          rows first, or read `candidates.filter(c => c.status === 'pending').length`. Fixing it
+          properly means the server returning a `proposed` count (it is the only layer that
+          knows), not more arithmetic on the client. General shape: when a response field is a
+          UNION of "what this call did" and "what was already there", any total derived from it
+          is a different quantity than its label claims.
+Evidence: src/app/repos/[repoId]/conventions/_components/ConventionsView/helpers.ts (scanSummary);
+          messages/en/conventions.json (`page.scan.summary`)
+Status:   open — the copy is wrong on a re-scan; not changed in L02
+
 ### 2026-08-06 · `onSuccess: () => invalidate()` discards the response — and that cost two different bugs
 
 Trigger:  a saved rule edit showed the OLD text for one round-trip, and the conventions screen

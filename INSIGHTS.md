@@ -46,7 +46,30 @@ entries pile up, move them to `docs/insights-archive.md`.
 
 ## What Works
 
-_None yet._
+### 2026-08-07 · A skills A/B lands on WHICH findings, not how many — count the demonstration wrong and it looks like nothing happened
+
+Trigger:  running the control experiment on PR #484 (API Contract Reviewer, deepseek-v4-flash),
+          expecting the armed arm to out-count the unarmed one
+Cause:    both arms returned exactly 6 findings, 5 blockers, same verdict, same PR score. Read
+          as a scoreboard the experiment is a null result. Read as a diff it is not: unarmed,
+          the agent found the five changes of COMMISSION — a narrowed enum, an optional field
+          gone required, a dropped response field — all of which are literally in the diff
+          text. Armed, it additionally found the two-copy `vendor/shared` trap ("server and
+          client will disagree"), which is a defect of OMISSION: the diff shows one edited copy
+          and says nothing about the other, so it is invisible unless a checklist says to look.
+          It also gained the stored-data axis and restated every remedy as a major bump or a
+          deprecation window. The freed slot came from merging two findings the unarmed run
+          had kept apart.
+Takeaway: when demonstrating that a skill works, compare finding CONTENT, never finding count —
+          and pick a defect of omission for the diff, because commission defects are exactly the
+          ones a bare agent finds anyway (`docs/skills-control-experiment.md` § "If the
+          unskilled run finds it anyway" says this about the diff; it is equally true of how you
+          READ the result). The cheap objective evidence lives in the trace, not the findings
+          list: `prompt_assembly.skills` is `null` versus 10 958 chars, the log line is absent
+          versus `skills: 4 skill(s), 2644 token(s) attached (…)`, and the user message goes
+          2 511 → 13 489 chars. Cost moved $0.0008 → $0.0010, so the arms are comparable.
+Evidence: docs/skills-control-experiment.md § "Recorded result — 2026-08-07, PR #484"
+Status:   resolved — the recipe generalises to experiment 1 and to any future skill demo
 
 ## What Doesn't Work
 

@@ -115,6 +115,49 @@ produce is still ONE finding — the agent's prompt forbids duplicates.
 Detaching all four is the "without" arm; the `no-then-chains` link can stay
 attached in both arms, since PR #484 has no promise chains for it to fire on.
 
+### Recorded result — 2026-08-07, PR #484
+
+Both arms: **API Contract Reviewer**, `openrouter / deepseek/deepseek-v4-flash`,
+same commit `c4e8a1b`, same verdict (`request changes`, PR score 0).
+
+| | without skills | with the four skills |
+|---|---|---|
+| Prompt | no `## Skills / rules` section, `prompt_assembly.skills` is `null`; user message 2 511 chars | Skills block present, 10 958 chars / 2 644 tokens; user message 13 489 chars |
+| Log | no `skills:` line at all | `skills: 4 skill(s), 2644 token(s) attached (breaking-change, response-schema, semver-discipline, deprecation-policy)` |
+| Cost | 5 777 tok · $0.0008 | 8 083 tok · $0.0010 |
+| Findings | 6 (5 critical, 1 warning) | 6 (5 critical, 1 warning) |
+
+**The count is the same; the content is not.** Unarmed, the agent found the five
+obvious shape changes — `secret` optional → required, `events` narrowed to an
+enum, `secret` dropped from the response, `EventName` narrowed, `Subscription`
+reshaped — plus the `200` → `201` status change. That is the expected outcome
+(§ "If the unskilled run finds it anyway"): they are changes of commission,
+visible in the diff text itself.
+
+What only the skilled arm produced:
+
+- **the two-copy `vendor/shared` trap** — "server and client will disagree",
+  a finding with no counterpart in the unarmed run. It is a defect of *omission*:
+  the diff shows one edited copy and says nothing about the other, so it is
+  invisible unless the reviewer has been told to look. `breaking-change` § 4 is
+  where that instruction lives;
+- **the stored-data axis** — "old rows may lose data" — rather than reading the
+  schema change as an API-shape change only (`breaking-change` § 3);
+- **remedies in deprecation and semver terms**: every finding now asks for a
+  major bump, a deprecation window, or a compatibility layer, and the summary
+  names all three. Unarmed, the same finding ended at "communicate this change to
+  consumers".
+
+The unarmed run also spent one finding on the status code alone; armed, that
+merged into the response-shape finding and the freed slot went to the two-copy
+trap. So the demonstration is not "more findings" — it is **which** findings, and
+the one that needed a checklist is the one the checklist produced.
+
+Provenance is visible in the trace: the Skills block carries exactly one
+`<untrusted source="skill:…">` wrapper, around `deprecation-policy` — the
+imported skill. The three seeded ones speak directly. Nothing in either agent's
+system prompt was changed between the arms.
+
 ## Reading the result
 
 For each run: **View trace → Prompt assembly**.

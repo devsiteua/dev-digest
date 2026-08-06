@@ -11,6 +11,68 @@ _None yet._
 
 ## What Doesn't Work
 
+### 2026-08-07 · The first live extraction spent 3 of 20 rules on formatting a Prettier config already enforces — offering the configs did not stop it
+
+Trigger:  first real scan of `devsiteua/dev-digest` (12 files, deepseek-v4-flash): 20 rules
+          back, 19 grounded, and reading them one by one to write the quality report
+Cause:    `CONFIG_FILES` is fed to the model precisely so declared rules are not re-reported as
+          discovered ones (`constants.ts`: "a rule the linter enforces is one the extractor
+          should not claim to have discovered"). It came back with "Use semicolons at end of
+          statements", "Use 2-space indentation" and "Use trailing commas in object literals"
+          anyway — all three grounded, all three provable, all three worthless, because the
+          evidence check cannot tell a house DECISION from a formatter's output. Three more
+          describe what the library forces rather than a choice ("Define database tables using
+          pgTable", "Use uuid primary keys with defaultRandom()"). And the evidence concentrates
+          hard: 7 of 19 rules cite `server/src/db/schema/core.ts`, 5 cite
+          `client/src/lib/hooks/agents.ts`, three of them the identical range `6-17`.
+Takeaway: budget roughly a third of a pass for formatting and library-usage noise, and do NOT
+          treat it as a prompt bug to fix by tightening the wording — grounding cannot express
+          "this was chosen". The structural fixes are the ones already in the spec's Future work
+          (per-category quotas, a critic pass); the cheap manual one is that the accept/reject
+          loop is the filter, so a pass is a success at ~1 rule in 3. Confidence is no help:
+          every value came back 0.90/0.95/1.00, nothing below 0.9, so it cannot rank anything.
+Evidence: src/modules/conventions/constants.ts (CONFIG_FILES, SAMPLE_FILE_COUNT);
+          specs/L02-conventions-extractor.md § Future work
+Status:   open — expected behaviour of one honest pass, recorded so the next reader is not surprised
+
+### 2026-08-07 · Extraction records no cost anywhere, and the spec's Risks says the opposite
+
+Trigger:  needing the price of one extraction pass for the L02 quality report
+Cause:    `ConventionsService.extract` never reads `reply.usage` and never writes an
+          `agent_runs` row — that table is written by the review executor, and extraction is
+          not a review. `grep -rn "usage\|cost_usd" src/modules/conventions/` returns nothing.
+          The spec's Risks nonetheless states "the run's cost is reported the same way a
+          review's is", which is true of a REVIEW's cost column and false here. Nothing in the
+          UI shows it either: the scan-summary line reports files, rules and discards only.
+Takeaway: the only source for what a scan cost is the provider dashboard
+          (openrouter.ai/activity). If a scan's cost has to be visible in-product, the change is
+          to persist `reply.usage` — the port already returns it — not to look for a row that
+          was never written. Do not quote the spec's Risks sentence as if it described shipped
+          behaviour.
+Evidence: src/modules/conventions/service.ts (extract, step c);
+          specs/L02-conventions-extractor.md § Risks
+Status:   open — deliberately not fixed in L02; the spec sentence is the thing that misleads
+
+### 2026-08-07 · An assertion about the merged skill body proves nothing while the test hand-writes that body
+
+Trigger:  re-reading `conventions.it.test.ts` — `expect(skill.body).not.toContain(RULE_CONFIG)`
+          in the merge test, sitting a dozen lines under a payload whose `body` the same test
+          had typed out by hand as `` `# Repo conventions\n\n- ${RULE_EARLY}\n- ${RULE_CONSTANTS}` ``
+Cause:    the server has no merged-body builder — the modal composes that text and the user
+          edits it before `POST .../skill` sees it, which the spec's Test plan states outright.
+          So the only way the body could contain the rejected rule is if the test put it there.
+          The assertion was a tautology about the test's own string literal, and it read as
+          coverage of the acceptance criterion "a rejected rule must not reach a prompt".
+Takeaway: when the server stores a caller's text verbatim, an assertion on that text tests the
+          CALLER. Compose it in the test the way the client composes it — filter the rows the
+          server just reported as `accepted`, render them — and then the same `not.toContain`
+          is about the filter. Pair it with the two assertions that are genuinely the server's:
+          `skill.body === body` (it does not recompose) and that the body quotes the snippet
+          read back from the clone, not the model's rendition. General form: before writing an
+          assertion, ask which component would have to be broken for it to fail.
+Evidence: test/conventions.it.test.ts (composeSkillBody, "merges only the accepted candidates")
+Status:   resolved
+
 ### 2026-08-06 · An insert-only create behind a FIXED default name is a feature that works exactly once
 
 Trigger:  the merge modal defaults every skill to `repo-conventions`; the SECOND merge of a repo
