@@ -125,6 +125,44 @@ const EXTRACTION_FIXTURE = {
   ],
 };
 
+/** The fields of `ConventionCandidate` the merge step reads. */
+interface ConventionRow {
+  id: string;
+  rule: string;
+  status: string;
+  evidence_path: string;
+  evidence_snippet: string;
+  evidence_start_line: number;
+  evidence_end_line: number;
+}
+
+/**
+ * The merged body, composed the way the client composes it.
+ *
+ * There is no body builder on the server — the modal writes this text and the
+ * user edits it before `POST .../skill` ever sees it (see the spec's Test plan).
+ * The test therefore has to build it too: a body typed out by hand in the
+ * request payload cannot show that a rejected rule stays out of it.
+ */
+function composeSkillBody(accepted: ConventionRow[]): string {
+  const sections = accepted.map((c) =>
+    [
+      `## ${c.rule.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')}`,
+      c.rule,
+      '',
+      `Detected in \`${c.evidence_path}:${c.evidence_start_line}-${c.evidence_end_line}\`:`,
+      '',
+      '```',
+      c.evidence_snippet,
+      '```',
+    ].join('\n'),
+  );
+  return ['# Repo conventions', '', 'Follow the house style this repo already uses.', '']
+    .concat(sections.join('\n\n'))
+    .join('\n')
+    .trimEnd();
+}
+
 /**
  * L02 — conventions extractor: the grounding pass, the accept/reject loop, the
  * merged skill, and the two things a re-scan must not do (resurrect a rejected
@@ -400,6 +438,16 @@ d('L02 conventions (Testcontainers pg)', () => {
       await app.inject({ method: 'PATCH', url: `/conventions/${id}`, payload: { status } });
     }
 
+    // The body is COMPOSED here, from the rows the server now reports as
+    // accepted — the same filter-then-render step `conventionsToDraft` performs
+    // in the merge modal. Hand-writing it in the payload would make the
+    // "the rejected rule is not in the body" assertion below a tautology about
+    // this test's own string.
+    const decided = (
+      await app.inject({ method: 'GET', url: `/repos/${repoId}/conventions` })
+    ).json() as ConventionRow[];
+    const body = composeSkillBody(decided.filter((c) => c.status === 'accepted'));
+
     const res = await app.inject({
       method: 'POST',
       url: `/repos/${repoId}/conventions/skill`,
@@ -408,7 +456,7 @@ d('L02 conventions (Testcontainers pg)', () => {
         description: 'House rules extracted from this repo.',
         type: 'convention',
         enabled: true,
-        body: `# Repo conventions\n\n- ${RULE_EARLY}\n- ${RULE_CONSTANTS}`,
+        body,
         // Sent on purpose: provenance is the server's, exactly as for an import.
         source: 'manual',
         convention_ids: [early.id, constants.id, config.id],
@@ -421,7 +469,16 @@ d('L02 conventions (Testcontainers pg)', () => {
     // The rejected candidate contributed neither its evidence nor its rule.
     expect(skill.evidence_files).toEqual(['src/api/users.ts', 'src/middleware/limit.ts']);
     expect(skill.evidence_files).not.toContain('src/config.ts');
-    expect(skill.body).not.toContain(RULE_CONFIG);
+    expect(body).toContain(RULE_EARLY);
+    expect(body).toContain(RULE_CONSTANTS);
+    expect(body).not.toContain(RULE_CONFIG);
+    // The server stores the composed text verbatim — it has no body builder of
+    // its own, so what the modal wrote is what reaches a prompt. If that ever
+    // changes, `convention_ids` stop being the only thing the server reads.
+    expect(skill.body).toBe(body);
+    // And what the body quotes is the VERIFIED evidence: the file's own lines,
+    // read back from the clone, not the re-indented snippet the model returned.
+    expect(skill.body).toContain(CLONE['src/api/users.ts']!.split('\n').slice(1, 4).join('\n'));
 
     const stored = await rowsFor(repoId);
     expect(stored.find((r) => r.id === early.id)!.skillId).toBe(skill.id);
