@@ -107,58 +107,207 @@ Mocking is a tool for isolating I/O, not for making a test pass. Flag a double w
 State the consequence: which real regression would slip past this double?`,
 };
 
-export const API_CONTRACT_COMPAT: SeedSkill = {
-  name: 'api-contract-compat',
+export const BREAKING_CHANGE: SeedSkill = {
+  name: 'breaking-change',
   description:
-    'Apply when a diff touches a route, an exported signature or a shared schema: compare the old and new shapes and classify each difference as additive or breaking.',
+    'Apply when a diff touches a request schema, an exported signature or a schema over persisted data: reconstruct the old shape from the removed lines and report every difference that makes a working caller fail.',
   type: 'rubric',
-  body: `# API contract compatibility
+  body: `# Breaking-change taxonomy
 
 Reconstruct the OLD shape from the removed (\`-\`) lines and the NEW shape from the
 added (\`+\`) lines, then classify every difference. Report only the breaking ones.
 
-## Breaking — a caller that worked now fails
+The response body has its own checklist — this one covers what goes IN (requests),
+what other code IMPORTS (signatures), and what is already WRITTEN DOWN (stored data).
 
-### Request side
+## 1. Request side — a call that was valid is now rejected
 - A field is renamed, moved, or removed.
-- An optional field becomes required.
-- A type narrows: \`string\` → enum, \`number\` → integer, a widened union reduced,
-  a new \`min\`/\`max\`/\`length\`/\`regex\` constraint on an existing field.
-- A default is removed, so an omitted value no longer resolves.
-- A path or method changes.
+- An optional field becomes required, or loses its default so an omitted value no
+  longer resolves.
+- A type narrows: \`string\` → enum, \`number\` → integer, a union with a member
+  removed, a new \`min\`/\`max\`/\`length\`/\`regex\`/\`url\` constraint on an existing field.
+- The object stops accepting unknown keys (\`.passthrough()\` → \`.strict()\`).
+- A path, method, or required header changes.
 
-### Response side
-- A field is removed or renamed.
-- A field's type changes, or a non-nullable field becomes nullable.
-- A success status code changes (200 → 201 breaks a client that checks \`=== 200\`).
-- An error shape or code changes.
+Narrowing what a service ACCEPTS is always breaking, even when every value the
+service itself PRODUCES is inside the new, narrower set. The callers are the
+population that matters, and you cannot see them.
 
-### Signature side
+## 2. Signature and export side — an importer no longer compiles
 - An exported function gains a required parameter, or its parameters reorder.
-- An exported type, enum member, or const is removed or renamed.
-- A return type narrows.
+- An exported type, interface member, enum member, or const is removed or renamed.
+- A return type narrows, or a returned union loses a member.
+- A default export becomes named, or a module's path changes.
 
-### Stored-data side
-- A schema over persisted JSON gains a required key, or a \`.nullish()\` field is
-  tightened to \`.nullable()\` or made required. Rows written before the change do
-  not carry the key and will now fail to parse.
+## 3. Stored-data side — historical rows stop parsing
+A schema over persisted JSON is also a READER of documents written months ago.
+Breaking here fails at read time, on data nobody is currently sending:
+- a required key is added, so old rows without it throw on parse;
+- \`.nullish()\` is tightened to \`.nullable()\` or to a plain required field;
+- a stored enum loses a member that existing rows still hold;
+- a field's type changes under data already committed to the column.
 
-## Additive — not a finding
-A new optional field. A new endpoint. A widened accepted range. A new enum member
-on data the service PRODUCES (but narrowing what it ACCEPTS is breaking).
-
-## The two-copy trap
+## 4. The two-copy trap
 A contract that exists in more than one file is broken when only one copy changes,
 even though the edited copy is internally consistent. In this repository the Zod
 contracts under \`vendor/shared\` are duplicated between the server and the web
-client. If the diff edits one copy, check whether its counterpart is also in the
-diff; if it is not, that is a breaking change with no visible error.
+client. If the diff edits one copy, check whether its counterpart is in the diff
+too; if it is not, that is a breaking change that produces no error at all — the
+two halves simply disagree about the shape until something explodes at runtime.
+
+The same trap fires inside one tree: a shape re-declared inline in a second
+contract file does not move when the exported one does.
+
+### Breaking
+\`\`\`ts
+// vendor/shared/contracts/webhooks.ts — edited
+export const EventName = z.enum(['invoice.paid', 'invoice.failed']);
+// the client's copy of the same file still has:
+// export const EventName = z.string();
+\`\`\`
+
+### Additive
+\`\`\`ts
+// both copies edited in the same diff, and the change only widens
+export const EventName = z.union([z.enum(['invoice.paid']), z.string()]);
+\`\`\`
+
+## Additive — not a finding
+A new optional field. A new endpoint. A widened accepted range. A relaxed
+constraint. A new enum member on data the service PRODUCES.
 
 ## For every finding, state
 1. the old shape and the new shape;
 2. the concrete caller that breaks (a request body, an import, a stored row);
-3. how it fails — 422, undefined at runtime, a type error, a parse failure on
-   historical data.`,
+3. how it fails — 422, a type error, a parse failure on historical data.`,
+};
+
+export const RESPONSE_SCHEMA: SeedSkill = {
+  name: 'response-schema',
+  description:
+    'Apply when a diff changes what an endpoint returns: check the response body, its field types, its success status code and its error shape against what callers were already reading.',
+  type: 'rubric',
+  body: `# Response schema compatibility
+
+A response is a promise. Once a field has been returned, somebody is reading it,
+and you cannot see who. Walk this list against every changed handler, return
+statement, and response schema in the diff.
+
+## 1. A field disappeared or was renamed
+The most common break, and the one most often shipped as a cleanup. A caller
+reading it gets \`undefined\` — no exception, no 4xx, just a blank in their UI or a
+crash three call-frames later. Removing a field for a good reason (it leaked a
+secret, it was redundant) does not make the removal compatible; it makes it a
+removal that needs a deprecation window.
+
+## 2. A field's type changed
+\`string\` → \`number\`, an object → an array, a scalar → a wrapper object, an id that
+was numeric now a uuid string. Anything a caller passes to \`.toFixed()\`,
+\`.length\`, or a \`===\` comparison.
+
+## 3. A non-nullable field became nullable
+\`z.string()\` → \`z.string().nullable()\` is breaking even though the field still
+exists, because every caller that dereferenced it without a guard now can. Same
+for a required field becoming optional.
+
+## 4. The success status code changed
+\`200\` → \`201\`, \`200\` → \`204\`, or a redirect where a body used to be. Clients
+that check \`res.status === 200\` treat the new code as a failure, and a \`204\` also
+removes the body they were parsing.
+
+## 5. The error shape or an error code changed
+The error path is part of the contract too: the field names inside the error
+object, the status a given failure maps to, the machine-readable \`code\`. A caller
+switching on \`err.code\` breaks silently when a code is renamed.
+
+## 6. Ordering and pagination
+A list that changes its sort, its default page size, or its envelope
+(\`items[]\` → \`{ data, cursor }\`) breaks readers even though every field survives.
+
+### Good
+\`\`\`ts
+// The field is kept and marked, and the new one is added beside it.
+return {
+  id: sub.id,
+  secret: sub.secret, // @deprecated — removed after 2026-12-01, use /secrets
+  delivery_attempts: sub.deliveryAttempts,
+};
+\`\`\`
+
+### Avoid
+\`\`\`ts
+// The field is dropped and the status changes in the same commit.
+reply.status(201);
+return { id: sub.id, events: sub.events, created_at: sub.createdAt };
+\`\`\`
+
+## For every finding, state
+the field or code that changed, what a caller reading it now receives, and whether
+the failure is loud (a rejected status check) or silent (an \`undefined\`).`,
+};
+
+export const SEMVER_DISCIPLINE: SeedSkill = {
+  name: 'semver-discipline',
+  description:
+    'Apply when a diff changes a published shape: decide whether it requires a major bump, a minor, or a patch, and flag an incompatible change that ships with no version signal at all.',
+  type: 'convention',
+  body: `# Semver discipline
+
+House convention. A shape that callers depend on carries a version, and the
+version has to move when the shape does. Once you have classified a change, ask
+the second question: **does the version say so?**
+
+## MAJOR — required
+Anything a caller must change code to survive:
+- a field removed or renamed, in a request or a response;
+- an optional request field made required, or a type narrowed;
+- a success status code or an error code changed;
+- an exported signature, type, or enum member removed or narrowed;
+- a stored format tightened against rows already written.
+
+## MINOR — enough
+Strictly additive, and old callers keep working untouched:
+- a new optional request field;
+- a new field in a response (callers ignore unknown keys);
+- a new endpoint, a new enum member on PRODUCED data, a widened accepted range;
+- a new optional parameter with a default, appended last.
+
+## PATCH — enough
+No shape change at all: a bug fix, a performance change, a doc or comment edit,
+an internal rename that no export can observe.
+
+## When there is no bump in the diff at all
+This is the common case here, and it is a finding, not an omission you can
+overlook. A breaking change with no version signal reaches consumers as a routine
+update — nothing in a lockfile, a changelog, or a CI gate distinguishes it from a
+patch. Report it as the break it is, and say plainly which of the three it needed.
+
+If the project has no version to bump (an internal service, a shared workspace
+package), the equivalent signal is a versioned route (\`/v2/…\`), a feature flag, or
+an accept-both transition period — say which one the change needs.
+
+## Do not
+- accept "it is a small change" or "nobody uses that field" as a reason to skip a
+  major bump — neither is checkable from the diff;
+- accept a major bump as a licence to break things without a migration note;
+- flag a version bump that is LARGER than the change needs. That is safe.
+
+### Good
+\`\`\`
+# 1.4.2 → 2.0.0
+BREAKING: POST /webhooks/subscriptions returns 201 instead of 200 and no longer
+returns \`secret\`. Callers reading it must call GET /subscriptions/:id/secret.
+\`\`\`
+
+### Avoid
+\`\`\`
+# 1.4.2 → 1.4.3
+chore: harden subscription validation      # narrows an enum, drops a response field
+\`\`\`
+
+## For every finding, state
+the classification (major / minor / patch), the specific change that forces it,
+and what the diff currently signals instead.`,
 };
 
 export const NO_THEN_CHAINS: SeedSkill = {
@@ -203,7 +352,9 @@ db.users.find(id).then((user) => db.posts.findMany({ userId: user.id }));
 export const SEED_SKILLS: SeedSkill[] = [
   TEST_COVERAGE_RUBRIC,
   FLAKY_TEST_SMELLS,
-  API_CONTRACT_COMPAT,
+  BREAKING_CHANGE,
+  RESPONSE_SCHEMA,
+  SEMVER_DISCIPLINE,
   NO_THEN_CHAINS,
 ];
 
@@ -211,10 +362,26 @@ export const SEED_SKILLS: SeedSkill[] = [
  * Which skills each seeded agent gets, in prompt order. `no-then-chains` is on
  * BOTH agents on purpose: one skill, two agents, edited in one place — the reuse
  * that the whole feature exists for.
+ *
+ * `deprecation-policy` is deliberately ABSENT: it ships as a markdown file in
+ * `test/fixtures/skills/`, so the demo can walk the import path (Add skill →
+ * Import file) and link it by hand. An imported skill arrives `enabled: false`
+ * with `source: 'imported_file'`, which is also the only way to see the
+ * untrusted-wrapping in a real prompt.
+ *
+ * NOTE: the linking loop in `seed.ts` skips an agent that already has ANY link,
+ * so re-seeding a database that was seeded before this change will NOT attach the
+ * three new contract skills. Attach them on the agent's Skills tab, or seed a
+ * fresh volume.
  */
 export const SEED_AGENT_SKILLS: Record<string, string[]> = {
   'Test Quality Reviewer': ['test-coverage-rubric', 'flaky-test-smells', 'no-then-chains'],
-  'API Contract Reviewer': ['api-contract-compat', 'no-then-chains'],
+  'API Contract Reviewer': [
+    'breaking-change',
+    'response-schema',
+    'semver-discipline',
+    'no-then-chains',
+  ],
 };
 
 // ---- Demo pull requests for the control experiment -------------------------

@@ -20,7 +20,8 @@ So the seeded agents are deliberately built the other way round:
 | "You review the tests in this diff" | Enumerate every branch the diff adds; find the one with no assertion |
 | Severity rubric, anti-inflation rule | The boundary-value list to check: empty, null, `0`, the limit, the limit + 1 |
 | Verdict mapping, findings discipline | The over-mocking and flakiness catalogues |
-| "You review contract changes" | The breaking-change taxonomy, and the two-copy `vendor/shared` trap |
+| "You review contract changes" | The request/signature/stored-data taxonomy, and the two-copy `vendor/shared` trap |
+| "Would a working caller still work?" | The response-shape list, the semver classification, the deprecation mechanics |
 
 Detached, the agent knows *which way to look*. Attached, it knows *what to look
 for*. That difference is the demonstration.
@@ -33,8 +34,32 @@ cd server && pnpm db:migrate && pnpm db:seed
 ```
 
 The seed creates both agents **disabled** — `Run all enabled agents` deliberately
-does not pick them up — plus the two demo PRs and the four skills. Run each agent
-by name from the Run review dropdown; a named agent runs regardless of its flag.
+does not pick them up — plus the two demo PRs and six skills. Run each agent by
+name from the Run review dropdown; a named agent runs regardless of its flag.
+
+A seventh skill, `deprecation-policy`, is **not** seeded: it ships as
+`server/test/fixtures/skills/deprecation-policy.md` so that experiment 2 can walk
+the import path. Add it with **Add skill → Import file**, then attach it on the
+agent's Skills tab. It arrives `enabled: false` with `source: imported_file`, so
+enable it before the run — and note that its body is `wrapUntrusted`-ed in the
+prompt, which is visible in the trace and is the point of importing rather than
+seeding one.
+
+> **On a database seeded before the `api-contract-compat` split, re-seeding is not
+> enough — two manual steps are needed.** `seed.ts` only ever inserts: the linking
+> loop skips any agent that already has at least one link, and nothing deletes a
+> skill that left `SEED_SKILLS`. So the old monolithic `api-contract-compat` row
+> survives, still linked, and the three new skills arrive unattached.
+>
+> 1. On **API Contract Reviewer → Skills**, untick `api-contract-compat` and tick
+>    `breaking-change`, `response-schema`, `semver-discipline`. Leaving both sets
+>    attached puts the same checklist in the prompt twice.
+> 2. Delete or disable `api-contract-compat` on `/skills` so it cannot be
+>    re-attached by accident.
+>
+> Doing this on camera is worth more than a clean seed anyway. The alternative is a
+> fresh volume — but do **not** reach for `docker compose down -v` to get one: it
+> deletes `devdigest_pgdata` along with every imported repository and review.
 
 Configure a provider key in Settings → API Keys first, or every run fails at
 "Resolving provider".
@@ -70,18 +95,25 @@ first-attempt success returns `delivered`, with the whole transport stubbed.
 **The diff.** Presented as security hygiene: tighten the subscription payload and
 stop echoing the signing secret. Every change reads like an improvement.
 
-**What a skilled reviewer should notice** — four separate breaks:
+**What a skilled reviewer should notice** — five separate breaks, and which skill
+carries the checklist that catches each:
 
-- `events: z.array(z.string())` → `z.array(EventName)` narrows an open string to a
-  four-member enum, so any other event name a caller already sends now 422s;
-- `secret: z.string().optional()` → `z.string().min(32)` makes an optional field
-  required, so every existing caller that omits it now fails;
-- the response drops `secret`, which callers were reading;
-- `200` → `201` breaks any client comparing the status exactly;
-- and in the shared contract, `Subscription.secret` is replaced by
-  `delivery_attempts` in only one of the two `vendor/shared` copies.
+| The break in PR #484 | Caught by |
+|---|---|
+| `events: z.array(z.string())` → `z.array(EventName)` narrows an open string to a four-member enum, so any other event name a caller already sends now 422s | `breaking-change` § 1 (request side — "a type narrows: `string` → enum") |
+| `secret: z.string().optional()` → `z.string().min(32)` makes an optional field required, so every existing caller that omits it now fails | `breaking-change` § 1 (optional becomes required, new `min` constraint) |
+| the response drops `secret`, which callers were reading | `response-schema` § 1 (a field disappeared) — and `deprecation-policy`, which says the security motive changes the urgency, not the mechanics: blank or rotate it in place, remove it on a window |
+| `200` → `201` breaks any client comparing the status exactly, and the diff carries no version signal at all | `semver-discipline` (major required, nothing in the diff says so) — `response-schema` § 4 also lists the status-code change itself |
+| in the shared contract, `Subscription.secret` is replaced by `delivery_attempts` in only one of the two `vendor/shared` copies | `breaking-change` § 4 (the two-copy trap) |
 
-**Procedure** — identical to experiment 1, with `api-contract-compat`.
+The overlaps are deliberate: `response-schema` classifies the status change,
+`semver-discipline` asks what the version says about it. A finding that both
+produce is still ONE finding — the agent's prompt forbids duplicates.
+
+**Procedure** — identical to experiment 1, with `breaking-change`,
+`response-schema`, `semver-discipline` and the imported `deprecation-policy`.
+Detaching all four is the "without" arm; the `no-then-chains` link can stay
+attached in both arms, since PR #484 has no promise chains for it to fire on.
 
 ## Reading the result
 

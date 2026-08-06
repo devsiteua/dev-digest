@@ -6,7 +6,7 @@
     { "cmd": ["wait", "--url", "/skills"], "label": "skills route reached" },
     { "cmd": ["wait", "--load", "networkidle"], "label": "skills fetch settles" },
     { "cmd": ["wait", "--text", "test-coverage-rubric"], "label": "a seeded skill card is visible" },
-    { "cmd": ["wait", "--text", "api-contract-compat"], "label": "a second seeded skill card is visible" },
+    { "cmd": ["wait", "--text", "breaking-change"], "label": "a second seeded skill card is visible" },
     { "cmd": ["find", "text", "test-coverage-rubric", "click"], "label": "open the skill" },
     { "cmd": ["wait", "--load", "networkidle"], "label": "skill detail fetch settles" },
     { "cmd": ["wait", "--text", "Configuration"], "label": "the editor opens on its Config tab" },

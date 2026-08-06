@@ -204,3 +204,30 @@ describe('the no-console-in-prod demo bundle', () => {
     expect(JSON.stringify(draft)).not.toContain('skill-import-must-never-execute-this');
   });
 });
+
+/**
+ * `deprecation-policy` is the fourth API-contract skill, and the only one that is
+ * NOT seeded: it ships as a markdown file so the demo can walk the import path.
+ * A warning in its preview would be the product telling the user it guessed the
+ * metadata — on the one file whose import is meant to look clean.
+ */
+describe('the deprecation-policy import fixture', () => {
+  const md = readFileSync(
+    fileURLToPath(new URL('./fixtures/skills/deprecation-policy.md', import.meta.url)),
+    'utf8',
+  );
+
+  it('parses with no warnings and keeps the good/avoid pair in the body', () => {
+    const draft = draftFromMarkdown('deprecation-policy.md', md);
+
+    expect(draft.name).toBe('deprecation-policy');
+    expect(draft.description).toMatch(/^Apply when/);
+    expect(draft.warnings).toEqual([]);
+    expect(draft.ignored_files).toEqual([]);
+    // The homework's own requirement: every contract skill shows both sides.
+    expect(draft.body).toContain('### Good');
+    expect(draft.body).toContain('### Avoid');
+    // The frontmatter is consumed, not left at the top of the prompt block.
+    expect(draft.body.startsWith('# Deprecation policy')).toBe(true);
+  });
+});

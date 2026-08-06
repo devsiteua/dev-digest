@@ -557,7 +557,7 @@ d('L02 skills (Testcontainers pg)', () => {
 
   // ---- Seed ---------------------------------------------------------------
 
-  it('seeds four skills and two disabled skill-driven agents', async () => {
+  it('seeds six skills and two disabled skill-driven agents', async () => {
     const { db } = pg.handle;
 
     const names = (
@@ -566,13 +566,30 @@ d('L02 skills (Testcontainers pg)', () => {
     for (const expected of [
       'test-coverage-rubric',
       'flaky-test-smells',
-      'api-contract-compat',
+      'breaking-change',
+      'response-schema',
+      'semver-discipline',
       'no-then-chains',
     ]) {
       expect(names).toContain(expected);
     }
+    // `deprecation-policy` is the import-path skill: it lives in
+    // `test/fixtures/skills/` and must NOT arrive through the seed.
+    expect(names).not.toContain('deprecation-policy');
 
-    for (const agentName of ['Test Quality Reviewer', 'API Contract Reviewer']) {
+    // The link set IS the control experiment: an agent whose prompt holds only
+    // the role is only as good as the checklists attached here, in this order.
+    const expectedLinks: Record<string, string[]> = {
+      'Test Quality Reviewer': ['test-coverage-rubric', 'flaky-test-smells', 'no-then-chains'],
+      'API Contract Reviewer': [
+        'breaking-change',
+        'response-schema',
+        'semver-discipline',
+        'no-then-chains',
+      ],
+    };
+
+    for (const [agentName, expectedSkills] of Object.entries(expectedLinks)) {
       const [agent] = await db
         .select()
         .from(t.agents)
@@ -582,10 +599,12 @@ d('L02 skills (Testcontainers pg)', () => {
       expect(agent!.enabled).toBe(false);
 
       const links = await db
-        .select({ order: t.agentSkills.order })
+        .select({ order: t.agentSkills.order, name: t.skills.name })
         .from(t.agentSkills)
+        .innerJoin(t.skills, eq(t.skills.id, t.agentSkills.skillId))
         .where(eq(t.agentSkills.agentId, agent!.id));
-      expect(links.length).toBeGreaterThan(0);
+      // `order` is the position of the block in the assembled prompt.
+      expect(links.sort((a, b) => a.order - b.order).map((l) => l.name)).toEqual(expectedSkills);
     }
 
     // "Run all" resolves through `enabled`, so the seed must not add to that set.

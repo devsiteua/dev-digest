@@ -228,6 +228,33 @@ Status:   → promoted to `CLAUDE.md` (Gotchas) on 2026-08-06, after the L02 con
 
 ## Tool & Library Notes
 
+### 2026-08-06 · `seed.ts` never converges on rename: a skill dropped from `SEED_SKILLS` survives, still linked, and its checklist is still in the prompt
+
+Trigger:  splitting the seeded `api-contract-compat` skill into `breaking-change` /
+          `response-schema` / `semver-discipline`, and asking what `pnpm db:seed` does to a
+          machine that already ran the old seed
+Cause:    the seed is insert-only in **both** halves, and each half fails differently. The
+          skill loop is guarded on *that skill's own absence*, so the three new rows do
+          appear — but nothing deletes the row whose constant was removed, because the loop
+          never enumerates what is in the table. The link loop is guarded on the agent having
+          **no links at all** (`if (existingLinks.length > 0) continue`), so an agent that
+          already carries one link gets none of the new ones. Net effect on a dev DB: the old
+          monolithic skill is still attached and still enabled, the three replacements sit
+          unattached on `/skills`, and the demo runs on exactly the prompt it was supposed to
+          stop using — with no error anywhere. Fresh volumes and CI (`skills.it.test.ts` seeds
+          an empty database) both look green, so nothing catches it.
+Takeaway: the entry below classifies seed additions into "needs a fresh volume" and "upgrades
+          in place". RENAMES are a third class that neither guard handles, and re-seeding
+          cannot fix: write the manual steps into the doc that drives the demo
+          (untick the old link, delete the old skill) rather than assuming `pnpm db:seed`
+          converges. `docker compose down -v` is not the escape — it takes every imported
+          repository with it. The same shape applies to any seeded row keyed by NAME:
+          `SEED_AGENT_SKILLS`, `seedAgents`, `SEED_DEMO_PRS`.
+Evidence: server/src/db/seed.ts (the `SEED_SKILLS` loop and the `existingLinks.length > 0`
+          guard); docs/skills-control-experiment.md § Setup
+Status:   open — a "delete rows whose name left the constant" pass would fix it properly, but
+          it would also delete a user's hand-edited copy of a seeded skill
+
 ### 2026-08-06 · `StructuredRequest.timeoutMs` is a no-op on OpenRouter — the timeout is fixed when the client is constructed
 
 Trigger:  the conventions extractor holds an HTTP request open for its single model call, so it
