@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import type { Skill } from "@devdigest/shared";
 import { filterSkills } from "./helpers";
 
+/** The filter is shared by the `/skills` tile grid and the `/skills/:id` rail. */
+
 const skill = (name: string, description: string): Skill => ({
   id: name,
   name,

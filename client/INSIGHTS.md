@@ -7,6 +7,23 @@ see the root [`../INSIGHTS.md`](../INSIGHTS.md).
 
 ## What Works
 
+### 2026-08-06 · A screen-level component test has to stub `components/app-shell`
+
+Trigger:  first tests for `SkillsListView` / `SkillsRail` — components that render a whole
+          route, not a leaf. Every earlier component test stopped below the shell.
+Cause:    `<AppShell>` reads far more than its `{children, crumb}` props suggest:
+          `useShellContext` pulls `useActiveRepo`, `useTheme` and `usePulls(repoId)`
+          (`components/app-shell/hooks/useShellContext.ts:22-29`), so rendering it drags in
+          the repo provider, the theme provider, a QueryClient and the `shell` message
+          namespace — none of which the screen under test is about.
+Takeaway: `vi.mock("…/components/app-shell", () => ({ AppShell: ({children}) => <div>{children}</div> }))`
+          and keep the test on the screen's own content. Same rule of thumb as the hook
+          mocks below: stub at the seam, do not assemble the app. Pair it with mocking the
+          route's hook module — and add the drawer/modal hooks a screen imports but does not
+          render, or the module mock leaves those bindings undefined.
+Evidence: src/app/skills/_components/SkillsListView/SkillsListView.test.tsx
+Status:   resolved
+
 ### 2026-08-01 · Component tests mock the hook module, not `fetch`
 
 Trigger:  deciding how to isolate a component that loads data
