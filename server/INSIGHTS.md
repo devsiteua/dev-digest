@@ -40,6 +40,47 @@ Status:   → promoted to `CLAUDE.md` (Gotchas)
 
 ## Codebase Patterns
 
+### 2026-08-06 · `no-cross-module-import` is a WARNING, so the onion guard exits 0 on the violation it is named for
+
+Trigger:  the conventions service needs three things another module owns — `SkillsService`,
+          `getFeatureModelOverride`, and (nearly) `modules/skills/constants.ts` — and the
+          obvious import compiles and passes `pnpm arch:check`
+Cause:    that rule alone is `severity: 'warn'`; every other rule in
+          `.dependency-cruiser-onion.cjs` is `error`. depcruise's exit code counts ERRORS, so
+          a planted `modules/__probe/service.ts → modules/settings/feature-models.ts` printed
+          `x 1 dependency violations (0 errors, 1 warnings)` and still exited **0**. CI would
+          have stayed green; only the "✔ no dependency violations found" line changes, and
+          only for whoever reads the output. The baseline confirms the drift is real —
+          `modules/repos/service.ts → ../repo-intel/constants.js` is already frozen in it.
+Takeaway: treat that warning as an error by hand, because nothing else will. The remedy the
+          rule's own comment names is the container: `container.skillsService` and
+          `container.featureModelOverride()` were added for exactly this, so
+          `modules/conventions/**` imports NOTHING from a sibling module. `platform/` is the
+          composition root and is free to import both. Corollary for reviews: a green
+          `arch:check` does not mean no new cross-module import — read the line, do not trust
+          the exit code.
+Evidence: server/.dependency-cruiser-onion.cjs (no-cross-module-import);
+          server/src/platform/container.ts (skillsService, featureModelOverride)
+Status:   open — the warn severity is deliberate, so this needs a human every time
+
+### 2026-08-06 · A `ContainerOverrides` field typed as a service CLASS cannot be overridden by anything
+
+Trigger:  adding `conventions` to `ContainerOverrides` so a test (or a browser flow that must
+          never reach a model) can stand in a stub
+Cause:    TypeScript compares classes with `private` members nominally — a private field makes
+          the type satisfiable only by instances of that exact class. `conventions?:
+          ConventionsService` therefore types a field whose only legal value is a real
+          `ConventionsService`, which is not an override at all. Every existing override in
+          that interface happens to be a port INTERFACE (`GitClient`, `RepoIntel`, …), so the
+          trap never surfaced before a service was brokered there.
+Takeaway: expose the verbs, not the class: `export type ConventionsApi = Pick<ConventionsService,
+          'extract' | 'list' | 'update' | 'createSkill'>`, and type both the override and the
+          getter with it. A dedicated interface file (repo-intel's `types.ts`) is the heavier
+          alternative and buys nothing until a second implementation exists.
+Evidence: server/src/modules/conventions/service.ts (ConventionsApi);
+          server/src/platform/container.ts (ContainerOverrides.conventions)
+Status:   resolved
+
 ### 2026-08-06 · The conventions prompt and the verifier's sample map are two lists that must agree — and only one of them is observable
 
 Trigger:  writing `buildSamplePrompt` with a `MAX_PROMPT_CHARS` backstop, while `verifyCandidates`

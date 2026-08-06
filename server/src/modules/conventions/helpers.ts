@@ -1,5 +1,7 @@
+import { z } from 'zod';
 import { wrapUntrusted } from '@devdigest/reviewer-core';
-import type { ConventionDiscard } from '@devdigest/shared';
+import type { ConventionCandidate, ConventionDiscard, ConventionStatus } from '@devdigest/shared';
+import type { ConventionRow } from '../../db/rows.js';
 import {
   MAX_CANDIDATES,
   MAX_PROMPT_CHARS,
@@ -39,16 +41,35 @@ export interface SampleFile {
  * `repo_id`, no `status` yet, and the line numbers are the model's claim rather
  * than a verified fact — which is why they are `start_line`/`end_line` here and
  * `evidence_start_line`/`evidence_end_line` only after they have been checked.
+ *
+ * The field names are also the ones `instructions()` below asks for by name, so
+ * the type, the JSON schema sent to the provider, and the prompt are one
+ * declaration rather than three that can drift apart.
  */
-export interface ExtractedRule {
-  rule: string;
-  category: string;
-  evidence_path: string;
-  evidence_snippet: string;
-  start_line: number;
-  end_line: number;
-  confidence: number;
-}
+export const ExtractedRuleSchema = z.object({
+  rule: z.string(),
+  category: z.string(),
+  evidence_path: z.string(),
+  evidence_snippet: z.string(),
+  start_line: z.number().int(),
+  end_line: z.number().int(),
+  confidence: z.number().min(0).max(1),
+});
+export type ExtractedRule = z.infer<typeof ExtractedRuleSchema>;
+
+/**
+ * The whole model reply of one extraction pass — `schemaName:
+ * 'ConventionExtraction'`, and the only structured call the feature makes.
+ *
+ * Deliberately loose about quality and strict about shape: every rule that comes
+ * back is parsed, and `verifyCandidates` is what decides which of them are
+ * allowed to exist. Rejecting the entire reply because one rule of twenty cited
+ * a bad line number would turn a partial result into no result.
+ */
+export const ExtractionReplySchema = z.object({
+  candidates: z.array(ExtractedRuleSchema),
+});
+export type ExtractionReply = z.infer<typeof ExtractionReplySchema>;
 
 /** A rule whose evidence was found on disk, ready to be persisted as a row. */
 export interface VerifiedCandidate {
@@ -65,6 +86,25 @@ export interface VerifiedCandidate {
 export type VerifyResult =
   | { ok: true; snippet: string; startLine: number; endLine: number }
   | { ok: false; reason: string };
+
+// ---- DTO mapping -----------------------------------------------------------
+
+export function toConventionDto(row: ConventionRow): ConventionCandidate {
+  return {
+    id: row.id,
+    repo_id: row.repoId,
+    rule: row.rule,
+    category: row.category,
+    evidence_path: row.evidencePath,
+    evidence_snippet: row.evidenceSnippet,
+    evidence_start_line: row.evidenceStartLine,
+    evidence_end_line: row.evidenceEndLine,
+    confidence: row.confidence,
+    status: row.status as ConventionStatus,
+    skill_id: row.skillId ?? null,
+    created_at: row.createdAt.toISOString(),
+  };
+}
 
 // ---- Prompt ----------------------------------------------------------------
 
@@ -212,8 +252,15 @@ export function normalizeRule(rule: string): string {
   return `${(boundary > 0 ? head.slice(0, boundary) : head).replace(/[\s,;:.]+$/, '')}…`;
 }
 
-/** Dedupe key: what is left of a rule once wording and punctuation stop mattering. */
-function ruleKey(rule: string): string {
+/**
+ * Dedupe key: what is left of a rule once wording and punctuation stop mattering.
+ *
+ * Exported because a re-scan needs the same key for a different question — "has
+ * the user already decided about this rule?" — and two notions of sameness would
+ * mean a rule that survives deduplication inside one pass can still come back
+ * from the dead across passes.
+ */
+export function ruleKey(rule: string): string {
   return rule
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s]/gu, ' ')

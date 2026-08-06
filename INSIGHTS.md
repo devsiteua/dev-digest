@@ -301,6 +301,28 @@ Status:   resolved — guarded by the legacy-stats fixture test
 
 ## Tool & Library Notes
 
+### 2026-08-06 · `StructuredRequest.timeoutMs` is a no-op on OpenRouter — the timeout is fixed when the client is constructed
+
+Trigger:  the conventions extractor holds an HTTP request open for its single model call, so it
+          asks for a generous `timeoutMs` (180 s) instead of the 60 s adapter default
+Cause:    only `adapters/llm/{openai,anthropic}.ts` read `req.timeoutMs` (`withTimeout(...,
+          req.timeoutMs ?? DEFAULT_TIMEOUT)`). `OpenRouterProvider` passes `opts.timeoutMs ??
+          90_000` to the OpenAI SDK **constructor** and never looks at the request field —
+          and `Container.buildLlm` builds it without `timeoutMs`. So on the provider that
+          serves every default model in this repo (`openrouter / deepseek-v4-flash`), the real
+          ceiling is 90 s per attempt × the SDK's 2 retries, whatever the caller asked for.
+          The port declares the field for all three providers, which is what makes it look
+          honoured.
+Takeaway: a per-request timeout only binds on OpenAI/Anthropic. To change it for OpenRouter,
+          pass `timeoutMs` where `container.buildLlm` constructs the provider — a per-call
+          value would need the provider to apply it per request (`this.client.withOptions`),
+          which it does not do today. Same asymmetry applies to `maxRetries`: OpenRouter reads
+          `req.maxRetries` for SCHEMA reprompts, while network retries come from the SDK
+          constructor.
+Evidence: reviewer-core/src/llm/openrouter.ts:54; server/src/adapters/llm/openai.ts:66;
+          server/src/platform/container.ts (buildLlm); server/src/modules/conventions/constants.ts
+Status:   open — documented in the L02 spec's Risks; fix only if a scan actually times out
+
 ### 2026-08-06 · Drizzle's `text(name, { enum })` emits a bare `text` column — widening an enum needs no migration
 
 Trigger:  L02 needed a fifth `SkillSource` (`imported_file`) and the plan budgeted a migration

@@ -26,6 +26,12 @@ export interface InsertSkill {
   source: SkillSource;
   body: string;
   enabled?: boolean;
+  /**
+   * Files whose lines the body was derived from. Only an `extracted` skill has
+   * these — it is the provenance the Skills screen shows next to the badge, and
+   * the reason `skills.evidence_files` existed before anything wrote to it.
+   */
+  evidenceFiles?: string[];
 }
 
 export interface UpdateSkill {
@@ -91,6 +97,7 @@ export class SkillsRepository {
         body: values.body,
         enabled: values.enabled ?? true,
         version: INITIAL_SKILL_VERSION,
+        ...(values.evidenceFiles !== undefined ? { evidenceFiles: values.evidenceFiles } : {}),
       })
       .returning();
     await this.snapshotVersion(row!.id, INITIAL_SKILL_VERSION, row!.body);

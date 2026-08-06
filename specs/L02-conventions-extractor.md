@@ -65,6 +65,9 @@ Prompt/trust rules the merged skill inherits: `docs/agent-prompts/README.md`
 - Schema: `accepted boolean` → `status text`, plus `category`,
   `evidence_start_line`, `evidence_end_line`, `created_at`, `skill_id`, a
   `(workspace_id, repo_id)` index, and NOT NULL on the evidence columns.
+- Seed: three `pending` candidates for `acme/payments-api`, so the screen has a
+  populated state on a seeded database — no index, no provider key, no model
+  call. Guarded on their own absence, not on the demo PR's.
 - Client: route `/repos/[repoId]/conventions`, a `NAV` entry with `href` +
   `gKey`, `lib/hooks/conventions.ts`, the candidate list with accept/reject/edit,
   and the merge-to-skill modal. `messages/en/conventions.json` extended where the
@@ -134,6 +137,24 @@ needed to demonstrate the feature.
   ships with the result. Three candidates with no explanation reads as "this repo
   has three conventions"; three candidates next to seventeen discards reads as
   what it is.
+- **An unindexed repo is a 422 with an instruction, not an empty screen.**
+  This spec first said the degraded path should render the empty state. It
+  should not. `getConventionSamples` returns `[]` both for "indexed, nothing
+  worth sampling" and for "never indexed" — and the second is the common one.
+  Answering a deliberate click on *Run extraction* with "No conventions
+  extracted yet" describes the outcome and hides the cause; the user's next
+  action is to index the repo, and nothing on that screen would say so. So the
+  service throws a `ValidationError` naming the repo and the fix. The property
+  that actually mattered is kept and tested: **no model call is made**, and
+  nothing is written. The empty state still belongs to the other empty case —
+  an indexed repo with no stored candidates, which is what `GET` returns before
+  the first scan.
+- **Extraction is synchronous.** One call to a cheap model against a sample that
+  code already chose, with no partial output worth streaming — a `JobRunner` job
+  would add a status row and a polling loop, and SSE would add a subscription,
+  to something with a single step. The microcopy already agrees
+  (`conventions.json` has `page.scanning` = "Scanning…", a blocking state, not a
+  live log). The cost is a long-held request; see Risks.
 - **One merged skill, `repo-conventions`.** A skill per rule would multiply the
   prompt-block count by ten and make `MAX_SKILLS_CHARS` the thing that decides
   which house rules an agent sees. One skill also matches the design's modal,
@@ -188,33 +209,34 @@ needed to demonstrate the feature.
 
 ## Acceptance criteria
 
-- [ ] Running extraction on an indexed repo returns candidates, the list of files
+- [x] Running extraction on an indexed repo returns candidates, the list of files
       sampled, and every discarded rule with its reason.
-- [ ] Exactly one `completeStructured` call is made per extraction, with
+- [x] Exactly one `completeStructured` call is made per extraction, with
       `schemaName: 'ConventionExtraction'`.
-- [ ] With no workspace override, the call uses the module's cheap default, not
+- [x] With no workspace override, the call uses the module's cheap default, not
       the `gpt-5.4` registry default; setting `feature_models.conventions` in
       Settings changes the model actually used.
-- [ ] A candidate whose `evidence_path` is not among the sampled files is
+- [x] A candidate whose `evidence_path` is not among the sampled files is
       discarded, and appears in `discarded` with a reason.
-- [ ] The stored `evidence_snippet` equals the file's lines
+- [x] The stored `evidence_snippet` equals the file's lines
       `[evidence_start_line, evidence_end_line]`, even when the model returned
       different text for them.
-- [ ] Accept / reject / reword each persist, and a rejected candidate does not
+- [x] Accept / reject / reword each persist, and a rejected candidate does not
       reappear after a re-scan.
-- [ ] Merging accepted candidates creates one skill named `repo-conventions`
+- [x] Merging accepted candidates creates one skill named `repo-conventions`
       with `source='extracted'`, `evidence_files` listing their paths, and each
       merged candidate carrying the new `skill_id`.
-- [ ] `POST /repos/:id/conventions/skill` ignores a `source` sent in the body.
-- [ ] **Degraded path:** an unindexed repo (or `repoIntelEnabled=false`) yields
-      an empty sample, no model call, and the screen's empty state — not an error.
-- [ ] **Degraded path:** a model reply in which every rule fails verification
+- [x] `POST /repos/:id/conventions/skill` ignores a `source` sent in the body.
+- [x] **Degraded path:** an unindexed repo (or `repoIntelEnabled=false`) yields
+      an empty sample, **no model call**, nothing written, and a 422 that says to
+      index the repo first — see Decisions for why this is not the empty state.
+- [x] **Degraded path:** a model reply in which every rule fails verification
       persists nothing and returns all of them as `discarded`.
-- [ ] Every route is workspace-scoped; a foreign `repo_id` or `convention_id` is
+- [x] Every route is workspace-scoped; a foreign `repo_id` or `convention_id` is
       a 404.
-- [ ] **Regression:** `pnpm arch:check` is green and the known-violations
+- [x] **Regression:** `pnpm arch:check` is green and the known-violations
       baseline is unchanged.
-- [ ] **Regression:** both `vendor/shared/contracts/knowledge.ts` copies are
+- [x] **Regression:** both `vendor/shared/contracts/knowledge.ts` copies are
       byte-identical.
 - [ ] **Regression:** an agent with no skills still produces a byte-identical
       prompt; the merged skill reaches a prompt only once attached and enabled.
@@ -226,7 +248,11 @@ needed to demonstrate the feature.
   `ConventionSkillRequest` stripping `source` and refusing an empty
   `convention_ids`. `test/conventions-helpers.test.ts`: the line-range slice
   (1-based, clamped, empty range), the evidence check (path not sampled, range
-  past EOF, whitespace-only slice), and the merged skill body builder.
+  past EOF, whitespace-only slice). There is no merged-skill *body* builder on
+  the server: the modal composes that text and the user edits it before
+  `POST .../skill` receives it. What the server decides — and what the
+  integration test pins — is `source`, `evidence_files`, and which candidates
+  are eligible at all.
 - **server `*.it.test.ts`** — `test/conventions.it.test.ts` with
   `MockLLMProvider`: one call and its `schemaName`; the model choice with and
   without a workspace override; persistence and `GET`; `PATCH` transitions;
@@ -254,6 +280,17 @@ needed to demonstrate the feature.
 - **`messages/en/conventions.json` predates the merged-skill decision.** It has
   `card.acceptAsSkill` on every card, from a design where each candidate became
   its own skill. Using those strings as-is would describe the wrong flow.
+- **A slow model turns into a long request.** Extraction blocks the HTTP call it
+  arrived on, so the wall-clock of the model call is the wall-clock of the
+  request, and "Scanning…" is what the user sees for all of it. The per-request
+  ceiling is `EXTRACTION_TIMEOUT_MS` (180 s), but it only binds on the OpenAI
+  and Anthropic adapters — `OpenRouterProvider`, which serves the module's
+  default model, fixes a 90 s timeout on its SDK client at construction and
+  ignores `req.timeoutMs`. So the real ceiling on the default path is 90 s per
+  attempt, times the SDK's two retries. A model slower than that fails the scan
+  rather than degrading it; raising it means passing `timeoutMs` where the
+  container builds the provider. If this becomes routine rather than
+  pathological, the answer is a job plus SSE, not a bigger number.
 - **A cheap model on a large sample is still a real bill.** The sample size is a
   module constant and the route is rate-limited; the run's cost is reported the
   same way a review's is.

@@ -108,6 +108,35 @@ export class SkillsService {
   }
 
   /**
+   * Persist a skill merged from extracted conventions. Always
+   * `source: 'extracted'`, and `evidence_files` records which files the rules
+   * were read out of.
+   *
+   * Unlike an import, `enabled` is the caller's: the user has just read every
+   * rule that went into this body and clicked accept on each one, which is the
+   * review step the import flow has to defer. The body is still generated text,
+   * so `'extracted'` still gets it delimiter-wrapped at prompt assembly.
+   */
+  async createFromConventions(
+    workspaceId: string,
+    input: CreateSkillInput & { evidenceFiles: string[] },
+  ): Promise<Skill> {
+    this.assertBodyFits(input.body);
+    await this.assertNameFree(workspaceId, input.name);
+    const row = await this.repo.insert({
+      workspaceId,
+      name: input.name,
+      description: input.description,
+      type: input.type,
+      source: 'extracted',
+      body: input.body,
+      enabled: input.enabled ?? true,
+      evidenceFiles: input.evidenceFiles,
+    });
+    return toSkillDto(row);
+  }
+
+  /**
    * `source` is intentionally absent from the patch type. Allowing an edit to
    * relabel an imported skill as `manual` would strip its untrusted wrapping
    * after the fact, which is exactly the bypass `create` avoids.

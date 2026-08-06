@@ -458,6 +458,65 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
     }
   }
 
+  // ---- L02: demo convention candidates ----
+  // Three `pending` rules for the seeded repo, so the conventions screen has a
+  // populated state — cards, evidence, confidence bars, accept/reject — without
+  // an indexed clone, a provider key, or a billable model call. Everything a
+  // real pass produces is here except the pass: the paths are the seeded PR's
+  // files and the snippets are the lines the rules are supposed to have been
+  // read out of.
+  //
+  // Guarded on the candidates' OWN absence rather than inside the `if (!pr)`
+  // block above, so an already-seeded dev database picks them up without
+  // dropping the volume (`INSIGHTS.md`, 2026-08-02).
+  const existingConventions = await db
+    .select({ id: t.conventions.id })
+    .from(t.conventions)
+    .where(and(eq(t.conventions.workspaceId, workspaceId), eq(t.conventions.repoId, repoId)));
+  if (existingConventions.length === 0) {
+    await db.insert(t.conventions).values([
+      {
+        workspaceId,
+        repoId,
+        rule: 'Name module-level constants in SCREAMING_SNAKE_CASE and export them from the module that uses them',
+        category: 'naming',
+        evidencePath: 'src/middleware/ratelimit.ts',
+        evidenceStartLine: 12,
+        evidenceEndLine: 14,
+        evidenceSnippet:
+          'export const WINDOW_SECONDS = 3600;\nexport const MAX_REQUESTS = 100;\nexport const BURST_ALLOWANCE = 20;',
+        confidence: 0.88,
+        status: 'pending',
+      },
+      {
+        workspaceId,
+        repoId,
+        rule: 'Return early with a typed error instead of nesting the happy path',
+        category: 'error-handling',
+        evidencePath: 'src/api/public/webhooks.ts',
+        evidenceStartLine: 61,
+        evidenceEndLine: 64,
+        evidenceSnippet:
+          "  if (!signature) {\n    throw new UnauthorizedError('Missing webhook signature');\n  }\n  const event = verifySignature(signature, rawBody);",
+        confidence: 0.81,
+        status: 'pending',
+      },
+      {
+        workspaceId,
+        repoId,
+        rule: 'Read every environment variable in src/config.ts and import the config object elsewhere',
+        category: 'structure',
+        evidencePath: 'src/config.ts',
+        evidenceStartLine: 8,
+        evidenceEndLine: 11,
+        evidenceSnippet:
+          'export const config = {\n  port: Number(process.env.PORT ?? 3000),\n  redisUrl: process.env.REDIS_URL,\n};',
+        confidence: 0.74,
+        status: 'pending',
+      },
+    ]);
+  }
+
   // NOTE: deliberately no `lastReviewedSha` on the demo PR. Setting it would flip
   // deriveReviewStatus to `reviewed`, and the PR list opens on the `needs_review`
   // filter — the demo PR would vanish from the list it is meant to demonstrate.

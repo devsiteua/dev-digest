@@ -5,6 +5,8 @@ import type {
   GitClient,
   CodeIndex,
   Embedder,
+  FeatureModelChoice,
+  FeatureModelId,
   LLMProvider,
 } from '@devdigest/shared';
 import type { AppConfig } from './config.js';
@@ -25,7 +27,10 @@ import { PriceBook } from './price-book.js';
 import { ConfigError } from './errors.js';
 import { AgentsRepository } from '../modules/agents/repository.js';
 import { SkillsRepository } from '../modules/skills/repository.js';
+import { SkillsService } from '../modules/skills/service.js';
 import { ReviewRepository } from '../modules/reviews/repository.js';
+import { ConventionsService, type ConventionsApi } from '../modules/conventions/service.js';
+import { getFeatureModelOverride } from '../modules/settings/feature-models.js';
 import type { RepoIntel } from '../modules/repo-intel/types.js';
 import { RepoIntelService } from '../modules/repo-intel/service.js';
 import { type DepGraph, DepCruiseGraph } from '../adapters/depgraph/index.js';
@@ -52,6 +57,12 @@ export interface ContainerOverrides {
   /** repo-intel T3 adapters — only the indexer pipeline reads these. */
   depgraph?: DepGraph;
   tokenizer?: Tokenizer;
+  /**
+   * Conventions extractor (L02). Injected as the four-verb API rather than the
+   * class so a test can stand in a stub — e.g. a browser flow that renders the
+   * screen must never reach a model.
+   */
+  conventions?: ConventionsApi;
 }
 
 export class Container {
@@ -73,6 +84,8 @@ export class Container {
   // `container.agentsRepo` instead of reaching into another module's folder.
   private _agentsRepo?: AgentsRepository;
   private _skillsRepo?: SkillsRepository;
+  private _skillsService?: SkillsService;
+  private _conventions?: ConventionsApi;
   private _reviewRepo?: ReviewRepository;
   private _repoIntel?: RepoIntel;
   private _depgraph?: DepGraph;
@@ -102,8 +115,42 @@ export class Container {
     return (this._skillsRepo ??= new SkillsRepository(this.db));
   }
 
+  /**
+   * The skills application layer, brokered here because a second module now
+   * creates skills. The conventions extractor needs `source` stamping, the name
+   * check and the body ceiling to stay where they are — one module owns what a
+   * skill is allowed to be — and reaching into `modules/skills/` from
+   * `modules/conventions/` is the cross-module import the onion guard warns
+   * about. Same argument as `agentsRepo` above.
+   */
+  get skillsService(): SkillsService {
+    return (this._skillsService ??= new SkillsService(this));
+  }
+
+  get conventions(): ConventionsApi {
+    if (this.overrides.conventions) return this.overrides.conventions;
+    this._conventions ??= new ConventionsService(this);
+    return this._conventions;
+  }
+
   get reviewRepo(): ReviewRepository {
     return (this._reviewRepo ??= new ReviewRepository(this.db));
+  }
+
+  /**
+   * The workspace's per-feature model choice, or `undefined` when it has not
+   * picked one — brokered for the same reason as `skillsService`.
+   *
+   * Deliberately the OVERRIDE and not `resolveFeatureModel`: a caller that keeps
+   * its own default (conventions does, and it is the first caller anywhere) must
+   * not silently inherit the registry's, which for `conventions` is the priciest
+   * model in the file. See `modules/settings/feature-models.ts:30-35`.
+   */
+  async featureModelOverride(
+    workspaceId: string,
+    id: FeatureModelId,
+  ): Promise<FeatureModelChoice | undefined> {
+    return getFeatureModelOverride(this, workspaceId, id);
   }
 
   get codeIndex(): CodeIndex {
