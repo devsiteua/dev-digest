@@ -194,15 +194,112 @@ export const SkillDraft = z.object({
 export type SkillDraft = z.infer<typeof SkillDraft>;
 
 // ---- Conventions ----
+/**
+ * Where a candidate sits in the review loop. This replaces the original
+ * `accepted: boolean`, which could not tell "nobody has looked at it yet" apart
+ * from "somebody looked and said no" — two states the extractor screen has to
+ * render differently, and two states a re-scan must treat differently (a
+ * rejected rule should not come back as new).
+ */
+export const ConventionStatus = z.enum(['pending', 'accepted', 'rejected']);
+export type ConventionStatus = z.infer<typeof ConventionStatus>;
+
+/**
+ * One house rule the extractor believes it found, with the evidence that
+ * grounds it.
+ *
+ * The evidence is NOT the model's word for it. `evidence_path` must be one of
+ * the files the sampler picked, and `evidence_snippet` is re-read from that file
+ * in the clone at `[evidence_start_line, evidence_end_line]` — so what the UI
+ * shows as proof is what is actually on disk, not what the model wrote down.
+ * That is also why the range is two integer fields rather than being baked into
+ * the path as `src/api/users.ts:23-31`: code has to slice with it, and only the
+ * UI ever renders it back as one string.
+ */
 export const ConventionCandidate = z.object({
   id: z.string(),
+  repo_id: z.string(),
   rule: z.string(),
+  /**
+   * The theme of the rule — naming, error-handling, structure, imports, typing,
+   * async, … Deliberately a free-form string and not an enum: the model coins
+   * the label, and a closed list would silently drop a good rule whose category
+   * we had not thought of. Grouping in the UI is by whatever came back.
+   */
+  category: z.string(),
   evidence_path: z.string(),
   evidence_snippet: z.string(),
+  evidence_start_line: z.number().int(),
+  evidence_end_line: z.number().int(),
   confidence: z.number().min(0).max(1),
-  accepted: z.boolean(),
+  status: ConventionStatus,
+  /** The merged skill this candidate ended up in, or null while it is in none. */
+  skill_id: z.string().nullable(),
+  created_at: z.string(),
 });
 export type ConventionCandidate = z.infer<typeof ConventionCandidate>;
+
+/** A rule the model proposed and the evidence check threw away, with the reason. */
+export const ConventionDiscard = z.object({
+  rule: z.string(),
+  reason: z.string(),
+});
+export type ConventionDiscard = z.infer<typeof ConventionDiscard>;
+
+/**
+ * The outcome of one extraction pass.
+ *
+ * `sampled_files` and `discarded` are not diagnostics — they are the answer to
+ * "why is this list so short?". A pass that silently returned three candidates
+ * out of twenty proposed rules reads as "the repo has three conventions"; naming
+ * what was sampled and what failed grounding is what makes it readable as
+ * "seventeen rules had no evidence in these files".
+ */
+export const ConventionExtractResult = z.object({
+  candidates: z.array(ConventionCandidate),
+  sampled_files: z.array(z.string()),
+  discarded: z.array(ConventionDiscard),
+});
+export type ConventionExtractResult = z.infer<typeof ConventionExtractResult>;
+
+/**
+ * A partial edit of one candidate: fix the wording, re-file it under another
+ * category, or move it through the accept/reject loop. Every field is optional
+ * because the screen sends whichever one control the user touched.
+ *
+ * Evidence is NOT editable. It was verified against the file on disk, and a
+ * hand-typed snippet would still be labelled "detected in" — so the only way to
+ * change it is another extraction pass.
+ */
+export const ConventionUpdate = z.object({
+  rule: z.string().min(1).optional(),
+  category: z.string().min(1).optional(),
+  status: ConventionStatus.optional(),
+});
+export type ConventionUpdate = z.infer<typeof ConventionUpdate>;
+
+/**
+ * Merge the accepted candidates of one repo into a single skill.
+ *
+ * Bounded to what `POST /skills` accepts, for the same reason `SkillDraft` is —
+ * a body the skills layer would reject is worse than none, because the user has
+ * already reviewed and approved it by then.
+ *
+ * Has NO `source` and no `id`: the server stamps `'extracted'` and fills
+ * `evidence_files` from `convention_ids`. Accepting `source` from the body would
+ * let a caller label generated text `'manual'` and skip the untrusted wrapping
+ * the whole trust model rests on (see `SkillSource` above).
+ */
+export const ConventionSkillRequest = z.object({
+  name: z.string().min(1).max(80),
+  description: z.string().max(500),
+  type: SkillType,
+  enabled: z.boolean(),
+  body: z.string().min(1),
+  /** Which candidates were merged — they get stamped with the new skill's id. */
+  convention_ids: z.array(z.string()).min(1),
+});
+export type ConventionSkillRequest = z.infer<typeof ConventionSkillRequest>;
 
 // ---- Agents ----
 // 'openrouter' routes through the OpenAI-compatible API (OpenAIProvider with a

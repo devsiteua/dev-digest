@@ -29,7 +29,7 @@ lesson starts, not upfront.
 | Lesson | Scope | Spec |
 |--------|-------|------|
 | L01 | Run cost badge · severity counters and filter on findings | [`L01-run-cost.md`](L01-run-cost.md) `done` · [`findings-severity-filter.md`](findings-severity-filter.md) `done` (incl. Round 2 — design parity) |
-| L02 | Skills in the product · Conventions extractor | [`L02-skills.md`](L02-skills.md) `done` (Conventions extractor still open) · [`pr-self-review.md`](pr-self-review.md) `done` (repo tooling, adjacent) |
+| L02 | Skills in the product · Conventions extractor | [`L02-skills.md`](L02-skills.md) `done` · [`L02-conventions-extractor.md`](L02-conventions-extractor.md) `in-progress` · [`pr-self-review.md`](pr-self-review.md) `done` (repo tooling, adjacent) |
 | L03 | Intent layer · Smart Diff | — |
 | L04 | `devdigest-mcp` server · Blast Radius | — |
 | L05 | Project Context Folder · Onboarding generator · PR Brief card | — |

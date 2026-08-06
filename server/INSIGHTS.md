@@ -44,6 +44,42 @@ _None yet._
 
 ## Tool & Library Notes
 
+### 2026-08-06 · `pnpm db:generate` blocks on a rename prompt the moment one migration both drops and adds a column — only `expect` gets past it
+
+Trigger:  reshaping `conventions` (drop `accepted`, add six columns) in one pass; `pnpm db:generate`
+          printed "Is `category` column in `conventions` table created or renamed from another
+          column?" and sat there until the 120 s timeout
+Cause:    drizzle-kit cannot tell a drop+add from a rename, so it asks — once per added column,
+          with `create column` pre-selected. Its prompt library reads the TTY directly, so
+          **nothing piped answers it**: `printf '\n\n' | pnpm db:generate` and
+          `script -q /dev/null bash -c "printf '\n' | pnpm db:generate"` both leave the prompt
+          exactly where it was and write no files (the run does abort cleanly — `git status
+          src/db/migrations` stays empty, so a failed attempt costs nothing).
+Takeaway: drive it with `expect`, which is at `/usr/bin/expect` on this machine:
+          `spawn pnpm db:generate` + `expect -re {created or renamed from another column} { send
+          "\r"; exp_continue }` + `eof`. Pressing return takes `create column`, which is the right
+          answer for a genuine drop+add. The alternative — two generate runs, drop first then add —
+          avoids the prompt but leaves two migration files for one logical change.
+          `drizzle-kit generate` needs no database either way; it diffs against
+          `migrations/meta/<last>_snapshot.json`.
+Evidence: server/src/db/migrations/0011_violet_ken_ellis.sql; server/drizzle.config.ts
+Status:   resolved
+
+### 2026-08-06 · drizzle-kit emits `ADD COLUMN … NOT NULL` with no default and no warning
+
+Trigger:  tightening `conventions.category`/`evidence_*` to NOT NULL, expecting `db:generate` to
+          object or to ask for a backfill value
+Cause:    it does neither. `0011_violet_ken_ellis.sql` line 5 is
+          `ALTER TABLE "conventions" ADD COLUMN "category" text NOT NULL;` — valid SQL that
+          Postgres accepts on an empty table and rejects on a populated one. The failure therefore
+          lands at `pnpm db:migrate`, on whichever machine has rows, not at generate time on yours.
+Takeaway: a NOT NULL column addition is only safe if the table is provably empty — check
+          `select count(*)`, not the seed script, and say so in the spec. Otherwise add it
+          nullable, backfill, then tighten in a second migration. Same applies to
+          `ALTER COLUMN … SET NOT NULL` (lines 1-4 of the same file).
+Evidence: server/src/db/migrations/0011_violet_ken_ellis.sql:1-7
+Status:   resolved
+
 ### 2026-08-06 · `fflate.unzipSync`'s `filter` runs over the central directory — use it to read ONE entry
 
 Trigger:  skill import must extract `SKILL.md` from an uploaded bundle while provably never

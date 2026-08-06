@@ -45,6 +45,9 @@ cd e2e && pnpm e2e:hermetic       # isolated stack on ports 5433/3101/3100
 
 - Changing a contract in `server/src/vendor/shared` requires the **mirror edit** in
   `client/src/vendor/shared`. The copies have already drifted — diff before committing.
+- After editing an enum or object in `vendor/shared`, grep the **other contract files for
+  its member names**, not for the symbol. Shapes are re-declared inline there
+  (`PluginSkill.source`, `PluginConvention`) and an import search will not find them.
 - `docker compose down -v` destroys the volume with every imported repo and review.
 - The DB schema is complete from day 1: an empty table (`skills`, `eval_*`, `memory`,
   `ci_*`, `multi_agent_runs`, …) is a future lesson, not dead code. Do not drop it.

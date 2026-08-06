@@ -113,6 +113,29 @@ Status:   open — fix opportunistically when touching those files
 
 ## Codebase Patterns
 
+### 2026-08-06 · `FEATURE_MODELS` says its defaults "mirror each module's constants" — for `conventions` there is no module to mirror
+
+Trigger:  picking the model for the conventions extractor, and reaching for
+          `resolveFeatureModel(container, ws, 'conventions')` because that is the function with
+          the obvious name
+Cause:    the registry's own doc comment (`contracts/platform.ts:31-36`) promises "the defaults
+          MIRROR each module's constants, so behaviour is unchanged until a model is explicitly
+          picked". Four of the five entries are `gpt-4.1` or a deepseek flash. `conventions` is
+          `openai / gpt-5.4` — the priciest default in the file — and it mirrors nothing, because
+          no conventions module existed to have a constant. `resolveFeatureModel` would have
+          silently bought that model on every scan. The escape is already documented one file over
+          (`modules/settings/feature-models.ts:30-35`: "callers that keep their own dynamic default
+          (e.g. conventions) use this directly"), but it reads as a style note, not a bill.
+Takeaway: for a feature whose module is being written now, `getFeatureModelOverride` + a
+          module-local constant — never `resolveFeatureModel`. Check the registry's default before
+          trusting the "unchanged behaviour" promise: it only holds where the old constant exists.
+          Note the registry is duplicated in `client/src/lib/feature-models.ts` (the client cannot
+          import the runtime value), so the Settings row is already visible for features with no
+          code behind them.
+Evidence: server/src/vendor/shared/contracts/platform.ts:73-79;
+          server/src/modules/settings/feature-models.ts:30-35; specs/L02-conventions-extractor.md
+Status:   open — `resolveFeatureModel` still has no caller; the first one should re-check this
+
 ### 2026-08-06 · A shape duplicated inside `vendor/shared` itself, not just across the two copies
 
 Trigger:  adding `imported_file` to `SkillSource` in `contracts/knowledge.ts`, mirrored to the
@@ -126,8 +149,13 @@ Takeaway: after editing an enum or object in `vendor/shared`, grep the other con
           show up in an import search. Left divergent here on purpose: `productionize.ts` is
           L08's file and is already drifted between the two trees, so widening the diff into
           it would have traded one debt for a worse one.
-Evidence: server/src/vendor/shared/contracts/productionize.ts (PluginSkill.source)
-Status:   open — `PluginSkill.source` is narrower than `SkillSource` until L08 touches it
+          Confirmed a second time on 2026-08-06 by the conventions extractor: `PluginConvention`
+          (`productionize.ts:60-67`) re-declares the whole convention shape, `accepted: z.boolean()`
+          included, so it did not move when `ConventionCandidate` gained `status`. Same file, same
+          reason for leaving it — it is L08's, and already drifted between the two trees.
+Evidence: server/src/vendor/shared/contracts/productionize.ts (PluginSkill.source, PluginConvention)
+Status:   → promoted to `CLAUDE.md` (Gotchas). `PluginSkill.source` and `PluginConvention` stay
+          behind their `knowledge.ts` originals until L08 touches that file
 
 ### 2026-08-05 · One dependency-cruiser run over `server/src` also polices `reviewer-core`'s purity
 
