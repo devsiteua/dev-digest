@@ -20,6 +20,23 @@ Status:   → promoted to `docs/component-anatomy.md`
 
 ## What Doesn't Work
 
+### 2026-08-06 · A query result in an effect's dep array wipes the local draft it was meant to seed
+
+Trigger:  the agent editor's Skills tab: every checkbox click appeared to do nothing, and
+          three tests failed with the draft reverting to the saved order
+Cause:    `React.useEffect(() => setDraft(null), [agent.id, links])` — `links` is the array
+          from `useAgentSkills`. TanStack Query hands back a NEW array identity on every
+          refetch, and this tab's own save calls `setQueryData` + `invalidateQueries`, so the
+          effect fired and discarded the user's in-progress edit. Under the test's mocked
+          hook the identity changed on literally every render, which turned an intermittent
+          production bug into a deterministic failure.
+Takeaway: an effect that resets local edit state must depend on the ENTITY IDENTITY being
+          edited (`agent.id`), never on the fetched collection. Clear the draft explicitly in
+          the mutation's `onSuccess` instead. Rule of thumb: if a dep is a query's `data`,
+          ask what a background refetch would do to the user mid-typing.
+Evidence: src/app/agents/[id]/_components/AgentEditor/_components/SkillsTab/SkillsTab.tsx
+Status:   resolved
+
 _None yet._
 
 ## Codebase Patterns
@@ -44,6 +61,21 @@ Evidence: client/CLAUDE.md:25-27; client/docs/component-anatomy.md:20;
           .claude/skills/frontend-architecture/references/devdigest-profile.md
 Status:   open — one of the two sentences should be reworded; not done here to avoid changing a
           convention as a side effect of writing a skill
+
+### 2026-08-06 · `@devdigest/ui`'s `<Markdown>` tags its output `.dd-md` but ships no CSS for it
+
+Trigger:  the skill Preview tab rendered headings and lists at browser defaults — Times-ish
+          `h1`, no spacing — nothing like the rest of the app
+Cause:    `primitives/Markdown.tsx` only overrides `p`, `strong`, `code` and `a` inline; every
+          other element relies on the `.dd-md` wrapper class, and `grep dd-md` across
+          `vendor/ui/styles.css` and the app's CSS returns nothing. The class is a hook that
+          was never given rules.
+Takeaway: any screen rendering `<Markdown>` with real documents (headings, lists, fences,
+          tables) must bring its own `.dd-md` rules. Put them in that component's `styles.ts`
+          and inject with a scoped `<style>` — `vendor/ui` is off-limits, and a global rule
+          would be an invisible dependency for the next screen that uses the component.
+Evidence: src/app/skills/[id]/_components/SkillEditor/styles.ts (MARKDOWN_CSS)
+Status:   resolved
 
 ### 2026-08-02 · A card with `overflow: hidden` silently clips anything its rows pop up
 

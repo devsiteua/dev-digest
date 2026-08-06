@@ -70,7 +70,10 @@ cd e2e && pnpm e2e:hermetic       # isolated stack on ports 5433/3101/3100
 ## Read when
 
 - You do not know the end-to-end review flow → read `docs/architecture.md`
-- You confuse run / review / finding / blocker → read `docs/glossary.md`
+- You confuse run / review / finding / blocker / skill → read `docs/glossary.md`
+- You are deciding whether a rule belongs in an agent's prompt or in a skill → read
+  `docs/agent-prompts/README.md` § "Skills / rules"; to demonstrate the difference,
+  `docs/skills-control-experiment.md`
 - You start a lesson task → read `specs/README.md`, then that lesson's spec
 - Something behaves unexpectedly → read `INSIGHTS.md` **before** digging into code
 - You work inside one package → its `<pkg>/CLAUDE.md` (loads automatically by location)

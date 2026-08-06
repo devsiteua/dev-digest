@@ -32,6 +32,22 @@ _None yet._
 
 ## Recurring Errors & Fixes
 
+### 2026-08-06 · `find text … click` misses a tab; buttons need `find role button --name`
+
+Trigger:  `08-skills` passed every step up to `find text Preview click`, which failed with
+          "Command failed" even though the Preview tab was visibly on screen
+Cause:    the `Tabs` kit component renders each tab as a `<button>` containing an icon plus a
+          text node. `find text` resolves a text node and clicks that, which is not the
+          interactive element; the flows that already click controls
+          (`04-pr-findings`, and the repo switcher) all use
+          `find role button click --name "…"` instead.
+Takeaway: `find text … click` for a row or a card, `find role button click --name` for
+          anything that is really a button — tabs included. When a click step fails on an
+          element you can see, check what the component actually renders before assuming a
+          timing problem.
+Evidence: e2e/specs/08-skills.flow.json, client/src/vendor/ui/kit/Tabs.tsx
+Status:   resolved
+
 ### 2026-08-02 · `wait --url` is not "the page is ready" — flows 04 and 05 clicked into a skeleton
 
 Trigger:  the first `pnpm e2e:hermetic` run on a machine with a freshly installed

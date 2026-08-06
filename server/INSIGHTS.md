@@ -11,6 +11,22 @@ _None yet._
 
 ## What Doesn't Work
 
+### 2026-08-06 · Seeding a new agent `enabled: true` silently repriced every "run all" review
+
+Trigger:  L02 adds two agents (Test Quality, API Contract) to `seed.ts`; the obvious default
+          for a seeded agent is enabled, and nothing in the diff looks like a cost change
+Cause:    `ReviewService.resolveAgents` turns `all: true` into `agentsRepo.listEnabled(...)`,
+          and "Run all enabled agents" is the primary item in the run dropdown. Two more
+          enabled agents = five LLM calls per click instead of three, on a flow the change
+          was not supposed to touch at all.
+Takeaway: `agents.enabled` is not a UI convenience — it is the membership test for the
+          fan-out, so it is a per-run cost multiplier. Seed a demo agent DISABLED and drive
+          it by name; `RunReviewDropdown` runs a specific agent regardless of the flag, so
+          nothing about the demo is lost. Pinned by an assertion in `skills.it.test.ts` that
+          the enabled set still excludes both.
+Evidence: src/modules/reviews/service.ts:50, src/db/seed.ts (seedAgents)
+Status:   resolved
+
 ### 2026-08-01 · `POST /pulls/:id/review` returning `reviews: []` is correct
 
 Trigger:  the response body looks empty even though the review runs fine
@@ -28,7 +44,35 @@ _None yet._
 
 ## Tool & Library Notes
 
-_None yet._
+### 2026-08-06 · `fflate.unzipSync`'s `filter` runs over the central directory — use it to read ONE entry
+
+Trigger:  skill import must extract `SKILL.md` from an uploaded bundle while provably never
+          reading the `install.sh` next to it
+Cause:    `unzipSync(bytes)` decompresses everything up front, so "read one file" naively
+          means decompressing all of them and ignoring the rest — which is exactly the claim
+          the feature must not make. `unzipSync(bytes, { filter })` instead invokes the
+          callback once per central-directory entry with `{ name, size, originalSize }` and
+          decompresses only the entries it returns true for.
+Takeaway: two passes. First `filter: () => false` — collects every name and `originalSize`
+          while decompressing nothing, which is also where the zip-bomb check belongs (sum
+          `originalSize` BEFORE inflating anything). Then a second call filtered to the one
+          chosen name. Bytes of every other entry are never touched, and the test asserts it
+          by checking a sentinel string from `install.sh` is absent from the parsed draft.
+Evidence: src/modules/skills/helpers.ts (draftFromZip), test/skills-helpers.test.ts
+Status:   resolved
+
+### 2026-08-06 · A prompt that lives in two hand-synced files needs a test, not a comment
+
+Trigger:  `server/CLAUDE.md` says an agent prompt must be mirrored between
+          `docs/agent-prompts/<n>.md` and `src/db/seed-prompts.ts` "by hand"
+Cause:    that instruction has no enforcement, and the two copies are a ~90-line template
+          literal versus a markdown file — a drift between them is invisible in review.
+Takeaway: `test/agent-prompts-mirror.test.ts` asserts each file equals its constant. It cost
+          five lines and it also retro-verified that the three original prompts were already
+          in sync. Any future "keep these two in sync by hand" note in this repo deserves the
+          same treatment.
+Evidence: test/agent-prompts-mirror.test.ts
+Status:   resolved
 
 ## Recurring Errors & Fixes
 

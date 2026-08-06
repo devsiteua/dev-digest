@@ -9,6 +9,18 @@ conflicts with your intuition, this file wins.
 `ci_fail_on` gate, `repo_intel` toggle. Rows in `agents`. Editing an agent snapshots the old
 config into `agent_versions`, so past runs stay reproducible.
 
+**Skill** — a reusable block of markdown instructions, stored on its own and attached to any
+number of agents. Row in `skills`; the attachment (and its position in the prompt) is a row in
+`agent_skills`. A skill is text and nothing else — the body is concatenated into the
+`## Skills / rules` prompt section, never executed. It reaches a prompt only if it is BOTH
+attached to the agent and globally `enabled`. Saving a changed body snapshots the old text into
+`skill_versions`.
+
+**Skill source** — where a skill's body came from, and therefore whether it is trusted. Only
+`manual` (written in this workspace) goes into the prompt verbatim; every other source is
+delimiter-wrapped as an untrusted block first. Set by the server from the endpoint that created
+the row, never accepted from a request.
+
 **Run** — one agent's single attempt at one PR. Row in `agent_runs` with
 `status ∈ {running, done, failed, cancelled}`, timings, token counts, USD cost (`null` when
 the model is unpriced — distinct from `0`, a genuinely free model), grounding summary.
@@ -94,5 +106,5 @@ mock in `server/src/adapters/mocks.ts`.
 schema already contains every table those lessons will fill.
 
 **Slot** — an optional prompt section `reviewer-core` already accepts but the starter does not
-feed: `skills` (L02), `specs` (L05), `memory` (L07). An unfilled slot must produce a
-byte-identical prompt.
+feed: `specs` (L05), `memory` (L07). `skills` was one until L02 filled it. An unfilled slot must
+produce a byte-identical prompt.
