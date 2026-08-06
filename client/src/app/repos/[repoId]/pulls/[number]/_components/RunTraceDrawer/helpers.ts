@@ -26,3 +26,7 @@ export function formatSeconds(ms: number): string {
 export function formatTokens(tokensIn: number, tokensOut: number): string {
   return `${(tokensIn / 1000).toFixed(0)}k→${(tokensOut / 1000).toFixed(1)}k`;
 }
+
+// Token estimation is shared with the skill editor, so it lives in src/lib and
+// is re-exported here for the drawer's own imports.
+export { approxTokens, formatBlockTokens } from "@/lib/tokens";

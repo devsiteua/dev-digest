@@ -91,7 +91,17 @@
     "title": "Skills",
     "enabledCount": "{linked} of {total} enabled",
     "filterPlaceholder": "Filter skills…",
-    "orderHint": "Order matters — earlier skills appear earlier in the assembled prompt. Toggle to attach."
+    "orderHint": "Order matters — earlier skills appear earlier in the assembled prompt. Toggle to attach.",
+    "disabledShort": "off",
+    "disabledTitle": "This skill is switched off globally, so it will not reach any agent’s prompt — including this one. Its link is kept.",
+    "moveUp": "Move {name} earlier",
+    "moveDown": "Move {name} later",
+    "save": "Save skills",
+    "saving": "Saving…",
+    "reset": "Reset",
+    "upToDate": "Up to date with the saved order.",
+    "savedToast": "{count, plural, =0 {No skills attached.} one {# skill attached.} other {# skills attached, in order.}}",
+    "attach": "Attach {name} to this agent"
   },
   "mount": {
     "body": "Mount point for {owner}. The Agent Editor shell + tab routing are wired by A2 — {owner} renders this tab."
