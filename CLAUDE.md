@@ -48,6 +48,10 @@ cd e2e && pnpm e2e:hermetic       # isolated stack on ports 5433/3101/3100
 - After editing an enum or object in `vendor/shared`, grep the **other contract files for
   its member names**, not for the symbol. Shapes are re-declared inline there
   (`PluginSkill.source`, `PluginConvention`) and an import search will not find them.
+- After editing `server/src/db/seed.ts`, grep `e2e/specs/*.json` for the values you changed:
+  flows assert seed literals, and nothing on the server side says so.
+- `defaultNow()` is the **transaction's** timestamp, so a batch insert ties to the microsecond.
+  Any "latest per group" read needs a secondary sort key, or its answer is planner order.
 - `docker compose down -v` destroys the volume with every imported repo and review.
 - The DB schema is complete from day 1: an empty table (`skills`, `eval_*`, `memory`,
   `ci_*`, `multi_agent_runs`, …) is a future lesson, not dead code. Do not drop it.
