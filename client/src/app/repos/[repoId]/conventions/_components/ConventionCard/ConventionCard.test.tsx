@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import type { ConventionCandidate } from "@devdigest/shared";
 import messages from "../../../../../../../messages/en/conventions.json";
@@ -21,19 +21,21 @@ const candidate = (over: Partial<ConventionCandidate> = {}): ConventionCandidate
   ...over,
 });
 
+const wrap = (props: Partial<React.ComponentProps<typeof ConventionCard>>) => (
+  <NextIntlClientProvider locale="en" messages={{ conventions: messages }}>
+    <ConventionCard
+      candidate={candidate()}
+      repoFullName="acme/payments-api"
+      gitRef="main"
+      onSetStatus={vi.fn()}
+      {...props}
+    />
+  </NextIntlClientProvider>
+);
+
 const renderCard = (props: Partial<React.ComponentProps<typeof ConventionCard>> = {}) => {
   const onSetStatus = props.onSetStatus ?? vi.fn();
-  render(
-    <NextIntlClientProvider locale="en" messages={{ conventions: messages }}>
-      <ConventionCard
-        candidate={candidate()}
-        repoFullName="acme/payments-api"
-        gitRef="main"
-        {...props}
-        onSetStatus={onSetStatus}
-      />
-    </NextIntlClientProvider>,
-  );
+  render(wrap({ ...props, onSetStatus }));
   return onSetStatus;
 };
 
@@ -85,5 +87,74 @@ describe("ConventionCard", () => {
     renderCard({ candidate: candidate({ status: "rejected" }), pending: "rejected" });
     expect(screen.getByRole("button", { name: "Rejecting…" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Accept" })).toBeDisabled();
+  });
+
+  it("has no editor when the screen supplies no way to save one", () => {
+    renderCard();
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+  });
+});
+
+describe("ConventionCard → editing", () => {
+  const openEditor = (onSave = vi.fn().mockResolvedValue(undefined)) => {
+    render(wrap({ onSave }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    return onSave;
+  };
+
+  it("saves the reworded rule and the re-filed category", async () => {
+    const onSave = openEditor();
+    fireEvent.change(screen.getByLabelText("Rule"), {
+      target: { value: "  Read every environment variable through src/config.ts  " },
+    });
+    fireEvent.change(screen.getByLabelText("Category"), { target: { value: "structure-ish" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith({
+        rule: "Read every environment variable through src/config.ts",
+        category: "structure-ish",
+      }),
+    );
+    // Back to the read-only card once the write lands.
+    await waitFor(() => expect(screen.queryByLabelText("Rule")).not.toBeInTheDocument());
+  });
+
+  it("does not offer to save an emptied rule", () => {
+    openEditor();
+    fireEvent.change(screen.getByLabelText("Rule"), { target: { value: "   " } });
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
+  it("discards the draft on Cancel and writes nothing", () => {
+    const onSave = openEditor();
+    fireEvent.change(screen.getByLabelText("Rule"), { target: { value: "Reworded" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByText(/Read every environment variable/)).toBeInTheDocument();
+  });
+
+  it("keeps the typed rule when the candidate is refetched underneath the editor", () => {
+    const { rerender } = render(wrap({ onSave: vi.fn() }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByLabelText("Rule"), { target: { value: "Half-typed rule" } });
+
+    // A new object for the same row — what every accept elsewhere on the screen
+    // produces (client/INSIGHTS.md, 2026-08-06).
+    rerender(wrap({ onSave: vi.fn(), candidate: candidate({ status: "accepted" }) }));
+
+    expect(screen.getByLabelText("Rule")).toHaveValue("Half-typed rule");
+  });
+
+  it("keeps the draft open and says so when the write fails", async () => {
+    const onSave = vi.fn().mockRejectedValue(new Error("nope"));
+    render(wrap({ onSave }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByLabelText("Rule"), { target: { value: "Reworded" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Could not save"));
+    expect(screen.getByLabelText("Rule")).toHaveValue("Reworded");
   });
 });

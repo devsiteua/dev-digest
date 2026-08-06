@@ -1,11 +1,7 @@
 /* /repos/:repoId/conventions — the conventions extractor (design N7): the
-   candidates one pass found, each with the lines that prove it, and the
-   accept/reject loop over them.
-
-   View + accept/reject only. Rewording a candidate and the modal that merges the
-   accepted ones into a single skill arrive with the merge flow; the design's
-   "Create skill" button is deliberately absent until then rather than present
-   and inert. */
+   candidates one pass found, each with the lines that prove it, the
+   accept/reject/reword loop over them, and the modal that merges the survivors
+   into a single skill. */
 "use client";
 
 import React from "react";
@@ -22,9 +18,10 @@ import {
   useUpdateConvention,
 } from "@/lib/hooks/conventions";
 import { useActiveRepo, useRepoNotFound } from "@/lib/repo-context";
-import { ConventionCard } from "../ConventionCard";
+import { ConventionCard, type ConventionEdit } from "../ConventionCard";
+import { CreateSkillModal } from "../CreateSkillModal";
 import { SKELETON_HEIGHT, SKELETON_ROWS } from "./constants";
-import { acceptedCount, allAccepted, bulkTargets } from "./helpers";
+import { acceptedCount, acceptedOnly, allAccepted, bulkTargets } from "./helpers";
 import { s } from "./styles";
 
 export function ConventionsView() {
@@ -38,7 +35,10 @@ export function ConventionsView() {
   const extract = useExtractConventions(repoId);
   const update = useUpdateConvention(repoId);
 
+  const [merging, setMerging] = React.useState(false);
+
   const list = data ?? [];
+  const acceptedList = acceptedOnly(list);
   const accepted = acceptedCount(list);
   const everyAccepted = allAccepted(list);
   const repoName = activeRepo?.full_name ?? t("page.repoFallback");
@@ -54,6 +54,10 @@ export function ConventionsView() {
   const setAll = (target: "accepted" | "pending") => {
     for (const c of bulkTargets(list, target)) setStatus(c.id, target);
   };
+
+  // `mutateAsync`, not `mutate`: the card keeps its editor open — with the text
+  // still in it — when the PATCH fails, and only it knows that.
+  const saveEdit = (id: string, edit: ConventionEdit) => update.mutateAsync({ id, patch: edit });
 
   const crumb = [{ label: t("page.crumbLab") }, { label: t("page.crumbConventions") }];
 
@@ -150,6 +154,19 @@ export function ConventionsView() {
               <span style={s.count}>
                 {t("page.acceptedCount", { accepted, total: list.length })}
               </span>
+              {/* Disabled rather than hidden at zero accepted: the button is how
+                  the screen says what accepting is FOR. */}
+              <div style={s.spacer}>
+                <Button
+                  kind="primary"
+                  size="sm"
+                  icon="Sparkles"
+                  disabled={accepted === 0}
+                  onClick={() => setMerging(true)}
+                >
+                  {t("create.open")}
+                </Button>
+              </div>
             </div>
 
             {list.map((c) => (
@@ -160,9 +177,19 @@ export function ConventionsView() {
                 gitRef={activeRepo?.default_branch}
                 pending={pendingId === c.id ? pendingStatus : undefined}
                 onSetStatus={(status) => setStatus(c.id, status)}
+                onSave={(edit) => saveEdit(c.id, edit)}
               />
             ))}
           </>
+        )}
+
+        {merging && acceptedList.length > 0 && (
+          <CreateSkillModal
+            repoId={repoId}
+            repoName={repoName}
+            accepted={acceptedList}
+            onClose={() => setMerging(false)}
+          />
         )}
       </div>
     </AppShell>

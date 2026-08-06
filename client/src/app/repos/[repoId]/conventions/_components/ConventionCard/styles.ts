@@ -30,6 +30,22 @@ export const s = {
     lineHeight: 1.4,
     color: "var(--text-primary)",
   } satisfies CSSProperties,
+  editor: { display: "flex", flexDirection: "column", gap: 8 } satisfies CSSProperties,
+  editLabel: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+    fontSize: 12,
+    fontWeight: 600,
+    color: "var(--text-secondary)",
+  } satisfies CSSProperties,
+  editHint: { fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.45 } satisfies CSSProperties,
+  editError: { fontSize: 12, color: "var(--crit)" } satisfies CSSProperties,
+  category: {
+    marginLeft: "auto",
+    fontSize: 11,
+    color: "var(--text-muted)",
+  } satisfies CSSProperties,
   evidence: {
     marginTop: 10,
     borderRadius: 7,

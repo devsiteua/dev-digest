@@ -1,0 +1,68 @@
+import type { CSSProperties } from "react";
+
+/** Co-located styles for CreateSkillModal (design N7 artboard `conv-create`). */
+export const s = {
+  body: { padding: "18px 22px 8px" } satisfies CSSProperties,
+  info: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "10px 13px",
+    borderRadius: 8,
+    background: "var(--accent-bg)",
+    border: "1px solid var(--border)",
+    marginBottom: 18,
+  } satisfies CSSProperties,
+  infoIcon: { color: "var(--accent)", flexShrink: 0 } satisfies CSSProperties,
+  infoText: { fontSize: 12.5, color: "var(--text-secondary)" } satisfies CSSProperties,
+  strong: { color: "var(--text-primary)" } satisfies CSSProperties,
+  mono: { color: "var(--accent-text)" } satisfies CSSProperties,
+  twoCol: { display: "flex", gap: 14 } satisfies CSSProperties,
+  col: { flex: 1 } satisfies CSSProperties,
+  toggleRow: { display: "flex", alignItems: "center", height: 36 } satisfies CSSProperties,
+  bodyMeta: { fontSize: 11.5, color: "var(--text-muted)" } satisfies CSSProperties,
+  overBudget: { fontSize: 11.5, color: "var(--crit)" } satisfies CSSProperties,
+  alert: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 10,
+    padding: "10px 13px",
+    borderRadius: 8,
+    border: "1px solid var(--crit)",
+    background: "var(--crit-bg)",
+    marginBottom: 16,
+  } satisfies CSSProperties,
+  alertIcon: { color: "var(--crit)", flexShrink: 0, marginTop: 1 } satisfies CSSProperties,
+  alertTitle: {
+    fontSize: 13,
+    fontWeight: 600,
+    color: "var(--text-primary)",
+  } satisfies CSSProperties,
+  alertBody: {
+    fontSize: 12.5,
+    color: "var(--text-secondary)",
+    marginTop: 2,
+  } satisfies CSSProperties,
+  footer: { display: "flex", alignItems: "center", gap: 12 } satisfies CSSProperties,
+  footerNote: {
+    fontSize: 11.5,
+    color: "var(--text-muted)",
+    marginRight: "auto",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+  } satisfies CSSProperties,
+  footerNoteValue: { color: "var(--text-secondary)" } satisfies CSSProperties,
+  success: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 12,
+    padding: "26px 22px 30px",
+  } satisfies CSSProperties,
+  successIcon: { color: "var(--ok)", flexShrink: 0, marginTop: 1 } satisfies CSSProperties,
+  successBody: {
+    fontSize: 13,
+    color: "var(--text-secondary)",
+    lineHeight: 1.5,
+  } satisfies CSSProperties,
+} as const;

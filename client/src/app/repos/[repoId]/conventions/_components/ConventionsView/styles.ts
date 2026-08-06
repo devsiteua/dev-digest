@@ -24,6 +24,7 @@ export const s = {
     marginBottom: 16,
   } satisfies CSSProperties,
   count: { fontSize: 12, color: "var(--text-muted)" } satisfies CSSProperties,
+  spacer: { marginLeft: "auto" } satisfies CSSProperties,
   alert: {
     display: "flex",
     alignItems: "flex-start",

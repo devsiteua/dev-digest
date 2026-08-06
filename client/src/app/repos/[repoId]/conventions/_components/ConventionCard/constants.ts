@@ -9,6 +9,9 @@ export const CONFIDENCE_BAR_WIDTH = 90;
 /** The accept/reject column, px. Both buttons are `full` inside it. */
 export const ACTION_COLUMN_WIDTH = 150;
 
+/** Rows of the in-card rule editor — a rule is one or two sentences. */
+export const RULE_EDITOR_ROWS = 3;
+
 /** The card's left edge carries the status. */
 export const STATUS_COLOR: Record<ConventionStatus, string> = {
   pending: "var(--border)",

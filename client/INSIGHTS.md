@@ -7,6 +7,26 @@ see the root [`../INSIGHTS.md`](../INSIGHTS.md).
 
 ## What Works
 
+### 2026-08-06 · Seed an edit draft from the EVENT that opens the editor, never from an effect
+
+Trigger:  adding in-card rewording to `ConventionCard` and the merge modal's body editor —
+          both edit text derived from a TanStack query that refetches on every accept
+Cause:    the 2026-08-06 "dep array wipes the draft" entry below fixes the effect; not
+          having an effect at all removes the failure mode instead. The draft is seeded by
+          the click that opens the editor (`setDraft({rule: candidate.rule, …})`) and by a
+          LAZY `useState(() => conventionsToDraft(accepted, …))` at modal mount, so a new
+          array identity from a refetch is simply never read again. The second half is
+          freezing the derived ids with it — `useState(() => accepted.map(c => c.id))` —
+          or the request would merge a different set of rows than the body was written from.
+Takeaway: for "open an editor over server data", prefer event-seeded / lazily-initialised
+          local state to `useEffect(setDraft, [data])`. Test it by rerendering the component
+          with a DIFFERENT prop value after typing and asserting the field is unchanged; and
+          have the failed-write path keep the draft open (`mutateAsync` + catch) rather than
+          discarding what the user typed.
+Evidence: src/app/repos/[repoId]/conventions/_components/CreateSkillModal/CreateSkillModal.tsx;
+          src/app/repos/[repoId]/conventions/_components/ConventionCard/ConventionCard.tsx
+Status:   resolved
+
 ### 2026-08-06 · One shared mutation hook can drive per-row pending state — read `mutation.variables`
 
 Trigger:  the conventions screen renders N cards over ONE `useUpdateConvention()`, and
@@ -41,17 +61,6 @@ Takeaway: `vi.mock("…/components/app-shell", () => ({ AppShell: ({children}) =
           render, or the module mock leaves those bindings undefined.
 Evidence: src/app/skills/_components/SkillsListView/SkillsListView.test.tsx
 Status:   resolved
-
-### 2026-08-01 · Component tests mock the hook module, not `fetch`
-
-Trigger:  deciding how to isolate a component that loads data
-Cause:    every component reads data through `src/lib/hooks/*`, so mocking the hook module is
-          both smaller and closer to the seam. Mocking `fetch` re-tests `api.ts` for no gain.
-Takeaway: `vi.mock("…/lib/hooks/<domain>", …)` and render inside `NextIntlClientProvider` with
-          the real `messages/en/*.json`, so a missing translation key fails the test instead of
-          silently rendering the key.
-Evidence: src/lib/hooks/
-Status:   → promoted to `docs/component-anatomy.md`
 
 ## What Doesn't Work
 
@@ -91,9 +100,25 @@ Takeaway: an effect that resets local edit state must depend on the ENTITY IDENT
 Evidence: src/app/agents/[id]/_components/AgentEditor/_components/SkillsTab/SkillsTab.tsx
 Status:   resolved
 
-_None yet._
-
 ## Codebase Patterns
+
+### 2026-08-06 · The design's `CodeEditor` has no port, and `BRIDGE.md` does not say so
+
+Trigger:  the N7 artboard `conv-create` renders the merged skill body in `window.CodeEditor`;
+          grep found no such export in `@devdigest/ui`, and BRIDGE.md's mapping table does
+          not list it in either direction — neither ported nor named as missing
+Cause:    the port covers `foundation/primitives.jsx` + `ui-kit.jsx`; `CodeEditor` lives
+          outside both, so it fell out of the table silently. Every design screen that shows
+          editable code or markdown (skill body, agent prompt, eval input) hits this.
+Takeaway: substitute, do not port: `<Textarea mono rows={…}>` inside a `FormField` whose
+          `right=` slot carries `~{tokens} tokens · {chars}/{max} chars` from
+          `approxTokens()` (`@/lib/tokens`). That is what `SkillEditor/…/ConfigTab` already
+          does, and the two screens edit the same field — a CodeEditor on one of them would
+          make the same text look like two different things. Adding the primitive means
+          touching `vendor/ui`, which needs an explicit request.
+Evidence: src/app/repos/[repoId]/conventions/_components/CreateSkillModal/CreateSkillModal.tsx;
+          src/app/skills/[id]/_components/SkillEditor/_components/ConfigTab/ConfigTab.tsx
+Status:   resolved
 
 ### 2026-08-05 · `CLAUDE.md` and `docs/component-anatomy.md` disagree on how many files a component folder needs
 
@@ -147,17 +172,24 @@ Evidence: client/src/app/repos/[repoId]/pulls/styles.ts (tableCard);
           DevDigest-Design-unpacked/src/14-screen_dashboard.jsx:111
 Status:   resolved
 
-### 2026-08-01 · There is no landing page — `/` is a redirect
-
-Trigger:  writing anything that assumes a stable home screen
-Cause:    `src/app/page.tsx` redirects to the first repo's PR list, and falls back to
-          `/onboarding` when the repo list is empty. What you see depends entirely on DB state.
-Takeaway: never assert on "the home page". Browser flows that follow the redirect implicitly
-          depend on which repo happens to be first — see `../e2e/INSIGHTS.md`.
-Evidence: src/app/page.tsx
-Status:   → promoted to `CLAUDE.md` (Gotchas)
-
 ## Tool & Library Notes
+
+### 2026-08-06 · `Textarea` swallows extra props, `TextInput` forwards them — only one can take an `aria-label`
+
+Trigger:  labelling the in-card rule editor so its test could use `getByLabelText("Rule")`;
+          `aria-label` on `<Textarea>` did nothing and TypeScript rejected `id`
+Cause:    `vendor/ui/kit/TextInput.tsx` ends its props with
+          `& Omit<React.InputHTMLAttributes<HTMLInputElement>, …>` and spreads `...rest` onto
+          the input; `vendor/ui/kit/Textarea.tsx` declares five props and spreads nothing.
+          Two sibling primitives, opposite prop contracts, and `vendor/ui` is do-not-touch.
+Takeaway: nest the control inside its `<label>` — implicit association names both kinds of
+          field and is what `getByLabelText` resolves. `FormField`'s label is NOT associated
+          with its child (no `htmlFor`, child is a sibling), so a screen built from
+          `FormField` has to be queried by `getByDisplayValue` or
+          `document.querySelector("textarea")`, the way the skill-editor tests do.
+Evidence: src/app/repos/[repoId]/conventions/_components/ConventionCard/ConventionCard.tsx;
+          src/vendor/ui/kit/Textarea.tsx vs src/vendor/ui/kit/TextInput.tsx
+Status:   resolved
 
 ### 2026-08-02 · jsdom drops any CSS declaration containing `var()`, so `toHaveStyle` is blind to every design token
 

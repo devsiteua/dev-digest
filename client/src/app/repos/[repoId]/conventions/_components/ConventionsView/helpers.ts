@@ -1,8 +1,17 @@
 import type { ConventionCandidate } from "@devdigest/shared";
 
+/**
+ * The candidates that go into a merged skill — and the only ones that may.
+ * A rejected or undecided rule reaching a prompt through the merge modal is the
+ * one thing this screen must not do (L02 acceptance criteria).
+ */
+export function acceptedOnly(list: ConventionCandidate[]): ConventionCandidate[] {
+  return list.filter((c) => c.status === "accepted");
+}
+
 /** How many candidates the user has accepted so far. */
 export function acceptedCount(list: ConventionCandidate[]): number {
-  return list.filter((c) => c.status === "accepted").length;
+  return acceptedOnly(list).length;
 }
 
 /** True when every candidate is accepted — the bulk control flips to "Deselect all". */

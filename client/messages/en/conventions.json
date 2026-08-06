@@ -27,6 +27,50 @@
     "reject": "Reject",
     "rejected": "Rejected",
     "rejecting": "Rejecting…",
-    "evidenceHint": "Open on GitHub"
+    "evidenceHint": "Open on GitHub",
+    "edit": "Edit",
+    "ruleLabel": "Rule",
+    "categoryLabel": "Category",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "editHint": "The evidence is not editable — it was read from the file on disk. Re-scan to change it.",
+    "saveFailed": "Could not save this edit. Try again."
+  },
+  "create": {
+    "open": "Create skill",
+    "title": "Create skill from conventions",
+    "mergedFrom": "Merged from <b>{count, plural, one {# accepted convention} other {# accepted conventions}}</b> in <mono>{repo}</mono>. Everything below is editable before you save.",
+    "name": "Name",
+    "description": "Description",
+    "type": "Type",
+    "enabled": "Enabled",
+    "enabledHint": "Whether this block is added to agents' prompts.",
+    "body": "Skill body",
+    "bodyHint": "The only text sent to the model. Merged from the accepted rules + evidence — edit freely.",
+    "bodyTokens": "~{tokens} tokens · {chars}/{max} chars",
+    "tooLong": "Too long — trim the body before saving.",
+    "types": {
+      "rubric": "Rubric",
+      "convention": "Convention",
+      "security": "Security",
+      "custom": "Custom"
+    },
+    "savedNote": "Saved as <mono>v1</mono> · added to Skills Lab",
+    "cancel": "Cancel",
+    "submit": "Create skill",
+    "creating": "Creating…",
+    "failed": "Could not create the skill.",
+    "draft": {
+      "description": "{count, plural, one {# house convention} other {# house conventions}} extracted from {repo}",
+      "intro": "House conventions for {repo}. Flag changes that violate any rule below and cite the offending `file:line`.",
+      "detected": "Detected in `{evidence}`:"
+    },
+    "success": {
+      "title": "Skill created",
+      "body": "{name} is in Skills Lab. It is stamped as extracted, so an agent receives it as untrusted text until you review it there.",
+      "close": "Close",
+      "open": "Open skill"
+    }
   }
 }

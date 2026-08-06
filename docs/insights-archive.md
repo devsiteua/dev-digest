@@ -14,7 +14,8 @@ Two kinds of entry qualify:
 An `open` entry never moves: the active file is read at the start of every session, and open
 is what "still applies" means.
 
-Moved from the root `INSIGHTS.md` on 2026-08-02 (2 entries) and 2026-08-06 (8 entries).
+Moved from the root `INSIGHTS.md` on 2026-08-02 (2 entries) and 2026-08-06 (8 entries), and
+from `client/INSIGHTS.md` on 2026-08-06 (2 entries — both already promoted).
 Sections match any `INSIGHTS.md` — see
 [`../.claude/skills/engineering-insights/SKILL.md`](../.claude/skills/engineering-insights/SKILL.md)
 — but within a section entries are **appended in the order they were archived**, not
@@ -22,6 +23,19 @@ newest-first. Do not re-sort: one pair here says "amends the entry below", and s
 date would separate them.
 
 ---
+
+## What Works
+
+### 2026-08-01 · Component tests mock the hook module, not `fetch`
+
+Trigger:  deciding how to isolate a component that loads data
+Cause:    every component reads data through `src/lib/hooks/*`, so mocking the hook module is
+          both smaller and closer to the seam. Mocking `fetch` re-tests `api.ts` for no gain.
+Takeaway: `vi.mock("…/lib/hooks/<domain>", …)` and render inside `NextIntlClientProvider` with
+          the real `messages/en/*.json`, so a missing translation key fails the test instead of
+          silently rendering the key.
+Evidence: src/lib/hooks/
+Status:   → promoted to `docs/component-anatomy.md`
 
 ## What Doesn't Work
 
@@ -131,6 +145,16 @@ Takeaway: before tightening or adding a field on `contracts/trace.ts`, ask wheth
 Evidence: server/src/vendor/shared/contracts/trace.ts (RunStats.cost_usd);
           server/test/contracts.test.ts ("RunTrace parses a LEGACY stats block")
 Status:   resolved — guarded by the legacy-stats fixture test
+
+### 2026-08-01 · There is no landing page — `/` is a redirect
+
+Trigger:  writing anything that assumes a stable home screen
+Cause:    `src/app/page.tsx` redirects to the first repo's PR list, and falls back to
+          `/onboarding` when the repo list is empty. What you see depends entirely on DB state.
+Takeaway: never assert on "the home page". Browser flows that follow the redirect implicitly
+          depend on which repo happens to be first — see `../e2e/INSIGHTS.md`.
+Evidence: src/app/page.tsx
+Status:   → promoted to `client/CLAUDE.md` (Gotchas)
 
 ## Tool & Library Notes
 

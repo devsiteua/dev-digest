@@ -5,9 +5,8 @@
                                             mutation is in flight for as long as
                                             the model call takes ("Scanning…")
      PATCH /conventions/:id               → reword, re-file, accept/reject
-
-   `POST /repos/:id/conventions/skill` (merge the accepted ones into one skill)
-   is deliberately absent: it lands with the modal that composes the body. */
+     POST  /repos/:id/conventions/skill   → merge the accepted ones into one
+                                            skill; the modal composes the body */
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -15,7 +14,9 @@ import { api } from "../api";
 import type {
   ConventionCandidate,
   ConventionExtractResult,
+  ConventionSkillRequest,
   ConventionUpdate,
+  Skill,
 } from "@devdigest/shared";
 
 /** GET /repos/:id/conventions → every stored candidate, whatever its status. */
@@ -61,6 +62,29 @@ export function useUpdateConvention(repoId: string | null | undefined) {
       api.patch<ConventionCandidate>(`/conventions/${id}`, patch),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["conventions", repoId] });
+    },
+  });
+}
+
+/**
+ * POST /repos/:id/conventions/skill → one merged skill from the accepted
+ * candidates.
+ *
+ * The request carries no `source`: the server stamps `'extracted'` itself, and
+ * a body a model wrote must not be able to call itself `'manual'` and skip the
+ * untrusted wrapping (`ConventionSkillRequest` in `@devdigest/shared`).
+ *
+ * Two caches move on success — `skills`, which gains a row, and `conventions`,
+ * because every merged candidate comes back carrying the new `skill_id`.
+ */
+export function useCreateSkillFromConventions(repoId: string | null | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: ConventionSkillRequest) =>
+      api.post<Skill>(`/repos/${repoId}/conventions/skill`, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["conventions", repoId] });
+      qc.invalidateQueries({ queryKey: ["skills"] });
     },
   });
 }
