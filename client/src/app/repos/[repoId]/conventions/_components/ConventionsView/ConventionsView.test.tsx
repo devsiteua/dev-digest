@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
-import type { ConventionCandidate } from "@devdigest/shared";
+import type { ConventionCandidate, ConventionExtractResult } from "@devdigest/shared";
 import messages from "../../../../../../../messages/en/conventions.json";
 
 vi.mock("next/navigation", () => ({
@@ -27,7 +27,12 @@ const extractMutate = vi.fn();
 const updateMutate = vi.fn();
 const updateMutateAsync = vi.fn().mockResolvedValue(undefined);
 const createSkillMutate = vi.fn();
-const extractState = { isPending: false, isError: false, error: null as Error | null };
+const extractState = {
+  isPending: false,
+  isError: false,
+  error: null as Error | null,
+  data: undefined as ConventionExtractResult | undefined,
+};
 vi.mock("@/lib/hooks/conventions", () => ({
   useConventions: () => useConventions(),
   useExtractConventions: () => ({ ...extractState, mutate: extractMutate }),
@@ -82,7 +87,12 @@ beforeEach(() => {
   updateMutate.mockClear();
   updateMutateAsync.mockClear();
   createSkillMutate.mockClear();
-  Object.assign(extractState, { isPending: false, isError: false, error: null });
+  Object.assign(extractState, {
+    isPending: false,
+    isError: false,
+    error: null,
+    data: undefined,
+  });
   useConventions.mockReturnValue({
     data: LIST,
     isLoading: false,
@@ -134,6 +144,48 @@ describe("ConventionsView", () => {
     expect(screen.queryByRole("button", { name: "Accept all" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Run extraction" }));
     expect(extractMutate).toHaveBeenCalled();
+  });
+
+  // A short list means one thing when the model returned three rules and quite
+  // another when it returned twenty. Without these numbers the screen quietly
+  // presents a heavily filtered result as the whole truth.
+  it("reports what the last scan kept and what it threw away", () => {
+    extractState.data = {
+      candidates: [],
+      sampled_files: ["src/a.ts", "src/b.ts", "src/c.ts"],
+      discarded: [
+        { rule: "Wrap every handler in a try/catch", reason: "evidence snippet was not found in src/a.ts near lines 3-9" },
+        { rule: "Name constants in SCREAMING_SNAKE_CASE", reason: "duplicate of a rule with higher confidence" },
+      ],
+    };
+    renderView();
+    expect(
+      screen.getByText(/read 3 files\. The model proposed 2 rules: 0 kept, 2 discarded/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/evidence snippet was not found/)).toBeInTheDocument();
+    expect(screen.getByText(/duplicate of a rule with higher confidence/)).toBeInTheDocument();
+  });
+
+  it("collapses the tail of a long discard list into a count", () => {
+    extractState.data = {
+      candidates: [],
+      sampled_files: ["src/a.ts"],
+      discarded: Array.from({ length: 8 }, (_, i) => ({
+        rule: `Rule ${i}`,
+        reason: "evidence snippet was not found",
+      })),
+    };
+    renderView();
+    expect(screen.getByText("…and 3 more")).toBeInTheDocument();
+  });
+
+  it("holds the scan report back while a scan is running", () => {
+    Object.assign(extractState, {
+      isPending: true,
+      data: { candidates: [], sampled_files: ["src/a.ts"], discarded: [] },
+    });
+    renderView();
+    expect(screen.queryByText(/The model proposed/)).not.toBeInTheDocument();
   });
 
   it("surfaces the server's reason when extraction fails", () => {

@@ -159,6 +159,18 @@ needed to demonstrate the feature.
   prompt-block count by ten and make `MAX_SKILLS_CHARS` the thing that decides
   which house rules an agent sees. One skill also matches the design's modal,
   which merges the accepted cards into a single editable body.
+- **A re-merge is a new version, not a name clash.** The default name is fixed,
+  and merging is not a one-shot act — the user accepts three rules, merges,
+  accepts two more and merges again. An insert-only path failed the second merge
+  on `assertNameFree`, *after* the whole body had been composed. So
+  `SkillsService.saveFromConventions` takes a `replaceId` and `repo.update`
+  bumps `version` and snapshots the old body. What may be replaced is decided by
+  `ConventionsService.replaceableSkillId`: the name must belong to an
+  `extracted` skill that **this repo's own candidates already point at** via
+  `skill_id`. Keying on the name alone would let two repos in one workspace
+  overwrite each other under the shared default; keying on `skill_id` means the
+  second repo still gets the 422 and renames, which is the correct answer
+  because those are different house rules under the same title.
 - **The server stamps `source`, exactly as for imports.**
   `ConventionSkillRequest` has no `source` and no `id`; the route writes
   `'extracted'` and fills `evidence_files` from `convention_ids`. Same reasoning
@@ -227,6 +239,12 @@ needed to demonstrate the feature.
       with `source='extracted'`, `evidence_files` listing their paths, and each
       merged candidate carrying the new `skill_id`.
 - [x] `POST /repos/:id/conventions/skill` ignores a `source` sent in the body.
+- [x] Merging the same repo again under the same name updates that skill and
+      bumps its `version`, leaving one row and two `skill_versions`; a *different*
+      repo merging under that name is refused with a 422 naming the skill.
+- [x] After a pass, the screen states how many files were read, how many rules
+      the model proposed, how many were kept and how many were discarded, and
+      names the first few rejections with their reason.
 - [x] **Degraded path:** an unindexed repo (or `repoIntelEnabled=false`) yields
       an empty sample, **no model call**, nothing written, and a 422 that says to
       index the repo first — see Decisions for why this is not the empty state.

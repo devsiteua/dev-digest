@@ -107,6 +107,12 @@ export class SkillsService {
     return toSkillDto(row);
   }
 
+  /** A skill of this workspace by exact name, or `undefined`. */
+  async findByName(workspaceId: string, name: string): Promise<Skill | undefined> {
+    const row = await this.repo.findByName(workspaceId, name);
+    return row ? toSkillDto(row) : undefined;
+  }
+
   /**
    * Persist a skill merged from extracted conventions. Always
    * `source: 'extracted'`, and `evidence_files` records which files the rules
@@ -116,13 +122,42 @@ export class SkillsService {
    * rule that went into this body and clicked accept on each one, which is the
    * review step the import flow has to defer. The body is still generated text,
    * so `'extracted'` still gets it delimiter-wrapped at prompt assembly.
+   *
+   * `replaceId` makes a re-merge a NEW VERSION of the skill this repo already
+   * produced, rather than a name clash. Merging is not a one-shot act: the user
+   * accepts three rules, merges, accepts two more and merges again — and with an
+   * insert-only path the second merge died on `assertNameFree` AFTER the whole
+   * body had been composed. The caller decides what may be replaced (see
+   * `ConventionsService.createSkill`); everything this method does with the id
+   * is write through it, so a skill some other repo or a person owns is still
+   * protected by the name check below.
    */
-  async createFromConventions(
+  async saveFromConventions(
     workspaceId: string,
     input: CreateSkillInput & { evidenceFiles: string[] },
+    replaceId?: string,
   ): Promise<Skill> {
     this.assertBodyFits(input.body);
-    await this.assertNameFree(workspaceId, input.name);
+    await this.assertNameFree(workspaceId, input.name, replaceId);
+
+    if (replaceId) {
+      // `repo.update` bumps `version` and snapshots the old body into
+      // `skill_versions` whenever the text changed — which is exactly what a
+      // re-merge is, and why this is an update rather than a delete + insert.
+      const row = await this.repo.update(workspaceId, replaceId, {
+        name: input.name,
+        description: input.description,
+        type: input.type,
+        body: input.body,
+        enabled: input.enabled ?? true,
+        evidenceFiles: input.evidenceFiles,
+      });
+      if (row) return toSkillDto(row);
+      // The row vanished between the caller's read and this write. Fall through
+      // and create it rather than reporting a 404 for something the user never
+      // asked to update.
+    }
+
     const row = await this.repo.insert({
       workspaceId,
       name: input.name,

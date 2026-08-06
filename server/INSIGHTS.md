@@ -11,6 +11,27 @@ _None yet._
 
 ## What Doesn't Work
 
+### 2026-08-06 · An insert-only create behind a FIXED default name is a feature that works exactly once
+
+Trigger:  the merge modal defaults every skill to `repo-conventions`; the SECOND merge of a repo
+          returned 422 `A skill named "repo-conventions" already exists.` — and it returned it
+          after the user had accepted more rules and composed the whole body
+Cause:    `createFromConventions` only ever INSERTed, and `assertNameFree` is workspace-scoped.
+          Merging is not a one-shot act — accept three rules, merge, accept two more, merge
+          again — so the second call is the normal path, not an edge case. Review missed it
+          because every test merged once, which is also the shape of the happy-path demo.
+Takeaway: when a create endpoint hands the caller a FIXED default name, it is an upsert whether
+          or not it is written as one. `saveFromConventions(..., replaceId)` + `repo.update`
+          makes a re-merge a version bump, with the old body landing in `skill_versions`. Decide
+          what may be replaced from OWNERSHIP, never from the name alone: `replaceableSkillId`
+          requires an `extracted` skill that this repo's own candidates already point at via
+          `skill_id`, so two repos sharing a workspace still collide and rename rather than
+          silently overwrite each other. The general habit: write the test for the SECOND call.
+Evidence: src/modules/skills/service.ts (saveFromConventions);
+          src/modules/conventions/service.ts (replaceableSkillId);
+          test/conventions.it.test.ts ("re-merging the same repo versions the skill")
+Status:   resolved
+
 ### 2026-08-06 · Seeding a new agent `enabled: true` silently repriced every "run all" review
 
 Trigger:  L02 adds two agents (Test Quality, API Contract) to `seed.ts`; the obvious default

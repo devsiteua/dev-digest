@@ -21,7 +21,7 @@ import { useActiveRepo, useRepoNotFound } from "@/lib/repo-context";
 import { ConventionCard, type ConventionEdit } from "../ConventionCard";
 import { CreateSkillModal } from "../CreateSkillModal";
 import { SKELETON_HEIGHT, SKELETON_ROWS } from "./constants";
-import { acceptedCount, acceptedOnly, allAccepted, bulkTargets } from "./helpers";
+import { acceptedCount, acceptedOnly, allAccepted, bulkTargets, scanSummary } from "./helpers";
 import { s } from "./styles";
 
 export function ConventionsView() {
@@ -36,6 +36,10 @@ export function ConventionsView() {
   const update = useUpdateConvention(repoId);
 
   const [merging, setMerging] = React.useState(false);
+
+  // The last pass's own numbers. `extract.data` survives after the mutation
+  // settles, so the report stays on screen next to the list it explains.
+  const summary = extract.data ? scanSummary(extract.data) : undefined;
 
   const list = data ?? [];
   const acceptedList = acceptedOnly(list);
@@ -110,6 +114,36 @@ export function ConventionsView() {
             <div>
               <div style={s.alertTitle}>{t("page.extractionFailed")}</div>
               <div style={s.alertBody}>{extract.error.message}</div>
+            </div>
+          </div>
+        )}
+
+        {/* What the pass did, in its own numbers. A three-card list means one
+            thing when the model returned three rules and another when it
+            returned twenty and seventeen cited lines that are not there — and
+            the screen is the only place that difference is visible. */}
+        {summary && !extract.isPending && (
+          <div style={s.scanSummary}>
+            <Icon.ListChecks size={14} style={s.scanIcon} />
+            <div style={s.scanText}>
+              {t("page.scan.summary", {
+                sampled: summary.sampled,
+                returned: summary.returned,
+                kept: summary.kept,
+                discarded: summary.discarded,
+              })}
+              {summary.listed.length > 0 && (
+                <ul style={s.scanReasons}>
+                  {summary.listed.map((d, i) => (
+                    <li key={i} style={s.scanReason}>
+                      {t("page.scan.discard", { rule: d.rule, reason: d.reason })}
+                    </li>
+                  ))}
+                  {summary.hidden > 0 && (
+                    <li style={s.scanReason}>{t("page.scan.more", { count: summary.hidden })}</li>
+                  )}
+                </ul>
+              )}
             </div>
           </div>
         )}

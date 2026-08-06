@@ -40,6 +40,13 @@ export interface UpdateSkill {
   type?: SkillType;
   body?: string;
   enabled?: boolean;
+  /**
+   * Deliberately absent from `UpdateSkillInput`, the shape `PUT /skills/:id`
+   * accepts: provenance is not editable, and a hand-typed file list would claim
+   * evidence nothing verified. Only a re-merge of extracted conventions rewrites
+   * it, because only that path re-derives it from candidates on disk.
+   */
+  evidenceFiles?: string[];
 }
 
 export class SkillsRepository {
@@ -128,6 +135,7 @@ export class SkillsRepository {
         ...(patch.type !== undefined ? { type: patch.type } : {}),
         ...(patch.body !== undefined ? { body: patch.body } : {}),
         ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
+        ...(patch.evidenceFiles !== undefined ? { evidenceFiles: patch.evidenceFiles } : {}),
         ...(bodyChanged ? { version: nextVersion } : {}),
       })
       .where(and(eq(t.skills.workspaceId, workspaceId), eq(t.skills.id, id)))

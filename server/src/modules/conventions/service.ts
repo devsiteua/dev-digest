@@ -258,17 +258,32 @@ export class ConventionsService {
       );
     }
 
-    const skill = await this.container.skillsService.createFromConventions(workspaceId, {
-      name: payload.name,
-      description: payload.description,
-      type: payload.type,
-      body: payload.body,
-      enabled: payload.enabled,
-      // Which files this skill's rules were read out of — the provenance the
-      // Skills screen shows next to an `extracted` badge. Unique and sorted so
-      // two merges of the same cards produce the same list.
-      evidenceFiles: [...new Set(merged.map((row) => row.evidencePath))].sort(),
-    });
+    // A re-merge is a new version of THIS repo's skill, not a name clash. The
+    // default name is fixed (`repo-conventions`), so an insert-only path failed
+    // the second time the user merged — after they had composed the whole body.
+    //
+    // Only a skill this repo already produced may be replaced: the candidates
+    // carry `skill_id`, so "did we write this one?" is a lookup rather than a
+    // guess. A name held by another repo's merge, or by a hand-written skill,
+    // falls through to `assertNameFree` and its 422 — which is the right answer,
+    // because those are somebody else's rules under the same title.
+    const replaceId = await this.replaceableSkillId(workspaceId, rows, payload.name);
+
+    const skill = await this.container.skillsService.saveFromConventions(
+      workspaceId,
+      {
+        name: payload.name,
+        description: payload.description,
+        type: payload.type,
+        body: payload.body,
+        enabled: payload.enabled,
+        // Which files this skill's rules were read out of — the provenance the
+        // Skills screen shows next to an `extracted` badge. Unique and sorted so
+        // two merges of the same cards produce the same list.
+        evidenceFiles: [...new Set(merged.map((row) => row.evidencePath))].sort(),
+      },
+      replaceId,
+    );
 
     await this.repo.markLinkedToSkill(
       workspaceId,
@@ -282,6 +297,28 @@ export class ConventionsService {
     const repo = await this.repo.getRepo(workspaceId, repoId);
     if (!repo) throw new NotFoundError('Repo not found');
     return repo;
+  }
+
+  /**
+   * The id of the skill a merge under `name` is allowed to overwrite, or
+   * `undefined` when it must create one.
+   *
+   * Three conditions, all required: a skill with that name exists, it is
+   * `extracted` (a merge never overwrites hand-written or imported text), and at
+   * least one candidate OF THIS REPO already points at it. The last one is what
+   * keeps two repos in one workspace from silently overwriting each other under
+   * the shared default name.
+   */
+  private async replaceableSkillId(
+    workspaceId: string,
+    rows: { skillId: string | null }[],
+    name: string,
+  ): Promise<string | undefined> {
+    const ours = new Set(rows.map((row) => row.skillId).filter((id): id is string => id !== null));
+    if (ours.size === 0) return undefined;
+    const existing = await this.container.skillsService.findByName(workspaceId, name);
+    if (!existing || existing.source !== 'extracted') return undefined;
+    return ours.has(existing.id) ? existing.id : undefined;
   }
 
   /**

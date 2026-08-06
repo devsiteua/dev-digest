@@ -47,4 +47,30 @@ export const s = {
     marginTop: 2,
   } satisfies CSSProperties,
   skeletons: { display: "flex", flexDirection: "column", gap: 12 } satisfies CSSProperties,
+  // The pass's own report, sitting where the design puts "Detected from 84
+  // sample files": muted, one line, and never the same width twice.
+  scanSummary: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 8,
+    padding: "8px 12px",
+    borderRadius: 8,
+    border: "1px solid var(--border)",
+    background: "var(--bg-surface)",
+    marginBottom: 16,
+  } satisfies CSSProperties,
+  scanIcon: { color: "var(--text-muted)", flexShrink: 0, marginTop: 1 } satisfies CSSProperties,
+  scanText: {
+    fontSize: 12.5,
+    color: "var(--text-secondary)",
+    lineHeight: 1.5,
+  } satisfies CSSProperties,
+  scanReasons: {
+    margin: "6px 0 0",
+    padding: 0,
+    listStyle: "none",
+    fontSize: 11.5,
+    color: "var(--text-muted)",
+  } satisfies CSSProperties,
+  scanReason: { marginTop: 2 } satisfies CSSProperties,
 } as const;

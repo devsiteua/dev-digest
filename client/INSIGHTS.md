@@ -64,6 +64,27 @@ Status:   resolved
 
 ## What Doesn't Work
 
+### 2026-08-06 · `onSuccess: () => invalidate()` discards the response — and that cost two different bugs
+
+Trigger:  a saved rule edit showed the OLD text for one round-trip, and the conventions screen
+          never displayed the discard report the extract endpoint had been built to return
+Cause:    both mutations ignored their own result. `useUpdateConvention` gets the updated
+          `ConventionCandidate` back from the PATCH and only invalidated, so the card closed its
+          editor and re-rendered stale text until the refetch landed — on screen that is
+          indistinguishable from a save that failed. `useExtractConventions` gets `sampled_files`
+          and `discarded[]`, which exist NOWHERE else (the list endpoint returns only the
+          survivors), and dropped them — so three cards read as "this repo has three conventions"
+          rather than "the model proposed twenty and seventeen cited lines that are not there".
+Takeaway: before writing `onSuccess: () => invalidateQueries(...)`, ask what the response
+          carried. If it is the updated row: `setQueryData` first, invalidate after — the cache
+          write makes the change instant, the refetch keeps the client honest. If it carries data
+          no query will ever return, the mutation result is the ONLY copy — `mutation.data`
+          survives after settling, so render it from there. The tell for the second case is an
+          endpoint whose response type is wider than the list type it refreshes.
+Evidence: src/lib/hooks/conventions.ts;
+          src/app/repos/[repoId]/conventions/_components/ConventionsView/ConventionsView.tsx
+Status:   resolved
+
 ### 2026-08-06 · The design's empty artboard REPLACES the screen — porting the header over it duplicates the CTA
 
 Trigger:  the conventions screen shipped with two identical "Run extraction" buttons on an

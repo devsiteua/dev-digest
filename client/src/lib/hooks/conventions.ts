@@ -60,7 +60,16 @@ export function useUpdateConvention(repoId: string | null | undefined) {
   return useMutation({
     mutationFn: ({ id, patch }: UpdateConventionInput) =>
       api.patch<ConventionCandidate>(`/conventions/${id}`, patch),
-    onSuccess: () => {
+    // The PATCH returns the updated candidate, so write it into the list before
+    // asking for a refetch. Without this the card closes its editor and shows
+    // the OLD rule text until the round-trip lands — which reads as a failed
+    // save rather than a slow one. The invalidate still follows: the cache write
+    // makes the change instant, the refetch keeps this client honest about
+    // anything the server changed that the response did not carry.
+    onSuccess: (updated) => {
+      qc.setQueryData<ConventionCandidate[]>(["conventions", repoId], (list) =>
+        list?.map((c) => (c.id === updated.id ? updated : c)),
+      );
       qc.invalidateQueries({ queryKey: ["conventions", repoId] });
     },
   });

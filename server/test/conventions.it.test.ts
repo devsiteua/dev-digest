@@ -435,6 +435,127 @@ d('L02 conventions (Testcontainers pg)', () => {
     await app.close();
   });
 
+  // Merging is not a one-shot act: accept three rules, merge, accept two more,
+  // merge again. With an insert-only path the second merge died on the name
+  // check AFTER the whole body had been composed — and the default name is
+  // fixed, so it died every time.
+  it('re-merging the same repo versions the skill instead of colliding on its name', async () => {
+    const app = await makeApp();
+    const repoId = await makeRepo();
+    await extract(app, repoId);
+    const name = `remerge-conventions-${repoSeq}`;
+
+    const listed = (await app.inject({ method: 'GET', url: `/repos/${repoId}/conventions` })).json();
+    const byRule = (rule: string) => listed.find((c: { rule: string }) => c.rule === rule);
+    const early = byRule(RULE_EARLY);
+    const constants = byRule(RULE_CONSTANTS);
+
+    const merge = (body: string, ids: string[]) =>
+      app.inject({
+        method: 'POST',
+        url: `/repos/${repoId}/conventions/skill`,
+        payload: {
+          name,
+          description: 'House rules extracted from this repo.',
+          type: 'convention',
+          enabled: true,
+          body,
+          convention_ids: ids,
+        },
+      });
+
+    await app.inject({
+      method: 'PATCH',
+      url: `/conventions/${early.id}`,
+      payload: { status: 'accepted' },
+    });
+    const first = await merge(`# Repo conventions\n\n- ${RULE_EARLY}`, [early.id]);
+    expect(first.statusCode).toBe(201);
+    expect(first.json()).toMatchObject({ version: 1, evidence_files: ['src/api/users.ts'] });
+
+    await app.inject({
+      method: 'PATCH',
+      url: `/conventions/${constants.id}`,
+      payload: { status: 'accepted' },
+    });
+    const second = await merge(`# Repo conventions\n\n- ${RULE_EARLY}\n- ${RULE_CONSTANTS}`, [
+      early.id,
+      constants.id,
+    ]);
+    expect(second.statusCode).toBe(201);
+
+    // Same row, new version, and the newly accepted rule is in it.
+    expect(second.json().id).toBe(first.json().id);
+    expect(second.json().version).toBe(2);
+    expect(second.json().body).toContain(RULE_CONSTANTS);
+    expect(second.json().evidence_files).toEqual([
+      'src/api/users.ts',
+      'src/middleware/limit.ts',
+    ]);
+    expect(second.json().source).toBe('extracted');
+
+    // One skill under that name, and the first body survives as a snapshot.
+    const skills = (await app.inject({ method: 'GET', url: '/skills' })).json();
+    expect(skills.filter((s: { name: string }) => s.name === name)).toHaveLength(1);
+    const versions = (
+      await app.inject({ method: 'GET', url: `/skills/${first.json().id}/versions` })
+    ).json();
+    expect(versions).toHaveLength(2);
+
+    await app.close();
+  });
+
+  // The replace path is keyed on `skill_id` of THIS repo's candidates, not on
+  // the name alone — otherwise two repos sharing one workspace would silently
+  // overwrite each other under the shared default name.
+  it('will not let one repo overwrite the skill another repo merged', async () => {
+    const app = await makeApp();
+    const repoA = await makeRepo();
+    const repoB = await makeRepo();
+    const name = `shared-conventions-${repoSeq}`;
+    await extract(app, repoA);
+    await extract(app, repoB);
+
+    const acceptFirst = async (repoId: string) => {
+      const listed = (
+        await app.inject({ method: 'GET', url: `/repos/${repoId}/conventions` })
+      ).json();
+      await app.inject({
+        method: 'PATCH',
+        url: `/conventions/${listed[0].id}`,
+        payload: { status: 'accepted' },
+      });
+      return listed[0].id as string;
+    };
+
+    const merge = (repoId: string, ids: string[]) =>
+      app.inject({
+        method: 'POST',
+        url: `/repos/${repoId}/conventions/skill`,
+        payload: {
+          name,
+          description: 'House rules.',
+          type: 'convention',
+          enabled: true,
+          body: '# Repo conventions',
+          convention_ids: ids,
+        },
+      });
+
+    expect((await merge(repoA, [await acceptFirst(repoA)])).statusCode).toBe(201);
+
+    const clash = await merge(repoB, [await acceptFirst(repoB)]);
+    expect(clash.statusCode).toBe(422);
+    // Asserted on the raw body rather than a field: what matters is that the
+    // refusal names the skill, so the user knows renaming is the way out.
+    expect(clash.body).toContain(name);
+
+    const skills = (await app.inject({ method: 'GET', url: '/skills' })).json();
+    expect(skills.filter((s: { name: string }) => s.name === name)).toHaveLength(1);
+
+    await app.close();
+  });
+
   it('refuses to merge when nothing selected has been accepted', async () => {
     const app = await makeApp();
     const repoId = await makeRepo();

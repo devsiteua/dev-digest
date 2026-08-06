@@ -17,7 +17,12 @@
       "body": "Scan the repo to surface house-rules — naming, error handling, structure — each backed by evidence you can turn into a Skill.",
       "cta": "Run extraction"
     },
-    "candidateCount": "{count, plural, one {# candidate} other {# candidates}} · grounded against sampled files"
+    "candidateCount": "{count, plural, one {# candidate} other {# candidates}} · grounded against sampled files",
+    "scan": {
+      "summary": "Last scan read {sampled, plural, one {# file} other {# files}}. The model proposed {returned, plural, one {# rule} other {# rules}}: {kept} kept, {discarded} discarded for want of evidence.",
+      "discard": "“{rule}” — {reason}",
+      "more": "…and {count} more"
+    }
   },
   "card": {
     "confidence": "Confidence",
@@ -56,7 +61,7 @@
       "security": "Security",
       "custom": "Custom"
     },
-    "savedNote": "Saved as <mono>v1</mono> · added to Skills Lab",
+    "savedNote": "Saved to <mono>Skills Lab</mono> · merging again under the same name adds a version",
     "cancel": "Cancel",
     "submit": "Create skill",
     "creating": "Creating…",
