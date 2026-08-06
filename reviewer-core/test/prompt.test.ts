@@ -64,3 +64,78 @@ describe('assemblePrompt — ## PR description', () => {
     expect((assembly.pr_description as string).length).toBe(4000);
   });
 });
+
+/**
+ * The `skills` slot (L02). The engine already accepted it; the studio server
+ * started filling it. These tests pin the two properties the rest of the feature
+ * is built on: the section renders where the contract says it does, and an agent
+ * with no skills gets EXACTLY the prompt it got before skills existed.
+ */
+describe('assemblePrompt — ## Skills / rules', () => {
+  const BASE = { system: 'sys', diff: 'DIFF' } as const;
+
+  /**
+   * The prompt an agent WITHOUT skills must produce, written out in full.
+   *
+   * Pinned as a literal on purpose. Comparing `assemblePrompt` to itself would
+   * be self-referential: a change that always emitted `## Skills / rules` with an
+   * empty body would move both sides equally and the assertion would still pass,
+   * which is exactly the regression this test exists to catch.
+   */
+  const PROMPT_WITHOUT_SKILLS =
+    '## Diff to review\n<untrusted source="diff">\nDIFF\n</untrusted>';
+
+  it('is byte-identical to the pre-skills prompt when the slot is unused', () => {
+    // The three ways the server can end up "without skills": key absent, the
+    // spread evaluating to undefined, and an agent whose links resolved to none.
+    for (const parts of [
+      { ...BASE },
+      { ...BASE, skills: undefined },
+      { ...BASE, skills: [] },
+    ]) {
+      const { messages, assembly } = assemblePrompt(parts);
+      expect(messages[1]!.content).toBe(PROMPT_WITHOUT_SKILLS);
+      // Belt and braces: the heading must not appear even empty.
+      expect(messages[1]!.content).not.toContain('## Skills / rules');
+      expect(assembly.skills ?? null).toBeNull();
+      expect(assembly.user).toBe(PROMPT_WITHOUT_SKILLS);
+    }
+  });
+
+  it('leaves the system message alone whether or not skills are present', () => {
+    const bare = assemblePrompt({ ...BASE }).messages[0]!.content;
+    const withSkills = assemblePrompt({ ...BASE, skills: ['S'] }).messages[0]!.content;
+    expect(withSkills).toBe(bare);
+    expect(bare.startsWith('sys')).toBe(true);
+  });
+
+  it('renders the bodies joined by a blank line, in the order given', () => {
+    const user = userOf({ ...BASE, skills: ['FIRST-SKILL', 'SECOND-SKILL'] });
+    expect(user).toContain('## Skills / rules\nFIRST-SKILL\n\nSECOND-SKILL');
+    expect(user.indexOf('FIRST-SKILL')).toBeLessThan(user.indexOf('SECOND-SKILL'));
+  });
+
+  it('keeps the contracted section order: PR description → skills → diff', () => {
+    const user = userOf({
+      ...BASE,
+      prDescription: 'PR-BODY',
+      skills: ['SKILL'],
+      memory: ['MEM'],
+    });
+    expect(user.indexOf('## PR description')).toBeLessThan(user.indexOf('## Skills / rules'));
+    expect(user.indexOf('## Skills / rules')).toBeLessThan(user.indexOf('## Relevant memory'));
+    expect(user.indexOf('## Skills / rules')).toBeLessThan(user.indexOf('## Diff to review'));
+  });
+
+  it('records the assembled block for the run trace', () => {
+    const { assembly } = assemblePrompt({ ...BASE, skills: ['A', 'B'] });
+    expect(assembly.skills).toBe('A\n\nB');
+  });
+
+  it('passes an already-wrapped body through untouched (the server wraps, not the engine)', () => {
+    // Imported skills are delimiter-wrapped upstream, in the server's
+    // renderSkillBlocks. The engine must not double-wrap or unwrap them.
+    const wrapped = '<untrusted source="skill:third-party">\nBODY\n</untrusted>';
+    expect(userOf({ ...BASE, skills: [wrapped] })).toContain(wrapped);
+  });
+});
