@@ -8,6 +8,7 @@ import type {
   Provider,
   ReviewStrategy,
 } from '@devdigest/shared';
+import { ValidationError } from '../../platform/errors.js';
 import { AgentsRepository } from './repository.js';
 import { toAgentDto, toAgentVersionDto } from './helpers.js';
 
@@ -152,6 +153,7 @@ export class AgentsService {
   ): Promise<AgentSkillLink[] | undefined> {
     const agent = await this.repo.getById(workspaceId, agentId);
     if (!agent) return undefined;
+    await this.assertSkillsInWorkspace(workspaceId, skillIds);
     await this.repo.setSkills(agentId, skillIds);
     return this.skillLinks(agentId);
   }
@@ -165,10 +167,30 @@ export class AgentsService {
   ): Promise<AgentSkillLink[] | undefined> {
     const agent = await this.repo.getById(workspaceId, agentId);
     if (!agent) return undefined;
+    await this.assertSkillsInWorkspace(workspaceId, [skillId]);
     const existing = await this.repo.linkedSkills(agentId);
     const resolvedOrder = order ?? existing.length;
     await this.repo.linkSkill(agentId, skillId, resolvedOrder);
     return this.skillLinks(agentId);
+  }
+
+  /**
+   * Every id must name a skill in THIS workspace.
+   *
+   * The agent was already workspace-checked above, but the skill ids were not —
+   * and a linked skill's body is injected verbatim into that agent's prompt. So
+   * without this check a caller could attach another tenant's skill and read its
+   * text back out of the run trace. Unreachable before this lesson only because
+   * no skill rows existed; reachable the moment skills CRUD ships.
+   */
+  private async assertSkillsInWorkspace(workspaceId: string, skillIds: string[]): Promise<void> {
+    if (skillIds.length === 0) return;
+    const unique = [...new Set(skillIds)];
+    const found = await this.container.skillsRepo.idsInWorkspace(workspaceId, unique);
+    if (found.length !== unique.length) {
+      const missing = unique.filter((id) => !found.includes(id));
+      throw new ValidationError(`Unknown skill id(s): ${missing.join(', ')}`);
+    }
   }
 
   /**
