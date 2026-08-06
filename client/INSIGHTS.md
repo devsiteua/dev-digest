@@ -7,6 +7,24 @@ see the root [`../INSIGHTS.md`](../INSIGHTS.md).
 
 ## What Works
 
+### 2026-08-06 · One shared mutation hook can drive per-row pending state — read `mutation.variables`
+
+Trigger:  the conventions screen renders N cards over ONE `useUpdateConvention()`, and
+          `update.isPending` alone would have put "Accepting…" on every card at once
+Cause:    TanStack Query v5 exposes the in-flight `variables` on the mutation result, so the
+          list can ask *which* row is being written and towards what:
+          `const pendingId = update.isPending ? update.variables?.id : undefined`, then
+          `pending={pendingId === c.id ? update.variables?.patch.status : undefined}`. No
+          `useState<Record<id, boolean>>` map, nothing to reset in an effect — and therefore
+          none of the 2026-08-06 "query data in a dep array wipes the draft" failure mode.
+          The limit is real and worth knowing: `variables` holds the LATEST call, so a bulk
+          action that fires several `mutate()`s marks only the last one as pending.
+Takeaway: for a list whose rows share one mutation, derive the row's busy state from
+          `mutation.variables` rather than lifting a per-row flag. Reach for a local map only
+          when concurrent writes must each show their own spinner.
+Evidence: src/app/repos/[repoId]/conventions/_components/ConventionsView/ConventionsView.tsx
+Status:   resolved
+
 ### 2026-08-06 · A screen-level component test has to stub `components/app-shell`
 
 Trigger:  first tests for `SkillsListView` / `SkillsRail` — components that render a whole
@@ -36,6 +54,25 @@ Evidence: src/lib/hooks/
 Status:   → promoted to `docs/component-anatomy.md`
 
 ## What Doesn't Work
+
+### 2026-08-06 · The design's empty artboard REPLACES the screen — porting the header over it duplicates the CTA
+
+Trigger:  the conventions screen shipped with two identical "Run extraction" buttons on an
+          empty repo, caught by a test that could not resolve `getByRole("button")`
+Cause:    the prototype's empty variant is an early return, not a branch inside the body:
+          `if (empty) return AppFrame(EmptyState)` — no `<h1>`, no toolbar, no scan button
+          (`conventions-and-conformance.jsx:70`). Building the populated screen first and then
+          adding `EmptyState` under the header — the obvious order — gives the header's
+          primary action and the EmptyState's `cta` the same job and the same words. Every
+          empty artboard in the design is built this way (`e-ci`, `e-tour`, `e-context`,
+          `e-conv` in `reference-app.jsx:168-184` all pass `empty` to the same component).
+Takeaway: read the design's `empty` branch before laying out the header, and decide which of
+          the two surfaces owns the action. Keeping the heading for orientation is a fine
+          deviation; keeping the header's BUTTON is not. A component test that queries a
+          button by name is what catches this — `getByRole` throws on a duplicate, so write
+          the empty-state test with `getByRole`, not `getAllByRole`.
+Evidence: src/app/repos/[repoId]/conventions/_components/ConventionsView/ConventionsView.tsx
+Status:   resolved
 
 ### 2026-08-06 · A query result in an effect's dep array wipes the local draft it was meant to seed
 
