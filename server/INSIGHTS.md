@@ -40,7 +40,41 @@ Status:   → promoted to `CLAUDE.md` (Gotchas)
 
 ## Codebase Patterns
 
-_None yet._
+### 2026-08-06 · The conventions prompt and the verifier's sample map are two lists that must agree — and only one of them is observable
+
+Trigger:  writing `buildSamplePrompt` with a `MAX_PROMPT_CHARS` backstop, while `verifyCandidates`
+          takes a `Map<path, text>` of "the sampled files" and gates every candidate on membership
+Cause:    the prompt is a **string**. A file dropped from its tail by the budget leaves no trace in
+          the return value, yet it is still in the map — so a rule citing a file the model never saw
+          would pass the membership gate and be verified against text that was not in the prompt.
+          The two lists come from the same input and can only diverge through that budget, which is
+          why the numbers are sized so it cannot bind: `SAMPLE_FILE_COUNT` (12) × `MAX_SAMPLE_CHARS`
+          (4 000) plus the handful of configs a real repo has ≈ 68 kB, against `MAX_PROMPT_CHARS`
+          80 000.
+Takeaway: treat those four constants as ONE budget, not four knobs — lowering `MAX_PROMPT_CHARS` or
+          raising either sample constant makes the drop routine and weakens grounding with no
+          failing test. If the backstop ever has to bind, `buildSamplePrompt` must also return the
+          included paths, and the service must build the verifier's map from those rather than from
+          what the sampler picked.
+Evidence: src/modules/conventions/helpers.ts (buildSamplePrompt); src/modules/conventions/constants.ts
+Status:   open — the service that builds that map lands next session
+
+### 2026-08-06 · A convention candidate's line range is a search hint, not an assertion — rejecting wide ranges would protect nothing
+
+Trigger:  reviewing `verifyCandidate` and noticing that nothing bounds `end_line - start_line`
+Cause:    the claimed range is never tested beyond "it exists in the file". The check searches
+          `[start - SNIPPET_CONTEXT_LINES, end + SNIPPET_CONTEXT_LINES]` for the normalized snippet
+          and returns the offset where it was **found**, together with the file's own text for those
+          lines. A model claiming lines 1-900 for a one-line snippet therefore gets the same verdict
+          as one claiming 3-3: the numbers that get stored are where the code actually is. A wide
+          range buys cheaper search, never false evidence.
+Takeaway: the grounding guarantee lives in the snippet match and the read-back from disk, not in the
+          numbers the model sent — a max-range rule would discard good evidence and prevent nothing.
+          The constant that does need care is `SNIPPET_CONTEXT_LINES`: it is drift tolerance, and
+          widening it trades grounding for recall until "near line 40" stops meaning anything.
+Evidence: src/modules/conventions/helpers.ts (verifyCandidate); test/conventions-helpers.test.ts
+          ("accepts a snippet the model placed one line off, and corrects the numbers")
+Status:   resolved
 
 ## Tool & Library Notes
 
