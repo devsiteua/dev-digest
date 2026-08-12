@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { AgentSkillLink, Skill } from "@devdigest/shared";
-import { filterRows, move, orderSkills, sameOrder } from "./helpers";
+import { filterRows, orderSkills, reorder, sameOrder } from "./helpers";
 
 const skill = (id: string, name: string, description = ""): Skill => ({
   id,
@@ -40,21 +40,22 @@ describe("orderSkills", () => {
   });
 });
 
-describe("move", () => {
-  it("moves an id one place earlier or later", () => {
-    expect(move(["a", "b", "c"], "b", -1)).toEqual(["b", "a", "c"]);
-    expect(move(["a", "b", "c"], "b", 1)).toEqual(["a", "c", "b"]);
+describe("reorder", () => {
+  it("gives the dragged id the target's position, in both directions", () => {
+    expect(reorder(["a", "b", "c"], "c", "a")).toEqual(["c", "a", "b"]);
+    expect(reorder(["a", "b", "c"], "a", "c")).toEqual(["b", "c", "a"]);
   });
 
-  it("is a no-op at either end, or for an id that is not there", () => {
-    expect(move(["a", "b"], "a", -1)).toEqual(["a", "b"]);
-    expect(move(["a", "b"], "b", 1)).toEqual(["a", "b"]);
-    expect(move(["a", "b"], "zz", 1)).toEqual(["a", "b"]);
+  it("is a no-op when either end is missing or they are the same row", () => {
+    expect(reorder(["a", "b"], "a", "a")).toEqual(["a", "b"]);
+    // Dropping onto an UNATTACHED skill: it has no position to take.
+    expect(reorder(["a", "b"], "a", "zz")).toEqual(["a", "b"]);
+    expect(reorder(["a", "b"], "zz", "a")).toEqual(["a", "b"]);
   });
 
   it("does not mutate its input", () => {
     const ids = ["a", "b", "c"];
-    move(ids, "a", 1);
+    reorder(ids, "a", "c");
     expect(ids).toEqual(["a", "b", "c"]);
   });
 });

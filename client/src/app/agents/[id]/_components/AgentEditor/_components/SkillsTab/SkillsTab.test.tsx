@@ -101,6 +101,18 @@ function renderTab() {
 /** The row element for a skill, so assertions can be scoped to it. */
 const rowFor = (name: string) => screen.getByRole("listitem", { name });
 
+/**
+ * jsdom implements no DataTransfer, so `fireEvent` has to be handed one. The
+ * payload only matters on `drop` — and only as the fallback path, which is what
+ * passing an id here exercises.
+ */
+const dt = (payload = "") => ({
+  effectAllowed: "",
+  dropEffect: "",
+  setData: vi.fn(),
+  getData: () => payload,
+});
+
 describe("Agent editor → Skills tab", () => {
   it("lists every workspace skill and counts the linked ones", () => {
     renderTab();
@@ -137,12 +149,46 @@ describe("Agent editor → Skills tab", () => {
     expect(save).toHaveBeenCalledWith(["s1", "s2", "s3"], expect.anything());
   });
 
-  it("reordering posts the new order, which is the order of the prompt blocks", () => {
-    renderTab();
-    fireEvent.click(within(rowFor("flaky-test-smells")).getByLabelText(/Move .* earlier/));
+  it("dragging a row onto another posts the new order, which is the order of the prompt blocks", () => {
+    renderTab(); // saved order: s1, s2
+    const dragged = rowFor("flaky-test-smells");
+    const target = rowFor("test-coverage-rubric");
+
+    fireEvent.dragStart(dragged, { dataTransfer: dt() });
+    fireEvent.dragOver(target, { dataTransfer: dt() });
+    fireEvent.drop(target, { dataTransfer: dt("s2") });
 
     fireEvent.click(screen.getByText("Save skills").closest("button")!);
     expect(save).toHaveBeenCalledWith(["s2", "s1"], expect.anything());
+  });
+
+  it("renumbers the rows as soon as the drop lands, before any save", () => {
+    renderTab();
+    fireEvent.dragStart(rowFor("flaky-test-smells"), { dataTransfer: dt() });
+    fireEvent.drop(rowFor("test-coverage-rubric"), { dataTransfer: dt("s2") });
+
+    const rows = screen.getAllByRole("listitem");
+    expect(rows.map((r) => r.getAttribute("aria-label"))).toEqual([
+      "flaky-test-smells",
+      "test-coverage-rubric",
+      "api-contract-compat",
+    ]);
+    expect(within(rows[0]!).getByText("1")).toBeInTheDocument();
+  });
+
+  it("does not offer a drag on a skill that is not attached", () => {
+    renderTab();
+    expect(rowFor("api-contract-compat")).toHaveAttribute("draggable", "false");
+    expect(rowFor("test-coverage-rubric")).toHaveAttribute("draggable", "true");
+  });
+
+  it("dropping on an unattached row changes nothing — it has no position to take", () => {
+    renderTab();
+    fireEvent.dragStart(rowFor("test-coverage-rubric"), { dataTransfer: dt() });
+    fireEvent.drop(rowFor("api-contract-compat"), { dataTransfer: dt("s1") });
+
+    expect(screen.getByText("Save skills").closest("button")).toBeDisabled();
+    expect(screen.getByText("Up to date with the saved order.")).toBeInTheDocument();
   });
 
   it("detaching everything posts an empty list rather than doing nothing", () => {
@@ -214,14 +260,12 @@ describe("Agent editor → Skills tab", () => {
     ).toBeInTheDocument();
   });
 
-  it("keeps the move buttons focusable at the ends of the list", () => {
-    // `disabled` would pull focus off the button the keyboard user just pressed.
+  it("dropping a row onto itself is not a change", () => {
     renderTab();
-    const up = within(rowFor("test-coverage-rubric")).getByLabelText(/Move .* earlier/);
-    expect(up).not.toBeDisabled();
-    expect(up).toHaveAttribute("aria-disabled", "true");
+    const row = rowFor("test-coverage-rubric");
+    fireEvent.dragStart(row, { dataTransfer: dt() });
+    fireEvent.drop(row, { dataTransfer: dt("s1") });
 
-    fireEvent.click(up); // a no-op at the boundary, not a reorder
     expect(screen.getByText("Up to date with the saved order.")).toBeInTheDocument();
   });
 });

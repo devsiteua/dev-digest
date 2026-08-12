@@ -12,7 +12,7 @@ import {
 } from "../../../../../../../lib/hooks/skills";
 import { useToast } from "../../../../../../../lib/toast";
 import { TYPE_COLOR } from "@/lib/skills";
-import { filterRows, move, orderSkills, sameOrder } from "./helpers";
+import { filterRows, orderSkills, reorder, sameOrder } from "./helpers";
 import { s } from "./styles";
 
 /**
@@ -43,6 +43,9 @@ export function SkillsTab({ agent }: { agent: Agent }) {
 
   const [draft, setDraft] = React.useState<string[] | null>(null);
   const [search, setSearch] = React.useState("");
+  /** The row being dragged, and the row a drop would land on. Both are ids. */
+  const [dragId, setDragId] = React.useState<string | null>(null);
+  const [overId, setOverId] = React.useState<string | null>(null);
 
   const saved = React.useMemo(
     () => [...(links ?? [])].sort((a, b) => a.order - b.order).map((l) => l.skill_id),
@@ -71,6 +74,27 @@ export function SkillsTab({ agent }: { agent: Agent }) {
     setDraft(current.includes(id) ? current.filter((x) => x !== id) : [...current, id]);
 
   const dirty = !sameOrder(current, saved);
+
+  const endDrag = () => {
+    setDragId(null);
+    setOverId(null);
+  };
+
+  /**
+   * Drop `dragged` onto `targetId`: it takes that row's position.
+   *
+   * The dragged id is read from state first and from `dataTransfer` only as a
+   * fallback — the payload exists because a drag with no data is a no-op in
+   * Firefox, not because we need it. A drop on an unlinked row resolves to no
+   * position at all, so `reorder` returns the list unchanged rather than
+   * inventing one.
+   */
+  const drop = (e: React.DragEvent, targetId: string) => {
+    e.preventDefault();
+    const dragged = dragId ?? e.dataTransfer.getData("text/plain");
+    if (dragged) setDraft(reorder(current, dragged, targetId));
+    endDrag();
+  };
 
   // A failed LINKS fetch must not fall through to the list. `links` would be
   // undefined, `saved` would collapse to [], and the tab would render "0 of N
@@ -134,7 +158,40 @@ export function SkillsTab({ agent }: { agent: Agent }) {
         {visible.map(({ skill, linked }) => {
           const index = current.indexOf(skill.id);
           return (
-            <li key={skill.id} style={s.row(linked)} aria-label={skill.name}>
+            <li
+              key={skill.id}
+              style={{
+                ...s.row(linked),
+                ...(dragId === skill.id ? s.rowDragging : {}),
+                ...(overId === skill.id ? s.rowOver : {}),
+              }}
+              aria-label={skill.name}
+              // Only an ATTACHED skill has a position, so only an attached row
+              // can be dragged — dragging an unattached one would ask the list
+              // to order something that is not in it.
+              draggable={linked}
+              onDragStart={(e) => {
+                e.dataTransfer.effectAllowed = "move";
+                e.dataTransfer.setData("text/plain", skill.id);
+                setDragId(skill.id);
+              }}
+              onDragOver={(e) => {
+                if (!linked || !dragId || dragId === skill.id) return;
+                // Without preventDefault the browser refuses the drop outright —
+                // the default for a dragover is "this is not a drop target".
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                setOverId(skill.id);
+              }}
+              onDragLeave={() => setOverId((o) => (o === skill.id ? null : o))}
+              onDrop={(e) => drop(e, skill.id)}
+              // Fires on a cancelled drag too (Esc, or a drop outside the list),
+              // which is the only thing that clears the visual state there.
+              onDragEnd={endDrag}
+            >
+              <span style={s.grip(linked)} aria-hidden="true">
+                <Icon.Menu size={14} />
+              </span>
               <span className="mono tnum" style={s.orderIndex}>
                 {linked ? index + 1 : ""}
               </span>
@@ -146,9 +203,12 @@ export function SkillsTab({ agent }: { agent: Agent }) {
                 onChange={() => toggle(skill.id)}
                 label={<span style={s.srOnly}>{t("skills.attach", { name: skill.name })}</span>}
               />
+              {/* An anchor is natively draggable and would start its OWN drag
+                  (the URL), pre-empting the row's. */}
               <Link
                 href={`/skills/${skill.id}?tab=config`}
                 className="mono"
+                draggable={false}
                 style={{ ...s.name, color: "inherit", textDecoration: "none" }}
               >
                 {skill.name}
@@ -161,36 +221,6 @@ export function SkillsTab({ agent }: { agent: Agent }) {
               )}
               <span style={s.typeChip(TYPE_COLOR[skill.type])}>
                 {ts(`listItem.type.${skill.type}`)}
-              </span>
-              {/* aria-disabled, not disabled: a real `disabled` takes effect the
-                  instant the row reaches an end position, and the browser then
-                  drops focus from the button the keyboard user just pressed,
-                  sending the next Tab back to the top of the document. `move`
-                  already returns the array unchanged at either boundary. */}
-              <span style={s.moveGroup}>
-                {([-1, 1] as const).map((delta) => {
-                  const atBoundary =
-                    delta === -1 ? index <= 0 : index === current.length - 1;
-                  const inert = !linked || atBoundary;
-                  const Arrow = delta === -1 ? Icon.ArrowUp : Icon.ArrowDown;
-                  return (
-                    <button
-                      key={delta}
-                      type="button"
-                      aria-label={t(delta === -1 ? "skills.moveUp" : "skills.moveDown", {
-                        name: skill.name,
-                      })}
-                      aria-disabled={inert}
-                      onClick={() => {
-                        if (inert) return;
-                        setDraft(move(current, skill.id, delta));
-                      }}
-                      style={s.moveBtn(inert)}
-                    >
-                      <Arrow size={13} />
-                    </button>
-                  );
-                })}
               </span>
             </li>
           );

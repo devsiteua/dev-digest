@@ -46,6 +46,21 @@ export const s = {
     border: "1px solid " + (linked ? "var(--border-strong)" : "var(--border)"),
     background: linked ? "var(--bg-hover)" : "var(--bg-elevated)",
   }),
+  /**
+   * Drag feedback as box-shadow, never as a border override: `row` sets the
+   * `border` shorthand, and adding a `borderColor`/`borderTopColor` longhand on
+   * top of it makes React warn about conflicting style properties on every
+   * rerender — and a dragged list rerenders constantly.
+   */
+  rowDragging: { opacity: 0.4, cursor: "grabbing" } satisfies CSSProperties,
+  /** The row the drop would land on: an insertion rule across its top edge. */
+  rowOver: { boxShadow: "inset 0 3px 0 var(--accent)" } satisfies CSSProperties,
+  grip: (draggable: boolean): CSSProperties => ({
+    display: "inline-flex",
+    flexShrink: 0,
+    color: draggable ? "var(--text-muted)" : "transparent",
+    cursor: draggable ? "grab" : "default",
+  }),
   orderIndex: {
     width: 18,
     fontSize: 11,
@@ -70,16 +85,6 @@ export const s = {
     padding: "1px 7px",
     borderRadius: 4,
     flexShrink: 0,
-  }),
-  moveGroup: { display: "flex", gap: 2, flexShrink: 0 } satisfies CSSProperties,
-  moveBtn: (disabled: boolean): CSSProperties => ({
-    background: "none",
-    border: "none",
-    padding: 3,
-    borderRadius: 4,
-    display: "inline-flex",
-    cursor: disabled ? "default" : "pointer",
-    color: disabled ? "var(--border-strong)" : "var(--text-muted)",
   }),
   offNote: {
     display: "inline-flex",

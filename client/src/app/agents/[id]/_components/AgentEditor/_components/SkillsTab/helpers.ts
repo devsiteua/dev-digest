@@ -27,11 +27,19 @@ export function orderSkills(skills: Skill[], links: AgentSkillLink[]): SkillRow[
   return [...linked, ...rest];
 }
 
-/** Move an id one place towards the front or back. Returns a new array. */
-export function move(ids: string[], id: string, delta: -1 | 1): string[] {
-  const from = ids.indexOf(id);
-  const to = from + delta;
-  if (from === -1 || to < 0 || to >= ids.length) return ids;
+/**
+ * Move `dragId` to the position `targetId` currently occupies. Returns a new
+ * array, or the same one when either id is missing or they are the same.
+ *
+ * Ids, not indices, because the list on screen can be FILTERED: the row a drop
+ * lands on is at some position in `visible`, which says nothing about its
+ * position in the saved order. Resolving both ends by id makes a drop mean the
+ * same thing with a filter applied as without one.
+ */
+export function reorder(ids: string[], dragId: string, targetId: string): string[] {
+  const from = ids.indexOf(dragId);
+  const to = ids.indexOf(targetId);
+  if (from === -1 || to === -1 || from === to) return ids;
   const next = [...ids];
   next.splice(to, 0, ...next.splice(from, 1));
   return next;

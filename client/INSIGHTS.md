@@ -240,6 +240,27 @@ Status:   resolved
 
 ## Tool & Library Notes
 
+### 2026-08-12 · A synthetic mouse drag never starts an HTML5 drag — verify DnD by dispatching `DragEvent` with a real `DataTransfer`
+
+Trigger:  checking the new drag-to-reorder on the agent Skills tab in the actual browser;
+          `computer left_click_drag` across two rows moved nothing, which reads as a broken
+          feature
+Cause:    `dragstart` is fired by the browser's own drag recogniser, and CDP's synthetic
+          mousedown/mousemove/mouseup do not feed it (real drags need `Input.dispatchDragEvent`).
+          Nothing in the app ran at all. jsdom has the mirror-image gap: no `DataTransfer`
+          implementation, so `fireEvent.dragStart(el)` hands the handler `undefined` and
+          `e.dataTransfer.setData` throws.
+Takeaway: two verifications, two techniques. In the browser, drive it from
+          `javascript_tool`: build one `new DataTransfer()`, dispatch `dragstart` on the source
+          and `dragover`/`drop` on the target with `{bubbles: true, cancelable: true}` — React's
+          delegated handlers fire on untrusted events, and reading the styles requires an
+          `await` first, because the state update is a rerender, not a synchronous write. In
+          vitest, pass a stub: `fireEvent.dragStart(row, { dataTransfer: { setData: vi.fn(),
+          getData: () => id, effectAllowed: "", dropEffect: "" } })`.
+Evidence: src/app/agents/[id]/_components/AgentEditor/_components/SkillsTab/SkillsTab.tsx;
+          .../SkillsTab.test.tsx (the `dt()` helper)
+Status:   resolved
+
 ### 2026-08-12 · `@devdigest/ui`'s chart primitives are shaped for MONEY and SCORES — an integer count comes out as "$5.00"
 
 Trigger:  porting the design's "Findings by category" donut for the skill Stats tab, over counts

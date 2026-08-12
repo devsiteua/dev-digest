@@ -201,7 +201,7 @@ the one item that was never a decision at all:
 |---|---|
 | Skill editor has two tabs; no `/skills/:id/stats`, no `/skills/:id/restore` | out of scope — *"A Versions tab"*, *"Evals / Stats tabs"* |
 | `skill_count` is supported by the card but computed nowhere | out of scope — *"a list of N agents would cost N extra requests, or a contract change"* |
-| Reordering uses ↑/↓ buttons, not HTML5 drag-and-drop | out of scope — *"no dnd library exists in the client, and ↑/↓ posts the identical payload"*; the reviewer withdrew it |
+| Reordering uses ↑/↓ buttons, not HTML5 drag-and-drop | out of scope — *"no dnd library exists in the client, and ↑/↓ posts the identical payload"*; paid off here, without a library |
 | The sidebar has one WORKSPACE section, no SKILLS LAB | **not a decision** — Round 1 added a `Skills` entry to `NAV` and never revisited the grouping |
 
 ## In scope
@@ -217,11 +217,16 @@ the one item that was never a decision at all:
 - `Agent.skill_count` (both `vendor/shared` copies), computed by one grouped
   query in `AgentsRepository.skillCounts`, plus `skillCountFor` for the single
   reads. `AgentCard` renders it; the mutations that move it invalidate `agents`.
+- **Drag-to-reorder** on the agent's Skills tab, on the platform's own HTML5
+  drag events: a grip per row as in the design, the dragged row dimmed, an
+  insertion rule on the row the drop lands on. The ↑/↓ buttons are **removed** —
+  the design has no arrows, and two controls for one action is the kind of
+  leftover that reads as an unfinished port.
 
 ## Out of scope
 
-- **Drag-and-drop reordering.** Still no dnd library, and the reviewer explicitly
-  did not press the point. ↑/↓ posts the same payload the design's drag would.
+- **A drag-and-drop library.** The reordering below is the platform's own HTML5
+  drag events; nothing is installed.
 - **The design's Evals tab.** `eval_cases` is empty until L06; a tab whose only
   reachable state is an empty state teaches nothing.
 - **`PULL FREQUENCY` on the Stats tab.** See Decisions — it is not derivable.
@@ -255,6 +260,11 @@ the one item that was never a decision at all:
 - **The count is computed, not stored.** One `group by` over `agent_skills` for
   the list, one `count` for a single read. A denormalised column would need a
   migration and would have to be maintained by every writer of the link table.
+- **A drop is resolved by ID, never by index.** The list can be filtered, so the
+  row a drop lands on says nothing about its position in the saved order;
+  `reorder(ids, dragId, targetId)` makes a drop mean the same thing with a
+  filter applied as without one. Only an attached row is draggable, and a drop
+  onto an unattached one is a no-op rather than an invented position.
 - **The stats queries live in `SkillsRepository`.** They read `agents`,
   `agent_runs`, `reviews` and `findings` — tables other modules own the write
   side of — which is a cross-domain READ, not the cross-module import the onion
@@ -277,6 +287,9 @@ the one item that was never a decision at all:
       link change and a cascading skill delete.
 - [x] An agent card with no `skill_count` renders no badge, and one with `0`
       renders "0 skills".
+- [x] Dragging a row onto another renumbers the list immediately and posts that
+      order on save; a drop onto itself or onto an unattached row changes
+      nothing; an unattached row is not draggable.
 - [x] **Regression:** `git status server/src/db/migrations` is clean — no schema
       change was needed.
 - [x] **Regression:** both `vendor/shared/contracts/knowledge.ts` copies are
@@ -306,6 +319,12 @@ the one item that was never a decision at all:
 - **`runs` counts every run of an attached agent**, including runs from before
   the skill was attached — `agent_skills` records no timestamp. Inside a 30-day
   window on a local studio this is small; a longer window would need one.
+- **Reordering is now pointer-only.** HTML5 drag-and-drop has no keyboard
+  equivalent, and the ↑/↓ buttons that provided one are gone. Attaching,
+  detaching and everything else on the tab stay reachable from the keyboard;
+  only ORDER does not. A keyboard path would be a roving-focus handler on the
+  rows (arrow keys with a modifier to move), which is a real piece of work and
+  was not part of closing this gap.
 
 ## Open questions
 
