@@ -136,7 +136,45 @@
   "editor": {
     "tabs": {
       "config": "Config",
-      "preview": "Preview"
+      "preview": "Preview",
+      "stats": "Stats",
+      "versions": "Versions"
     }
+  },
+  "stats": {
+    "heading": "Usage",
+    "lead": "Measured over the agents this skill is attached to, for the last {days} days.",
+    "attribution": "A finding records the agent that produced it, not the skill that shaped the prompt — so an agent carrying two skills reports the same numbers under both. Per-skill attribution arrives with the eval pipeline.",
+    "loadError": "Could not load usage for this skill.",
+    "usedBy": "Used by",
+    "usedByUnit": "{count, plural, one {agent} other {agents}}",
+    "runs": "Runs ({days}d)",
+    "findings": "Findings ({days}d)",
+    "acceptRate": "Accept rate",
+    "acceptRateNone": "—",
+    "acceptRateHint": "{accepted} accepted / {decided} triaged",
+    "agentsCard": "Agents using this skill",
+    "agentDisabled": "disabled",
+    "open": "Open",
+    "categoriesCard": "Findings by category",
+    "noFindings": "No findings in this window.",
+    "empty": {
+      "title": "No usage yet",
+      "body": "This skill is not attached to any agent. Add it to an agent to start collecting usage."
+    }
+  },
+  "versions": {
+    "heading": "Version history",
+    "count": "{count, plural, one {# version} other {# versions}}",
+    "lead": "Every save that changes the body snapshots it, so an eval run can be replayed against the exact text it scored.",
+    "loadError": "Could not load version history.",
+    "current": "Current",
+    "view": "View",
+    "hide": "Hide",
+    "restore": "Restore",
+    "restoring": "Restoring…",
+    "restored": "Restored v{version} as v{newVersion}.",
+    "restoreFailed": "Could not restore that version.",
+    "restoreHint": "Restoring appends the old text as a new version — nothing in the history is overwritten."
   }
 }

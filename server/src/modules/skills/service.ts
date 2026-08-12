@@ -1,8 +1,8 @@
 import type { Container } from '../../platform/container.js';
-import type { Skill, SkillDraft, SkillType, SkillVersion } from '@devdigest/shared';
+import type { Skill, SkillDraft, SkillStats, SkillType, SkillVersion } from '@devdigest/shared';
 import { ValidationError } from '../../platform/errors.js';
 import { SkillsRepository } from './repository.js';
-import { MAX_BODY_CHARS } from './constants.js';
+import { MAX_BODY_CHARS, MS_PER_DAY, STATS_WINDOW_DAYS } from './constants.js';
 import {
   decodeBase64,
   draftFromMarkdown,
@@ -69,6 +69,75 @@ export class SkillsService {
     if (!row) return undefined;
     const versions = await this.repo.listVersions(id);
     return versions.map(toSkillVersionDto);
+  }
+
+  /**
+   * Restore a past body snapshot as the skill's current text.
+   *
+   * This moves FORWARD, never back: the old body is written through
+   * `repo.update`, which bumps `version` and snapshots the result. Restoring v2
+   * of a v5 skill therefore produces v6 with v2's text, and v3/v4/v5 stay in the
+   * history — an eval that scored v4 can still be replayed against exactly what
+   * it scored. Restoring the CURRENT body is a no-op for the same machinery:
+   * `update` only bumps when the text actually changed.
+   *
+   * Returns `undefined` when the skill is not in this workspace or the version
+   * was never recorded; the route maps both to 404.
+   */
+  async restoreVersion(
+    workspaceId: string,
+    id: string,
+    version: number,
+  ): Promise<Skill | undefined> {
+    const skill = await this.repo.getById(workspaceId, id);
+    if (!skill) return undefined;
+
+    const snapshot = await this.repo.getVersion(id, version);
+    if (!snapshot) return undefined;
+
+    const row = await this.repo.update(workspaceId, id, { body: snapshot.body });
+    return row ? toSkillDto(row) : undefined;
+  }
+
+  /**
+   * Usage numbers for the editor's Stats tab.
+   *
+   * Everything except `used_by` is measured over the agents this skill is
+   * attached to — `findings` carries no skill id — so a second skill on the same
+   * agent reports the same totals. `SkillStats` says this in the contract and
+   * the screen repeats it to the user; do not let the numbers be read as the
+   * skill's own performance until per-skill attribution exists (L06).
+   */
+  async stats(workspaceId: string, id: string): Promise<SkillStats | undefined> {
+    const skill = await this.repo.getById(workspaceId, id);
+    if (!skill) return undefined;
+
+    const agents = await this.repo.usedByAgents(workspaceId, id);
+    const agentIds = agents.map((a) => a.id);
+    const since = new Date(Date.now() - STATS_WINDOW_DAYS * MS_PER_DAY);
+
+    const [runs, findings] = await Promise.all([
+      this.repo.runCountForAgents(workspaceId, agentIds, since),
+      this.repo.findingStatsForAgents(workspaceId, agentIds, since),
+    ]);
+
+    const decided = findings.accepted + findings.dismissed;
+    return {
+      used_by: agents.map((a) => ({
+        agent_id: a.id,
+        agent_name: a.name,
+        agent_enabled: a.enabled,
+      })),
+      window_days: STATS_WINDOW_DAYS,
+      runs,
+      findings: findings.total,
+      accepted: findings.accepted,
+      dismissed: findings.dismissed,
+      // Null, not 0: "nothing has been triaged yet" and "everything was
+      // dismissed" are opposite facts and must not render as the same 0%.
+      accept_rate: decided === 0 ? null : findings.accepted / decided,
+      by_category: findings.byCategory,
+    };
   }
 
   /** Create a skill authored in this workspace. Always `source: 'manual'`. */

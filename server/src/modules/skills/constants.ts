@@ -7,6 +7,16 @@ export const INITIAL_SKILL_VERSION = 1;
 export const DEFAULT_SKILL_TYPE = 'custom' as const;
 
 /**
+ * Window for the editor's Stats tab, in days. Matches the design's
+ * "FINDINGS (30D)" tile, and it is reported back in `SkillStats.window_days` so
+ * the screen never has to hardcode the same number twice.
+ */
+export const STATS_WINDOW_DAYS = 30;
+
+/** Milliseconds in a day, for the stats window cutoff. */
+export const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/**
  * Longest accepted skill body, in characters. Also the cap on a pasted/imported
  * markdown payload — a body is the ONLY thing a skill contributes to a prompt,
  * so this is the real budget knob, not a defensive guess.

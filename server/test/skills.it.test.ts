@@ -152,6 +152,82 @@ d('L02 skills (Testcontainers pg)', () => {
     await app.close();
   });
 
+  it('restores a past body by moving FORWARD, leaving the history intact', async () => {
+    const app = await makeApp();
+    const skill = await createSkill(app, { body: '# v1 text' });
+    await app.inject({ method: 'PUT', url: `/skills/${skill.id}`, payload: { body: '# v2 text' } });
+
+    const restored = (
+      await app.inject({
+        method: 'POST',
+        url: `/skills/${skill.id}/restore`,
+        payload: { version: 1 },
+      })
+    ).json();
+
+    // v3 carries v1's text: restoring is an append, so an eval that scored v2
+    // can still be replayed against exactly the text it scored.
+    expect(restored.version).toBe(3);
+    expect(restored.body).toBe('# v1 text');
+
+    const versions = (
+      await app.inject({ method: 'GET', url: `/skills/${skill.id}/versions` })
+    ).json();
+    expect(versions.map((v: { version: number }) => v.version)).toEqual([3, 2, 1]);
+    expect(versions.find((v: { version: number }) => v.version === 2).body).toBe('# v2 text');
+
+    await app.close();
+  });
+
+  it('restoring the CURRENT body changes nothing — no phantom version', async () => {
+    const app = await makeApp();
+    const skill = await createSkill(app, { body: '# only text' });
+
+    const again = (
+      await app.inject({
+        method: 'POST',
+        url: `/skills/${skill.id}/restore`,
+        payload: { version: 1 },
+      })
+    ).json();
+    expect(again.version).toBe(1);
+
+    const versions = (
+      await app.inject({ method: 'GET', url: `/skills/${skill.id}/versions` })
+    ).json();
+    expect(versions).toHaveLength(1);
+
+    await app.close();
+  });
+
+  it('404s on a version that was never recorded, and 422s on a version that cannot exist', async () => {
+    const app = await makeApp();
+    const skill = await createSkill(app);
+
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: `/skills/${skill.id}/restore`,
+          payload: { version: 99 },
+        })
+      ).statusCode,
+    ).toBe(404);
+
+    // Versions start at 1, so 0 is rejected by the schema before the handler runs.
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: `/skills/${skill.id}/restore`,
+          payload: { version: 0 },
+        })
+      ).statusCode,
+    ).toBe(422);
+
+    await app.close();
+  });
+
   it('rejects a duplicate name in the same workspace', async () => {
     const app = await makeApp();
     const skill = await createSkill(app);
@@ -416,6 +492,188 @@ d('L02 skills (Testcontainers pg)', () => {
       })
     ).json();
     expect(cleared).toEqual([]);
+
+    await app.close();
+  });
+
+  // ---- Usage numbers -------------------------------------------------------
+
+  it('reports usage per ATTACHED AGENT, and zeros for a skill nobody uses', async () => {
+    const app = await makeApp();
+    const skill = await createSkill(app);
+
+    const unused = (await app.inject({ method: 'GET', url: `/skills/${skill.id}/stats` })).json();
+    expect(unused.used_by).toEqual([]);
+    expect(unused).toMatchObject({ runs: 0, findings: 0, accepted: 0, dismissed: 0 });
+    // Null, not 0: nothing has been triaged, which is not "everything was dismissed".
+    expect(unused.accept_rate).toBeNull();
+    expect(unused.by_category).toEqual([]);
+
+    const agent = (
+      await app.inject({
+        method: 'POST',
+        url: '/agents',
+        payload: {
+          name: uniqueName('Stats agent'),
+          provider: 'openai',
+          model: 'gpt-4.1',
+          system_prompt: 'x',
+          enabled: false,
+        },
+      })
+    ).json();
+    await app.inject({
+      method: 'POST',
+      url: `/agents/${agent.id}/skills`,
+      payload: { skill_ids: [skill.id] },
+    });
+
+    const used = (await app.inject({ method: 'GET', url: `/skills/${skill.id}/stats` })).json();
+    expect(used.used_by).toEqual([
+      { agent_id: agent.id, agent_name: agent.name, agent_enabled: false },
+    ]);
+    // The agent has never run, so attaching a skill to it moves no other number.
+    expect(used).toMatchObject({ runs: 0, findings: 0, window_days: 30 });
+
+    await app.close();
+  });
+
+  it('counts findings of the agents that carry the skill, and splits the triage', async () => {
+    const app = await makeApp();
+    const { db } = pg.handle;
+    const skill = await createSkill(app);
+    const agent = (
+      await app.inject({
+        method: 'POST',
+        url: '/agents',
+        payload: {
+          name: uniqueName('Reviewed by'),
+          provider: 'openai',
+          model: 'gpt-4.1',
+          system_prompt: 'x',
+          enabled: false,
+        },
+      })
+    ).json();
+    await app.inject({
+      method: 'POST',
+      url: `/agents/${agent.id}/skills`,
+      payload: { skill_ids: [skill.id] },
+    });
+
+    // A review of this agent, with one accepted and one still-untriaged finding.
+    const [pr] = await db.select().from(t.pullRequests).limit(1);
+    const [review] = await db
+      .insert(t.reviews)
+      .values({ workspaceId, prId: pr!.id, agentId: agent.id, kind: 'review' })
+      .returning();
+    await db.insert(t.findings).values([
+      {
+        reviewId: review!.id,
+        file: 'src/a.ts',
+        startLine: 1,
+        endLine: 2,
+        severity: 'WARNING',
+        category: 'bug',
+        title: 'One',
+        rationale: 'r',
+        confidence: 0.8,
+        acceptedAt: new Date(),
+      },
+      {
+        reviewId: review!.id,
+        file: 'src/b.ts',
+        startLine: 3,
+        endLine: 4,
+        severity: 'SUGGESTION',
+        category: 'style',
+        title: 'Two',
+        rationale: 'r',
+        confidence: 0.7,
+      },
+    ]);
+
+    const stats = (await app.inject({ method: 'GET', url: `/skills/${skill.id}/stats` })).json();
+    expect(stats).toMatchObject({ findings: 2, accepted: 1, dismissed: 0, accept_rate: 1 });
+    expect(stats.by_category).toEqual(
+      expect.arrayContaining([
+        { category: 'bug', count: 1 },
+        { category: 'style', count: 1 },
+      ]),
+    );
+
+    await app.close();
+  });
+
+  it('404s stats for a skill in another workspace', async () => {
+    const app = await makeApp();
+    const { db } = pg.handle;
+    const [otherWs] = await db
+      .insert(t.workspaces)
+      .values({ name: `stats-other-${skillSeq}` })
+      .returning();
+    const [foreign] = await db
+      .insert(t.skills)
+      .values({
+        workspaceId: otherWs!.id,
+        name: uniqueName('foreign-stats'),
+        description: 'Not yours.',
+        type: 'custom',
+        source: 'manual',
+        body: 'x',
+      })
+      .returning();
+
+    expect(
+      (await app.inject({ method: 'GET', url: `/skills/${foreign!.id}/stats` })).statusCode,
+    ).toBe(404);
+
+    await app.close();
+  });
+
+  it('reports skill_count on the agent itself, and keeps it current as links change', async () => {
+    const app = await makeApp();
+    const a = await createSkill(app);
+    const b = await createSkill(app);
+    const agent = (
+      await app.inject({
+        method: 'POST',
+        url: '/agents',
+        payload: {
+          name: uniqueName('Counted'),
+          provider: 'openai',
+          model: 'gpt-4.1',
+          system_prompt: 'x',
+          enabled: false,
+        },
+      })
+    ).json();
+    expect(agent.skill_count).toBe(0);
+
+    await app.inject({
+      method: 'POST',
+      url: `/agents/${agent.id}/skills`,
+      payload: { skill_ids: [a.id, b.id] },
+    });
+
+    const inList = (await app.inject({ method: 'GET', url: '/agents' }))
+      .json()
+      .find((x: { id: string }) => x.id === agent.id);
+    expect(inList.skill_count).toBe(2);
+    expect((await app.inject({ method: 'GET', url: `/agents/${agent.id}` })).json().skill_count).toBe(
+      2,
+    );
+
+    // Deleting a skill cascades the link away, so the count has to follow.
+    await app.inject({ method: 'DELETE', url: `/skills/${a.id}` });
+    expect((await app.inject({ method: 'GET', url: `/agents/${agent.id}` })).json().skill_count).toBe(
+      1,
+    );
+
+    // Every agent gets its own count, not the index of its row in the list.
+    const all = (await app.inject({ method: 'GET', url: '/agents' })).json();
+    const counted = all.filter((x: { skill_count?: number }) => x.skill_count === 0);
+    expect(counted.length).toBeGreaterThan(0);
 
     await app.close();
   });

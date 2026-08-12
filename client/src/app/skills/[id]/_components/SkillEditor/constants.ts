@@ -8,13 +8,18 @@ export interface EditorTab {
 }
 
 /**
- * Config is the skill; Preview is how the reviewing agent receives it. The
- * design's Evals / Stats / Versions tabs belong to later lessons — body snapshots
- * are already written to `skill_versions`, there is just no UI over them yet.
+ * Config is the skill; Preview is how the reviewing agent receives it; Stats is
+ * what happened after it was attached; Versions is every body it has had.
+ *
+ * The design's fifth tab, Evals, is absent on purpose — `eval_cases` is empty
+ * until L06, and a tab whose only possible content is an empty state teaches the
+ * reader nothing.
  */
 export const TABS: readonly EditorTab[] = [
   { key: "config", labelKey: "editor.tabs.config", icon: "Settings" },
   { key: "preview", labelKey: "editor.tabs.preview", icon: "Eye" },
+  { key: "stats", labelKey: "editor.tabs.stats", icon: "BarChart" },
+  { key: "versions", labelKey: "editor.tabs.versions", icon: "History" },
 ];
 
 export const TYPE_VALUES: readonly SkillType[] = ["rubric", "convention", "security", "custom"];

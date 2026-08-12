@@ -6,6 +6,8 @@ import { Tabs } from "@devdigest/ui";
 import type { Skill } from "@devdigest/shared";
 import { ConfigTab } from "./_components/ConfigTab";
 import { PreviewTab } from "./_components/PreviewTab";
+import { StatsTab } from "./_components/StatsTab";
+import { VersionsTab } from "./_components/VersionsTab";
 import { TABS } from "./constants";
 import { s } from "./styles";
 
@@ -27,7 +29,12 @@ export function SkillEditor({
         <Tabs tabs={tabs} value={tab} onChange={onTab} pad="0 24px" />
       </div>
       <div style={s.body}>
-        {tab === "preview" ? <PreviewTab skill={skill} /> : <ConfigTab skill={skill} />}
+        {tab === "preview" && <PreviewTab skill={skill} />}
+        {tab === "stats" && <StatsTab skill={skill} />}
+        {tab === "versions" && <VersionsTab skill={skill} />}
+        {/* Config is the fallback, so an unknown `?tab=` lands on the skill
+            itself rather than on a blank pane. */}
+        {tab !== "preview" && tab !== "stats" && tab !== "versions" && <ConfigTab skill={skill} />}
       </div>
     </div>
   );

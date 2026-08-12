@@ -13,6 +13,8 @@ import { SkillsService } from './service.js';
  *   GET    /skills                  → list (workspace-scoped)
  *   GET    /skills/:id              → one skill
  *   GET    /skills/:id/versions     → body snapshots, newest first
+ *   GET    /skills/:id/stats        → usage numbers for the editor's Stats tab
+ *   POST   /skills/:id/restore      → make a past snapshot the current body
  *   POST   /skills                  → create (source is forced to 'manual')
  *   PUT    /skills/:id              → update; `source` is NOT accepted
  *   DELETE /skills/:id              → delete (agent links cascade)
@@ -47,6 +49,9 @@ const UpdateSkillBody = z.object({
   body: SkillBody.optional(),
   enabled: z.boolean().optional(),
 });
+
+/** Which snapshot to restore. Versions start at 1, so 0 is not a version. */
+const RestoreBody = z.object({ version: z.number().int().positive() });
 
 const ImportPreviewBody = z.discriminatedUnion('kind', [
   z.object({
@@ -83,6 +88,28 @@ export default async function skillsRoutes(appBase: FastifyInstance) {
     if (!versions) throw new NotFoundError('Skill not found');
     return versions;
   });
+
+  app.get('/skills/:id/stats', { schema: { params: IdParams } }, async (req) => {
+    const { workspaceId } = await getContext(app.container, req);
+    const stats = await service.stats(workspaceId, req.params.id);
+    if (!stats) throw new NotFoundError('Skill not found');
+    return stats;
+  });
+
+  /**
+   * POST rather than PUT: restoring is not idempotent — it appends a new version
+   * carrying the old text, so calling it twice moves the skill forward twice.
+   */
+  app.post(
+    '/skills/:id/restore',
+    { schema: { params: IdParams, body: RestoreBody } },
+    async (req) => {
+      const { workspaceId } = await getContext(app.container, req);
+      const skill = await service.restoreVersion(workspaceId, req.params.id, req.body.version);
+      if (!skill) throw new NotFoundError('Skill or version not found');
+      return skill;
+    },
+  );
 
   app.post('/skills', { schema: { body: CreateSkillBody } }, async (req, reply) => {
     const { workspaceId } = await getContext(app.container, req);

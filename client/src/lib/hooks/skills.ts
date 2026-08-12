@@ -4,7 +4,14 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
-import type { AgentSkillLink, Skill, SkillDraft, SkillType } from "@devdigest/shared";
+import type {
+  AgentSkillLink,
+  Skill,
+  SkillDraft,
+  SkillStats,
+  SkillType,
+  SkillVersion,
+} from "@devdigest/shared";
 
 export function useSkills() {
   return useQuery({
@@ -17,6 +24,24 @@ export function useSkill(id: string | null | undefined) {
   return useQuery({
     queryKey: ["skill", id],
     queryFn: () => api.get<Skill>(`/skills/${id}`),
+    enabled: !!id,
+  });
+}
+
+/** Body snapshots, newest first. One per save that changed the text. */
+export function useSkillVersions(id: string | null | undefined) {
+  return useQuery({
+    queryKey: ["skill-versions", id],
+    queryFn: () => api.get<SkillVersion[]>(`/skills/${id}/versions`),
+    enabled: !!id,
+  });
+}
+
+/** Usage numbers for the Stats tab. See `SkillStats` on how to read them. */
+export function useSkillStats(id: string | null | undefined) {
+  return useQuery({
+    queryKey: ["skill-stats", id],
+    queryFn: () => api.get<SkillStats>(`/skills/${id}/stats`),
     enabled: !!id,
   });
 }
@@ -52,6 +77,32 @@ export function useUpdateSkill() {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["skills"] });
       qc.setQueryData(["skill", data.id], data);
+      // A changed body appends a snapshot server-side, so the Versions tab is
+      // stale the moment a save lands — whether or not it is the visible tab.
+      qc.invalidateQueries({ queryKey: ["skill-versions", data.id] });
+    },
+  });
+}
+
+export interface RestoreSkillVersionInput {
+  id: string;
+  version: number;
+}
+
+/**
+ * Make a past snapshot the current body. The server moves the skill FORWARD (a
+ * restore of v2 lands as v6 with v2's text), so both the skill and its version
+ * list change and neither can be patched into the cache from the response alone.
+ */
+export function useRestoreSkillVersion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, version }: RestoreSkillVersionInput) =>
+      api.post<Skill>(`/skills/${id}/restore`, { version }),
+    onSuccess: (data) => {
+      qc.setQueryData(["skill", data.id], data);
+      qc.invalidateQueries({ queryKey: ["skills"] });
+      qc.invalidateQueries({ queryKey: ["skill-versions", data.id] });
     },
   });
 }
@@ -67,6 +118,9 @@ export function useDeleteSkill() {
       // just changed on the server. Without this, an open Skills tab keeps a
       // dangling id in its draft and POSTs it back on the next save.
       qc.invalidateQueries({ queryKey: ["agent-skills"] });
+      // The same cascade changed `skill_count` on every agent card that carried
+      // this skill.
+      qc.invalidateQueries({ queryKey: ["agents"] });
     },
   });
 }
@@ -127,6 +181,11 @@ export function useSetAgentSkills(agentId: string) {
     onSuccess: (data) => {
       qc.setQueryData(["agent-skills", agentId], data);
       qc.invalidateQueries({ queryKey: ["agent-skills", agentId] });
+      // Attaching or detaching moved this agent's `skill_count`, which the agent
+      // cards render — and no `agents` query refetches on its own. The detail
+      // page renders the same card from `["agent", id]`, so both keys go.
+      qc.invalidateQueries({ queryKey: ["agents"] });
+      qc.invalidateQueries({ queryKey: ["agent", agentId] });
     },
   });
 }
