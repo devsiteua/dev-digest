@@ -46,4 +46,19 @@ describe("AgentCard (smoke)", () => {
     renderWithIntl(<AgentCard ag={{ ...AGENT, description: "" }} />);
     expect(screen.getByText("No description")).toBeInTheDocument();
   });
+
+  it("reads the count off the agent, so a grid of cards costs no extra request", () => {
+    renderWithIntl(<AgentCard ag={{ ...AGENT, skill_count: 2 }} />);
+    expect(screen.getByText("2 skills")).toBeInTheDocument();
+  });
+
+  it("shows 0 when the server counted zero links", () => {
+    renderWithIntl(<AgentCard ag={{ ...AGENT, skill_count: 0 }} />);
+    expect(screen.getByText("0 skills")).toBeInTheDocument();
+  });
+
+  it("shows no badge at all when nobody counted — that is not the same as zero", () => {
+    renderWithIntl(<AgentCard ag={AGENT} />);
+    expect(screen.queryByText(/skills$/)).not.toBeInTheDocument();
+  });
 });

@@ -56,14 +56,23 @@ export class AgentsService {
     this.repo = new AgentsRepository(container.db);
   }
 
+  /**
+   * NOTE the explicit arrow: `rows.map(toAgentDto)` would hand `map`'s INDEX to
+   * the `skillCount` parameter, and TypeScript accepts it silently — the first
+   * agent would report 0 skills and the second 1.
+   */
   async list(workspaceId: string): Promise<Agent[]> {
-    const rows = await this.repo.list(workspaceId);
-    return rows.map(toAgentDto);
+    const [rows, counts] = await Promise.all([
+      this.repo.list(workspaceId),
+      this.repo.skillCounts(workspaceId),
+    ]);
+    return rows.map((row) => toAgentDto(row, counts.get(row.id) ?? 0));
   }
 
   async get(workspaceId: string, id: string): Promise<Agent | undefined> {
     const row = await this.repo.getById(workspaceId, id);
-    return row ? toAgentDto(row) : undefined;
+    if (!row) return undefined;
+    return toAgentDto(row, await this.repo.skillCountFor(row.id));
   }
 
   /** Delete an agent (and its versions/skill-links, via cascade). */
@@ -86,7 +95,9 @@ export class AgentsService {
       enabled: input.enabled,
       createdBy: userId ?? null,
     });
-    return toAgentDto(row);
+    // A just-created agent provably has no links yet, so this 0 is measured, not
+    // assumed — and it keeps every response the client caches shaped alike.
+    return toAgentDto(row, 0);
   }
 
   async update(
@@ -106,7 +117,10 @@ export class AgentsService {
       ...(patch.repo_intel !== undefined ? { repoIntel: patch.repo_intel } : {}),
       ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
     });
-    return row ? toAgentDto(row) : undefined;
+    if (!row) return undefined;
+    // The toggle on an agent card writes this response straight into the query
+    // cache; without the count the card's badge would blank until a refetch.
+    return toAgentDto(row, await this.repo.skillCountFor(row.id));
   }
 
   /**

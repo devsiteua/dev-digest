@@ -19,6 +19,8 @@ import {
   Repo,
   PrDetail,
   PrMeta,
+  Agent,
+  SkillStats,
 } from '@devdigest/shared';
 
 /**
@@ -335,6 +337,53 @@ describe('platform DTOs', () => {
         findings_by_severity: { critical: 2, warning: 1, suggestion: 1 },
       }).findings_by_severity,
     ).toEqual({ critical: 2, warning: 1, suggestion: 1 });
+  });
+
+  // skill_count is DERIVED, so a producer that does not count must be able to
+  // omit the key entirely — .nullable() would make it required and 500 every
+  // response built without a count (a plugin export, a fixture, a version snapshot).
+  it('Agent.skill_count: absent, null and a real count all parse', () => {
+    const base = {
+      id: 'ag1',
+      name: 'Security Reviewer',
+      description: 'd',
+      provider: 'openai' as const,
+      model: 'gpt-4.1',
+      system_prompt: 'p',
+      enabled: true,
+      version: 1,
+    };
+    expect(Agent.parse(base).skill_count).toBeUndefined();
+    expect(Agent.parse({ ...base, skill_count: null }).skill_count).toBeNull();
+    expect(Agent.parse({ ...base, skill_count: 3 }).skill_count).toBe(3);
+    expect(() => Agent.parse({ ...base, skill_count: 1.5 })).toThrow();
+  });
+
+  it('SkillStats keeps accept_rate nullable — untriaged is not 0%', () => {
+    const stats = SkillStats.parse({
+      used_by: [{ agent_id: 'ag1', agent_name: 'A', agent_enabled: false }],
+      window_days: 30,
+      runs: 4,
+      findings: 0,
+      accepted: 0,
+      dismissed: 0,
+      accept_rate: null,
+      by_category: [],
+    });
+    expect(stats.accept_rate).toBeNull();
+    // The key itself is required: a stats response that forgot to compute the
+    // rate must fail here rather than render as "nothing triaged".
+    expect(() =>
+      SkillStats.parse({
+        used_by: [],
+        window_days: 30,
+        runs: 0,
+        findings: 0,
+        accepted: 0,
+        dismissed: 0,
+        by_category: [],
+      }),
+    ).toThrow();
   });
 
   it('PrMeta rejects a non-integer severity tally', () => {

@@ -19,6 +19,7 @@ export function AgentCard({
 }: {
   ag: Agent;
   active?: boolean;
+  /** Override for the count on the agent itself; normally left unset. */
   skillCount?: number;
   onClick?: () => void;
   onToggle?: (enabled: boolean) => void;
@@ -26,6 +27,11 @@ export function AgentCard({
   const t = useTranslations("agents");
   const del = useDeleteAgent();
   const color = modelColor(ag.model);
+  // `skill_count` rides along on the agent — one grouped query server-side, so
+  // a grid of cards costs no extra request. Nullish means "nobody counted", and
+  // that renders no badge at all: a card claiming "0 skills" for a producer that
+  // simply does not compute the field would be a lie in the shape of a number.
+  const count = skillCount ?? ag.skill_count;
   return (
     <div onClick={onClick} style={s.card(!!active, ag.enabled)}>
       <div style={s.headerRow}>
@@ -63,9 +69,9 @@ export function AgentCard({
         <span className="mono" style={s.modelChip(color)}>
           {ag.model}
         </span>
-        {skillCount != null && (
+        {count != null && (
           <Badge color="var(--text-secondary)" icon="Sparkles">
-            {t("card.skillCount", { count: skillCount })}
+            {t("card.skillCount", { count })}
           </Badge>
         )}
       </div>

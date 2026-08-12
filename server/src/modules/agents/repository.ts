@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, count, desc, eq } from 'drizzle-orm';
 import type { Db } from '../../db/client.js';
 import * as t from '../../db/schema.js';
 import type { CiFailOn, Provider, ReviewStrategy } from '@devdigest/shared';
@@ -202,6 +202,33 @@ export class AgentsRepository {
   async skillIdsForAgent(agentId: string): Promise<string[]> {
     const links = await this.linkedSkills(agentId);
     return links.map((l) => l.skill.id);
+  }
+
+  /**
+   * Link counts for every agent in a workspace, keyed by agent id. One grouped
+   * query for the whole list — the agent cards show this number, and asking per
+   * card is N requests for N agents.
+   *
+   * Agents with no links are absent from the map, not zero: the caller decides
+   * how to render "none", and `Map.get` already answers `undefined` there.
+   */
+  async skillCounts(workspaceId: string): Promise<Map<string, number>> {
+    const rows = await this.db
+      .select({ agentId: t.agentSkills.agentId, count: count() })
+      .from(t.agentSkills)
+      .innerJoin(t.agents, eq(t.agentSkills.agentId, t.agents.id))
+      .where(eq(t.agents.workspaceId, workspaceId))
+      .groupBy(t.agentSkills.agentId);
+    return new Map(rows.map((r) => [r.agentId, r.count]));
+  }
+
+  /** Link count for one agent. Not scoped — callers hold a workspace-checked row. */
+  async skillCountFor(agentId: string): Promise<number> {
+    const [row] = await this.db
+      .select({ count: count() })
+      .from(t.agentSkills)
+      .where(eq(t.agentSkills.agentId, agentId));
+    return row?.count ?? 0;
   }
 
   /** Link a skill to an agent at a given order (idempotent: upserts order). */

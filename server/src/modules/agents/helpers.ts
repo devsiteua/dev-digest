@@ -8,9 +8,17 @@ import type { AgentRow, AgentVersionRow } from './repository.js';
  * implementations.
  */
 
-/** Map a persisted agent row to the public `Agent` DTO. */
-export function toAgentDto(row: AgentRow): Agent {
+/**
+ * Map a persisted agent row to the public `Agent` DTO.
+ *
+ * `skillCount` is derived, so it is a separate argument rather than something
+ * read off the row — and when the caller did not count, the key is left OUT
+ * instead of defaulting to 0. An agent with no skills and an agent nobody
+ * counted look different on a card, and only one of them is a fact.
+ */
+export function toAgentDto(row: AgentRow, skillCount?: number): Agent {
   return {
+    ...(skillCount !== undefined ? { skill_count: skillCount } : {}),
     id: row.id,
     name: row.name,
     description: row.description,

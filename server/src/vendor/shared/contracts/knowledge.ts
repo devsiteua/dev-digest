@@ -164,6 +164,43 @@ export const SkillVersion = z.object({
 });
 export type SkillVersion = z.infer<typeof SkillVersion>;
 
+/** One agent this skill is attached to, for the editor's Stats tab. */
+export const SkillUsage = z.object({
+  agent_id: z.string(),
+  agent_name: z.string(),
+  /** The AGENT's switch, not the link's — a disabled agent never runs at all. */
+  agent_enabled: z.boolean(),
+});
+export type SkillUsage = z.infer<typeof SkillUsage>;
+
+/**
+ * Usage numbers for one skill, returned by `GET /skills/:id/stats`.
+ *
+ * Read the attribution before reading the numbers. `findings` has no `skill_id`
+ * — a finding is produced by an AGENT, whose prompt carried every skill linked
+ * to it — so everything below `used_by` is measured over *the agents that use
+ * this skill*, not over the skill. With two skills on one agent, both get the
+ * same `findings`. Per-skill attribution needs the eval pipeline (L06), which is
+ * why there is no `pull_frequency` here: the design shows one, and nothing
+ * currently written down could compute it honestly.
+ *
+ * The window is `window_days` back from now; `used_by` is current membership and
+ * is NOT windowed.
+ */
+export const SkillStats = z.object({
+  used_by: z.array(SkillUsage),
+  window_days: z.number().int(),
+  /** Runs by those agents inside the window, any status. */
+  runs: z.number().int(),
+  findings: z.number().int(),
+  accepted: z.number().int(),
+  dismissed: z.number().int(),
+  /** accepted / (accepted + dismissed). Null while nothing has been triaged. */
+  accept_rate: z.number().nullable(),
+  by_category: z.array(z.object({ category: z.string(), count: z.number().int() })),
+});
+export type SkillStats = z.infer<typeof SkillStats>;
+
 /**
  * The parsed core of an imported skill, returned by `POST /skills/import/preview`.
  * The preview endpoint writes NOTHING — the user confirms (and may edit) this
@@ -338,6 +375,15 @@ export const Agent = z.object({
   // Inject repo-intel context (repo skeleton + callers + rank note) into this
   // agent's review prompt. Default on; gated again by the global flag.
   repo_intel: z.boolean().default(true),
+  /**
+   * How many skills are linked to this agent, counted server-side so the agent
+   * cards can show it without one `GET /agents/:id/skills` per card. DERIVED —
+   * it is not a column, nothing accepts it on a write, and it is deliberately
+   * `.nullish()`: a producer that has no cheap way to count (a plugin export, a
+   * fixture) omits the key rather than claiming zero, and "we did not count"
+   * must stay distinguishable from "no skills attached".
+   */
+  skill_count: z.number().int().nullish(),
 });
 export type Agent = z.infer<typeof Agent>;
 
