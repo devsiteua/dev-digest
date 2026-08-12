@@ -10,12 +10,11 @@ import { Badge, ErrorState, Icon, Skeleton } from "@devdigest/ui";
 import { AppShell } from "../../../components/app-shell";
 import { SkillsRail } from "../_components/SkillsRail";
 import { SkillEditor } from "./_components/SkillEditor";
+import { TAB_KEYS } from "./_components/SkillEditor/constants";
 import { TYPE_COLOR, isUntrusted } from "@/lib/skills";
 import { useSkill } from "../../../lib/hooks/skills";
 import { ApiError } from "../../../lib/api";
 import { s } from "./styles";
-
-const VALID_TABS = ["config", "preview"];
 
 export default function SkillEditorPage() {
   const { id } = useParams<{ id: string }>();
@@ -25,7 +24,7 @@ export default function SkillEditorPage() {
 
   const { data: skill, isLoading, isError, error, refetch } = useSkill(id);
 
-  const tab = VALID_TABS.includes(search.get("tab") ?? "") ? search.get("tab")! : "config";
+  const tab = TAB_KEYS.includes(search.get("tab") ?? "") ? search.get("tab")! : TAB_KEYS[0]!;
   const setTab = (next: string) => {
     const sp = new URLSearchParams(search.toString());
     sp.set("tab", next);

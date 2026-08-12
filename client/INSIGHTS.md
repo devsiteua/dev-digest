@@ -64,6 +64,28 @@ Status:   resolved
 
 ## What Doesn't Work
 
+### 2026-08-12 · A route's `?tab=` allow-list is a SECOND copy of the tab bar — add a tab and it renders, then bounces back to the first one
+
+Trigger:  Stats and Versions appeared in the skill editor's tab bar, every component test
+          passed, and clicking either one in the browser snapped straight back to Config
+Cause:    `skills/[id]/page.tsx` carried `const VALID_TABS = ["config", "preview"]` and resolved
+          `?tab=` against it, while the bar was rendered from `SkillEditor/constants.ts`'s
+          `TABS`. Adding a tab to `TABS` therefore produced a control that sets a query value
+          its own page rejects. No test could see it: `SkillEditor` renders whatever `tab` prop
+          it is handed, so all four panes were covered while the thing that CHOOSES the pane was
+          not — the page had no test at all. `agents/[id]/page.tsx` had the identical shape, in
+          sync only because nobody had added a tab yet.
+Takeaway: derive the allow-list — `export const TAB_KEYS = TABS.map(t => t.key)` — and let the
+          first entry be the fallback, so the route cannot disagree with the bar. More generally:
+          when a screen's control lives in a component and its URL contract lives in the page,
+          the pair needs a PAGE-level test with a case per value (`page.test.tsx` here, one
+          assertion per tab plus an unknown one). Mocking a page is cheap: `useParams` /
+          `useSearchParams` / `useRouter`, the hooks module, `components/app-shell`, and
+          `ToastProvider` — which the root layout supplies in the app and a page test does not.
+Evidence: src/app/skills/[id]/page.tsx; src/app/skills/[id]/page.test.tsx;
+          src/app/skills/[id]/_components/SkillEditor/constants.ts (TAB_KEYS)
+Status:   resolved — both editor routes now derive their keys
+
 ### 2026-08-07 · "The model proposed N rules" is derived, not measured — and a re-scan inflates it by every previously-decided row
 
 Trigger:  the first live scan's summary line read "read 12 files. The model proposed 22 rules:
