@@ -182,3 +182,131 @@ See `docs/agent-prompts/README.md` § "Skills / rules" for the prompt contract a
 ## Open questions
 
 None.
+
+---
+
+# Round 2 — the four gaps the mentor named
+
+Status: done · 2026-08-12
+
+## Context
+
+The lesson was submitted and accepted. The review named four things missing
+against the design, three of which are verbatim entries in Round 1's
+§ Out of scope — deliberate cuts, not oversights. Round 2 pays them off anyway,
+because they are what the Skills screen is missing to be finished, and it fixes
+the one item that was never a decision at all:
+
+| Reviewed | Round 1 status |
+|---|---|
+| Skill editor has two tabs; no `/skills/:id/stats`, no `/skills/:id/restore` | out of scope — *"A Versions tab"*, *"Evals / Stats tabs"* |
+| `skill_count` is supported by the card but computed nowhere | out of scope — *"a list of N agents would cost N extra requests, or a contract change"* |
+| Reordering uses ↑/↓ buttons, not HTML5 drag-and-drop | out of scope — *"no dnd library exists in the client, and ↑/↓ posts the identical payload"*; the reviewer withdrew it |
+| The sidebar has one WORKSPACE section, no SKILLS LAB | **not a decision** — Round 1 added a `Skills` entry to `NAV` and never revisited the grouping |
+
+## In scope
+
+- `NAV` splits into WORKSPACE (Pull Requests) and SKILLS LAB (Skills, Agents,
+  Conventions), in the design's order. `Sidebar.tsx` already rendered a heading
+  per group, so this is `vendor/ui/nav.ts` only — touched under the explicit
+  request that this round is.
+- `POST /skills/:id/restore` + a **Versions** tab: every snapshot, the current
+  one badged, a past body on request, and a restore that appends.
+- `GET /skills/:id/stats` + a **Stats** tab: attached agents, runs, findings,
+  accept rate and a category breakdown over the last `STATS_WINDOW_DAYS` (30).
+- `Agent.skill_count` (both `vendor/shared` copies), computed by one grouped
+  query in `AgentsRepository.skillCounts`, plus `skillCountFor` for the single
+  reads. `AgentCard` renders it; the mutations that move it invalidate `agents`.
+
+## Out of scope
+
+- **Drag-and-drop reordering.** Still no dnd library, and the reviewer explicitly
+  did not press the point. ↑/↓ posts the same payload the design's drag would.
+- **The design's Evals tab.** `eval_cases` is empty until L06; a tab whose only
+  reachable state is an empty state teaches nothing.
+- **`PULL FREQUENCY` on the Stats tab.** See Decisions — it is not derivable.
+- **A `GLOBAL` nav section** (Memory, Multi-Agent Review, Agent Performance, CI
+  Runs) and the `Eval Dashboard` item: all are routes that do not exist yet.
+- **Diffing two versions.** The Versions tab shows a snapshot, not a diff; no
+  diff renderer exists outside the PR viewer and the tab reads fine without one.
+
+## Decisions
+
+- **The Stats tab measures AGENTS, and says so on screen.** `findings` has no
+  `skill_id` — it hangs off `reviews.agent_id` — so every number below `used_by`
+  is attribution to the agents carrying the skill, and two skills on one agent
+  report identical totals. The tab prints that sentence above the tiles, and
+  `SkillStats`' docstring repeats it. The design's `PULL FREQUENCY` tile is
+  therefore absent rather than estimated: nothing persisted says which skills a
+  given run's prompt actually carried (the run log names them in prose; matching
+  on that string is not a measurement). `RUNS (30d)` takes its place.
+- **`accept_rate` is `null`, never `0`, while nothing is triaged.** "No one has
+  looked yet" and "everything was dismissed" are opposite facts, and a 0% ring
+  would render them the same.
+- **Restore moves forward.** `POST /skills/:id/restore` writes the old body
+  through the normal update path, so v2 restored onto a v5 skill lands as v6 and
+  v3–v5 stay in `skill_versions`. Nothing is overwritten, so an eval that scored
+  v4 can still be replayed — the reason the table exists. Restoring the current
+  body is a no-op, because `update` only bumps when the text changed.
+- **`skill_count` is `.nullish()`, and absent means "nobody counted".** A card
+  with no count shows no badge rather than "0 skills": a producer that has no
+  cheap way to count (a plugin export, a fixture) must not be able to publish a
+  zero it did not measure. `AgentsService.create` passes a measured 0.
+- **The count is computed, not stored.** One `group by` over `agent_skills` for
+  the list, one `count` for a single read. A denormalised column would need a
+  migration and would have to be maintained by every writer of the link table.
+- **The stats queries live in `SkillsRepository`.** They read `agents`,
+  `agent_runs`, `reviews` and `findings` — tables other modules own the write
+  side of — which is a cross-domain READ, not the cross-module import the onion
+  guard polices. No module code is imported; asking two sibling services would
+  put service-to-service calls in a path that is two SQL statements.
+
+## Acceptance criteria
+
+- [x] The sidebar shows WORKSPACE and SKILLS LAB, and every `g`-shortcut still
+      resolves (both NAV consumers flatten the groups).
+- [x] The skill editor has four tabs; an unknown `?tab=` still lands on Config.
+- [x] Restoring v1 of a v2 skill produces v3 with v1's body and leaves `[3,2,1]`
+      in the version list; restoring the current version adds nothing.
+- [x] `POST /skills/:id/restore` 404s an unrecorded version and 422s version 0.
+- [x] `GET /skills/:id/stats` returns zeros and `accept_rate: null` for a skill
+      no agent uses, and 404s across workspaces.
+- [x] Findings of an agent carrying the skill are counted and split by triage
+      state and category.
+- [x] `GET /agents` and `GET /agents/:id` carry `skill_count`; it follows a
+      link change and a cascading skill delete.
+- [x] An agent card with no `skill_count` renders no badge, and one with `0`
+      renders "0 skills".
+- [x] **Regression:** `git status server/src/db/migrations` is clean — no schema
+      change was needed.
+- [x] **Regression:** both `vendor/shared/contracts/knowledge.ts` copies are
+      byte-identical.
+- [x] **Regression:** `pnpm arch:check` green, known-violations baseline unchanged.
+
+## Test plan
+
+- **server `*.it.test.ts`** — `test/skills.it.test.ts`: restore forward /
+  no-op / 404 / 422, stats for an unused and a used skill, findings attribution
+  and triage split, cross-workspace 404, and `skill_count` through link changes
+  and a cascading delete (including that each agent gets its own count, not its
+  index in the list).
+- **server unit** — `test/contracts.test.ts`: `Agent.skill_count` absent / null /
+  integer / non-integer, and `SkillStats.accept_rate` nullable but required.
+- **client component** — `SkillEditor.test.tsx` gains Stats and Versions blocks:
+  the attribution sentence, the tiles, the disabled-agent marker, the dash for an
+  untriaged rate, the empty state replacing the whole tab, the current-version
+  badge, body-on-request, and that Restore posts the clicked row's version.
+  `AgentCard.test.tsx` covers count-from-agent, `0`, and no-badge.
+
+## Risks
+
+- **The Stats numbers can still be misread** as the skill's own performance. The
+  on-screen sentence is the whole mitigation; if it is ever edited away, the tab
+  starts lying. L06's eval pipeline is what replaces the approximation.
+- **`runs` counts every run of an attached agent**, including runs from before
+  the skill was attached — `agent_skills` records no timestamp. Inside a 30-day
+  window on a local studio this is small; a longer window would need one.
+
+## Open questions
+
+None.

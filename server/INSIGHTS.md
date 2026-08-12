@@ -11,6 +11,24 @@ _None yet._
 
 ## What Doesn't Work
 
+### 2026-08-12 · Giving a DTO mapper a second optional argument turns every `rows.map(mapper)` into an index injection — and TypeScript agrees to it
+
+Trigger:  adding a derived `skill_count` to `toAgentDto(row, skillCount?: number)`, with
+          `AgentsService.list` still reading `return rows.map(toAgentDto)`
+Cause:    `Array.prototype.map` calls back with `(element, index, array)`, so the new parameter
+          is fed the row's POSITION: the first agent reports 0 skills, the second 1, the third
+          2 — plausible numbers, monotonic, and wrong. Nothing catches it: the parameter is
+          `number | undefined` and the index is a `number`, so `tsc` is satisfied, and a test
+          that seeds one agent passes because index 0 and "no skills" agree.
+Takeaway: when a mapper gains an optional parameter, grep for point-free `.map(<mapper>)` in the
+          same breath and rewrite each one as an explicit arrow. `grep -rn "map(to.*Dto)" src`
+          found the single site here. Guard it with a list-level assertion that the SECOND row's
+          number is right, not just the first — `skills.it.test.ts` asserts each agent gets its
+          own count rather than its position.
+Evidence: src/modules/agents/helpers.ts (toAgentDto); src/modules/agents/service.ts (list);
+          test/skills.it.test.ts ("reports skill_count on the agent itself")
+Status:   resolved
+
 ### 2026-08-07 · The first live extraction spent 3 of 20 rules on formatting a Prettier config already enforces — offering the configs did not stop it
 
 Trigger:  first real scan of `devsiteua/dev-digest` (12 files, deepseek-v4-flash): 20 rules

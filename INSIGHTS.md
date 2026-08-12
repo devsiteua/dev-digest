@@ -114,6 +114,27 @@ Status:   open — fix opportunistically when touching those files
 
 ## Codebase Patterns
 
+### 2026-08-12 · Nothing persisted attributes a finding — or a run — to a SKILL, so every per-skill metric in the design is an agent-level approximation
+
+Trigger:  building the skill editor's Stats tab from the design, which asks for USED BY, PULL
+          FREQUENCY, ACCEPT RATE and FINDINGS (30D) per skill
+Cause:    the chain stops one level short. `findings.review_id → reviews.agent_id` is the only
+          producer link there is; `findings` has no skill column, `agent_runs` has no skill
+          column and no agent VERSION either, and `agent_skills` records no timestamp. So an
+          agent carrying three skills yields identical numbers under all three, and a run from
+          before the attachment still counts. `run_traces.trace.prompt_assembly.skills` is a
+          rendered STRING and the run log names the included skills in prose — neither is a
+          queryable record of which skill ids a prompt carried.
+Takeaway: any "how is this skill doing" number is attribution to the AGENTS that carry it —
+          say so on screen, never average it into something that reads as the skill's own
+          score, and drop the metrics that cannot be honest at all (PULL FREQUENCY was dropped
+          for exactly this; RUNS (30d) took its place). Making it real needs a persisted
+          skill↔run link, which is L06's eval pipeline, not a smarter query.
+Evidence: server/src/db/schema/reviews.ts (findings); server/src/db/schema/runs.ts;
+          server/src/vendor/shared/contracts/knowledge.ts (SkillStats);
+          specs/L02-skills.md § Round 2 → Decisions
+Status:   open — the approximation ships with an on-screen caveat until L06
+
 ### 2026-08-06 · `FEATURE_MODELS` says its defaults "mirror each module's constants" — for `conventions` there is no module to mirror
 
 Trigger:  picking the model for the conventions extractor, and reaching for

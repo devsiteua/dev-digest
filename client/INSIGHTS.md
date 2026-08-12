@@ -218,6 +218,24 @@ Status:   resolved
 
 ## Tool & Library Notes
 
+### 2026-08-12 · `@devdigest/ui`'s chart primitives are shaped for MONEY and SCORES — an integer count comes out as "$5.00"
+
+Trigger:  porting the design's "Findings by category" donut for the skill Stats tab, over counts
+          like `{ category: 'bug', count: 5 }`
+Cause:    `charts/Donut.tsx` renders each legend value as `valuePrefix + value.toFixed(2)`, with
+          `valuePrefix` defaulting to `"$"` — it was built for the cost breakdown, and there is
+          no way to ask it for a plain integer (`valuePrefix=""` still yields "5.00").
+          `CircularScore` has a related quirk: it draws its own number inside the ring, so a tile
+          that also prints the value renders it TWICE, and `getByText("67")` throws on the
+          duplicate — use `getAllByText` and assert the length.
+Takeaway: for integer breakdowns use `BarRow`, whose right-hand number is the `suffix` string you
+          pass (`value`/`max` only drive the bar width — the number is NOT derived from `value`).
+          Keep `Donut` for currency. Before reaching for a chart primitive here, read how it
+          formats its numbers; the design system encodes the unit, not just the shape.
+Evidence: src/vendor/ui/charts/Donut.tsx; src/vendor/ui/charts/BarRow.tsx;
+          src/app/skills/[id]/_components/SkillEditor/_components/StatsTab/StatsTab.tsx
+Status:   resolved
+
 ### 2026-08-06 · `Textarea` swallows extra props, `TextInput` forwards them — only one can take an `aria-label`
 
 Trigger:  labelling the in-card rule editor so its test could use `getByLabelText("Rule")`;
