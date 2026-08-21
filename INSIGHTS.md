@@ -114,6 +114,28 @@ Status:   open — fix opportunistically when touching those files
 
 ## Codebase Patterns
 
+### 2026-08-21 · The canonical path -> skills routing table lives inside a REVIEW skill, so anything else that needs it must point, not copy
+
+Trigger:  authoring `.claude/agents/planner.md` and `.claude/agents/implementer.md`, both of
+          which need to know which project skill applies to which file
+Cause:    the only maintained path -> skills map in this repo is section 3 of
+          `.claude/skills/pr-self-review/SKILL.md` ("Route by path *and* by status"). Its name
+          and its location say "pre-PR gate", so the obvious move when writing a new agent is
+          to write a fresh table into the agent file - and then two tables drift, exactly the
+          way `vendor/shared` does. That skill already carries the correct instinct in its own
+          words ("Repo conventions are read, never copied") and the discovery command that
+          keeps it honest: `ls -d .claude/skills/*/`, never `skills-lock.json`, which names
+          skills that are not on disk and misses several that are.
+Takeaway: any new agent, skill or doc that routes work to skills cites that section by path
+          instead of restating it, and states only its DELTAS. For implementation-time use the
+          deltas are three: add `design-reference` on UI steps (before the code, not after),
+          drop `security` and drop `engineering-insights` - a self-reviewing implementer
+          produces a green that hides findings, and two agents appending to `INSIGHTS.md` in
+          parallel is how it gets a conflict.
+Evidence: .claude/skills/pr-self-review/SKILL.md:55-89; .claude/agents/planner.md step 4;
+          .claude/agents/implementer.md step 2
+Status:   resolved - both new agents reference the table rather than duplicating it
+
 ### 2026-08-12 · Nothing persisted attributes a finding — or a run — to a SKILL, so every per-skill metric in the design is an agent-level approximation
 
 Trigger:  building the skill editor's Stats tab from the design, which asks for USED BY, PULL
