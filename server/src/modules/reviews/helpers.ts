@@ -3,6 +3,9 @@
  * their arguments — no DB / network / `this`).
  */
 import type { Finding } from '@devdigest/shared';
+import type { SkillRow } from '../../db/rows.js';
+import { wrapUntrusted } from '@devdigest/reviewer-core';
+import { MAX_SKILLS_CHARS } from './constants.js';
 import type { FindingRow, PullRow, ReviewRow } from './repository.js';
 
 // reduceReviews + sliceDiff live in @devdigest/reviewer-core (pure engine logic
@@ -71,6 +74,60 @@ export function reviewToDto(
     created_at: review.createdAt.toISOString(),
     findings: findings.map(findingRowToDto),
   };
+}
+
+export interface RenderedSkills {
+  /** Resolved bodies, in link order — exactly what `PromptParts.skills` expects. */
+  blocks: string[];
+  /** Names that made it in, in order. Logged so the trace explains itself. */
+  included: string[];
+  /** Names dropped by the character budget. Never silently empty. */
+  dropped: string[];
+}
+
+/**
+ * Turn an agent's linked skills into the prompt's `## Skills / rules` blocks.
+ *
+ * Two decisions live here.
+ *
+ * **Trust.** Only a `manual` skill — written in this workspace, by this user —
+ * goes in verbatim. Anything imported is third-party text that will sit inside an
+ * agent's instructions, so it is wrapped with `wrapUntrusted()` and the
+ * INJECTION_GUARD (already in every system prompt) tells the model that delimited
+ * content is data, never instructions. `reviewer-core/src/prompt.ts` documents
+ * this slot as "trusted-ish; community skills should be sanitized upstream" —
+ * this function is that upstream.
+ *
+ * **No added headings.** `assemblePrompt` already emits `## Skills / rules`, and
+ * skill bodies carry their own `#` titles. Prefixing another `##` per skill would
+ * make each skill a sibling of the section that contains it.
+ */
+export function renderSkillBlocks(
+  skills: Pick<SkillRow, 'name' | 'body' | 'source'>[],
+  maxChars: number = MAX_SKILLS_CHARS,
+): RenderedSkills {
+  const blocks: string[] = [];
+  const included: string[] = [];
+  const dropped: string[] = [];
+  let used = 0;
+
+  for (const skill of skills) {
+    const block =
+      skill.source === 'manual'
+        ? skill.body
+        : wrapUntrusted(`skill:${skill.name}`, skill.body);
+    // Budget the assembled section, dropping whole skills from the tail. Order is
+    // the user's stated priority, so what survives is the front of their list.
+    if (used + block.length > maxChars) {
+      dropped.push(skill.name);
+      continue;
+    }
+    used += block.length;
+    blocks.push(block);
+    included.push(skill.name);
+  }
+
+  return { blocks, included, dropped };
 }
 
 /**

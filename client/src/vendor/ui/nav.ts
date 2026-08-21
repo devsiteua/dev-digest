@@ -18,12 +18,33 @@ export interface NavGroup {
   items: NavItemDef[];
 }
 
+/**
+ * Two sections, as in the design: what you review lives under WORKSPACE, what
+ * reviews it lives under SKILLS LAB. The split is not decoration — an agent, a
+ * skill and a convention are one workflow (write a rule → attach it → extract
+ * more from the code), and a flat list gave no hint that they belong together.
+ *
+ * The design's third group (GLOBAL: Memory, Multi-Agent Review, Agent
+ * Performance, CI Runs) and its `eval` item are later lessons, so they are
+ * absent rather than disabled — a nav entry to a route that does not exist is
+ * worse than no entry.
+ *
+ * Both consumers (`useGlobalShortcuts`, `useShellCommands`) flatten NAV, so the
+ * grouping is a Sidebar concern only and adding a section changes no shortcut.
+ */
 export const NAV: NavGroup[] = [
   {
     section: "WORKSPACE",
     items: [
       { key: "pulls", label: "Pull Requests", icon: "GitPullRequest", href: "/repos/:repoId/pulls", gKey: "p" },
+    ],
+  },
+  {
+    section: "SKILLS LAB",
+    items: [
+      { key: "skills", label: "Skills", icon: "Sparkles", href: "/skills", gKey: "s" },
       { key: "agents", label: "Agents", icon: "Cpu", href: "/agents", gKey: "a" },
+      { key: "conventions", label: "Conventions", icon: "ListChecks", href: "/repos/:repoId/conventions", gKey: "c" },
     ],
   },
 ];
@@ -53,6 +74,8 @@ export const SHORTCUTS: ShortcutDef[] = [
   { keys: "?", label: "Show keyboard shortcuts", group: "Global" },
   { keys: "g p", label: "Go to Pull Requests", group: "Navigation" },
   { keys: "g a", label: "Go to Agents", group: "Navigation" },
+  { keys: "g s", label: "Go to Skills", group: "Navigation" },
+  { keys: "g c", label: "Go to Conventions", group: "Navigation" },
   { keys: "j / k", label: "Next / previous finding", group: "Findings" },
   { keys: "a", label: "Accept finding", group: "Findings" },
   { keys: "d", label: "Dismiss finding", group: "Findings" },

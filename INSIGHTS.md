@@ -46,34 +46,32 @@ entries pile up, move them to `docs/insights-archive.md`.
 
 ## What Works
 
-_None yet._
+### 2026-08-07 · A skills A/B lands on WHICH findings, not how many — count the demonstration wrong and it looks like nothing happened
+
+Trigger:  running the control experiment on PR #484 (API Contract Reviewer, deepseek-v4-flash),
+          expecting the armed arm to out-count the unarmed one
+Cause:    both arms returned exactly 6 findings, 5 blockers, same verdict, same PR score. Read
+          as a scoreboard the experiment is a null result. Read as a diff it is not: unarmed,
+          the agent found the five changes of COMMISSION — a narrowed enum, an optional field
+          gone required, a dropped response field — all of which are literally in the diff
+          text. Armed, it additionally found the two-copy `vendor/shared` trap ("server and
+          client will disagree"), which is a defect of OMISSION: the diff shows one edited copy
+          and says nothing about the other, so it is invisible unless a checklist says to look.
+          It also gained the stored-data axis and restated every remedy as a major bump or a
+          deprecation window. The freed slot came from merging two findings the unarmed run
+          had kept apart.
+Takeaway: when demonstrating that a skill works, compare finding CONTENT, never finding count —
+          and pick a defect of omission for the diff, because commission defects are exactly the
+          ones a bare agent finds anyway (`docs/skills-control-experiment.md` § "If the
+          unskilled run finds it anyway" says this about the diff; it is equally true of how you
+          READ the result). The cheap objective evidence lives in the trace, not the findings
+          list: `prompt_assembly.skills` is `null` versus 10 958 chars, the log line is absent
+          versus `skills: 4 skill(s), 2644 token(s) attached (…)`, and the user message goes
+          2 511 → 13 489 chars. Cost moved $0.0008 → $0.0010, so the arms are comparable.
+Evidence: docs/skills-control-experiment.md § "Recorded result — 2026-08-07, PR #484"
+Status:   resolved — the recipe generalises to experiment 1 and to any future skill demo
 
 ## What Doesn't Work
-
-### 2026-08-04 · Inheriting a neighbouring column's aggregation rule — `cost` is additive, `score` and `findings` are not
-
-Trigger:  the L01 mentor review: the PR-list COST column showed one run's cost where a sum
-          across the review's agents was expected
-Cause:    the column was built by mirroring `PrMeta.score` (latest-review-only), and the
-          comment in `pulls/routes.ts` stated one justification for all three fields at once —
-          *"summing would triple-count one defect found by three agents"*. That is true of
-          defects and of the score derived from them, and false of money. `runReview()` creates
-          one `agent_runs` row **per target agent**
-          (`server/src/modules/reviews/service.ts`), so a three-agent review put a third of the
-          bill in the column — and an arbitrary third, whichever agent finished last. The
-          2026-08-02 "Two severity tallies" entry below already warned that a third surface must
-          pick its rule on purpose; COST is exactly the surface that copied the nearest
-          neighbour instead.
-Takeaway: before reusing the aggregation of the column next door, ask whether the quantity is
-          additive. Counts of one event double-count across agents; money, tokens and durations
-          do not — each run is a separate expenditure. A comment that covers several fields in
-          one breath is where this hides: state the rule per field, or the field it does not fit
-          inherits it silently. Note the follow-on for sums: `null` is *unknown*, so one
-          unpriced run must poison the whole total to `—` rather than let a partial sum pass as
-          exact.
-Evidence: server/src/modules/pulls/routes.ts (`totalCostByPr`); specs/L01-run-cost.md
-          (Decisions); server/test/reviews.it.test.ts ("PR list sums the cost of every done run")
-Status:   resolved
 
 ### 2026-08-02 · Building a screen from design screenshots — the prototype's source says things a PNG cannot
 
@@ -111,7 +109,90 @@ Takeaway: treat prose in READMEs as a hypothesis, verify against code before act
 Evidence: server/src/platform/config.ts
 Status:   open — fix opportunistically when touching those files
 
+> Archived 2026-08-06: *inheriting a neighbouring column's aggregation rule* (2026-08-04,
+> resolved with L01's cost column) → [`docs/insights-archive.md`](docs/insights-archive.md).
+
 ## Codebase Patterns
+
+### 2026-08-12 · Nothing persisted attributes a finding — or a run — to a SKILL, so every per-skill metric in the design is an agent-level approximation
+
+Trigger:  building the skill editor's Stats tab from the design, which asks for USED BY, PULL
+          FREQUENCY, ACCEPT RATE and FINDINGS (30D) per skill
+Cause:    the chain stops one level short. `findings.review_id → reviews.agent_id` is the only
+          producer link there is; `findings` has no skill column, `agent_runs` has no skill
+          column and no agent VERSION either, and `agent_skills` records no timestamp. So an
+          agent carrying three skills yields identical numbers under all three, and a run from
+          before the attachment still counts. `run_traces.trace.prompt_assembly.skills` is a
+          rendered STRING and the run log names the included skills in prose — neither is a
+          queryable record of which skill ids a prompt carried.
+Takeaway: any "how is this skill doing" number is attribution to the AGENTS that carry it —
+          say so on screen, never average it into something that reads as the skill's own
+          score, and drop the metrics that cannot be honest at all (PULL FREQUENCY was dropped
+          for exactly this; RUNS (30d) took its place). Making it real needs a persisted
+          skill↔run link, which is L06's eval pipeline, not a smarter query.
+Evidence: server/src/db/schema/reviews.ts (findings); server/src/db/schema/runs.ts;
+          server/src/vendor/shared/contracts/knowledge.ts (SkillStats);
+          specs/L02-skills.md § Round 2 → Decisions
+Status:   open — the approximation ships with an on-screen caveat until L06
+
+### 2026-08-06 · `FEATURE_MODELS` says its defaults "mirror each module's constants" — for `conventions` there is no module to mirror
+
+Trigger:  picking the model for the conventions extractor, and reaching for
+          `resolveFeatureModel(container, ws, 'conventions')` because that is the function with
+          the obvious name
+Cause:    the registry's own doc comment (`contracts/platform.ts:31-36`) promises "the defaults
+          MIRROR each module's constants, so behaviour is unchanged until a model is explicitly
+          picked". Four of the five entries are `gpt-4.1` or a deepseek flash. `conventions` is
+          `openai / gpt-5.4` — the priciest default in the file — and it mirrors nothing, because
+          no conventions module existed to have a constant. `resolveFeatureModel` would have
+          silently bought that model on every scan. The escape is already documented one file over
+          (`modules/settings/feature-models.ts:30-35`: "callers that keep their own dynamic default
+          (e.g. conventions) use this directly"), but it reads as a style note, not a bill.
+Takeaway: for a feature whose module is being written now, `getFeatureModelOverride` + a
+          module-local constant — never `resolveFeatureModel`. Check the registry's default before
+          trusting the "unchanged behaviour" promise: it only holds where the old constant exists.
+          Note the registry is duplicated in `client/src/lib/feature-models.ts` (the client cannot
+          import the runtime value), so the Settings row is already visible for features with no
+          code behind them.
+Evidence: server/src/vendor/shared/contracts/platform.ts:73-79;
+          server/src/modules/settings/feature-models.ts:30-35; specs/L02-conventions-extractor.md
+Status:   open — `resolveFeatureModel` still has no caller; the first one should re-check this
+
+### 2026-08-05 · One dependency-cruiser run over `server/src` also polices `reviewer-core`'s purity
+
+Trigger:  wiring the onion guard and expecting to need a second config inside `reviewer-core`
+          (which has no dependency-cruiser of its own — it installs with npm, not pnpm)
+Cause:    `tsConfig: { fileName: 'tsconfig.json' }` makes the cruise follow the
+          `@devdigest/reviewer-core` path alias, so `../reviewer-core/src/**` shows up as
+          ordinary modules in the same graph (149 modules, 463 dependencies, ~1 s). Rules keyed
+          on `from: { path: 'reviewer-core/src' }` therefore work from `server/`. The same is
+          true of `@devdigest/shared`. This is why the CI step sits in the `typecheck` job of
+          `server-unit.yml`, after the `npm ci` that installs reviewer-core's deps — without
+          them the alias resolves but `openai` does not, and the graph quietly changes shape.
+Takeaway: cross-package architecture rules go in `server/.dependency-cruiser-onion.cjs`, not in
+          a new per-package config. `pnpm arch:check` ignores the 16 frozen violations in
+          `.dependency-cruiser-known-violations.json`; never append to that file to unblock a
+          change — it is the debt list, and anything new must fail.
+Evidence: server/.dependency-cruiser-onion.cjs; .github/workflows/server-unit.yml (typecheck job)
+Status:   open — baseline shrinks as touched files are fixed
+
+### 2026-08-05 · `allowed-tools` in a skill narrows the session's tools — advisory skills must omit it
+
+Trigger:  drafting frontmatter for the hand-authored `frontend-architecture` skill and copying
+          `allowed-tools` from `engineering-insights` because it looked like house style
+Cause:    `allowed-tools` restricts what may be used *while the skill is active*, so it splits
+          hand-authored skills into two kinds. `engineering-insights` is procedural — it runs, edits
+          `INSIGHTS.md`, and finishes — so `Read, Edit, Grep, Glob` is correct and protective. An
+          advisory skill is loaded **in the middle of someone else's implementation**; declaring
+          `Read, Grep, Glob` there would forbid `Write`/`Edit` at the exact moment the caller needs
+          them. Only two skills on disk declare the field, and both are the procedural kind — the
+          omission everywhere else is the convention, not an oversight.
+Takeaway: declare `allowed-tools` only when the skill itself performs a bounded action. Leave it out
+          for reference skills. Unknown frontmatter keys are tolerated, so a `version:` can be added
+          freely — `typescript-expert` already carries `category`, `risk`, `source`, `date_added`.
+Evidence: .claude/skills/engineering-insights/SKILL.md vs
+          .claude/skills/frontend-architecture/SKILL.md; .claude/skills/typescript-expert/SKILL.md
+Status:   open — applies to every skill authored from here on
 
 ### 2026-08-02 · Two severity tallies with different rules now coexist, deliberately
 
@@ -150,24 +231,6 @@ Takeaway: before starting any L02–L08 feature, grep for its vocabulary across 
 Evidence: server/src/modules/pulls/status.ts; client/.../FindingsPanel/styles.ts
 Status:   open — expect the same on every remaining lesson
 
-### 2026-08-02 · Correction: `PrMeta` needs `.nullish()` too, for a different reason
-
-Trigger:  adding `findings_by_severity` to `PrMeta`, and reading the 2026-08-01 entry below,
-          which says response-only contracts read straight from a table are free to use
-          `.nullable()`
-Cause:    that rule is incomplete. `PrMeta` is exactly such a shape, yet `.nullable()` would
-          break it: `PrDetail = PrMeta.extend({...})` and `GET /pulls/:id` never emits the
-          list-only fields at all. `.nullable()` requires the key to be *present*, so the
-          detail endpoint would fail on a field it deliberately does not compute. That is why
-          `score` and `cost_usd` are already `.nullish()` — the reason is structural, not the
-          legacy-jsonb one.
-Takeaway: before choosing `.nullable()`, check whether the schema is `.extend()`ed anywhere
-          and whether every endpoint building the extended shape actually emits the field.
-          The guard is cheap: `PrDetail.parse({...})` without the key, in `contracts.test.ts`.
-Evidence: server/src/vendor/shared/contracts/platform.ts (PrMeta.findings_by_severity);
-          server/test/contracts.test.ts
-Status:   resolved — amends the entry below, which stays as written
-
 ### 2026-08-02 · `@devdigest/ui` declares a fourth severity the API can never produce
 
 Trigger:  building severity counters and wondering whether `INFO` needed a chip
@@ -195,50 +258,107 @@ Takeaway: after editing `server/src/db/seed.ts`, grep `e2e/specs/*.json` for the
           changed. Note also that flows follow the home redirect to the **first** repo, so
           they need a freshly seeded single-repo DB — the dev DB will not do.
 Evidence: e2e/specs/04-pr-findings.flow.json; server/src/db/seed.ts
-Status:   open
+Status:   → promoted to `CLAUDE.md` (Gotchas) on 2026-08-06, after the L02 conventions seed
+          made it the second edit to `seed.ts` that had to be checked against the flows.
+          Kept here for now — the flow/DB detail in the takeaway does not fit one line
 
-### 2026-08-01 · A contract that also serializes a persisted jsonb doc needs `.nullish()`, not `.nullable()`
-
-Trigger:  adding `cost_usd` to `RunStats` for L01, mirroring how the pre-removal code
-          (commit `d45ab0d`) had declared it as `z.number().nullable()`
-Cause:    `RunStats` is not only a response shape — it is the `stats` block **inside** the
-          jsonb document stored in `run_traces.trace`, and rows written before the field
-          existed have no `cost_usd` key at all. `.nullable()` requires the key to be
-          present, so `GET /runs/:id/trace` would have 500'd on every historical run. The
-          old code got away with `.nullable()` only because that field had been written
-          since day one. Same trap waits on any future `RunStats`/`RunTrace` field.
-Takeaway: before tightening or adding a field on `contracts/trace.ts`, ask whether old rows
-          in `run_traces` carry it. If not, `.nullish()`. Response-only contracts read
-          straight from a table (e.g. `RunSummary`) are free to use `.nullable()`.
-Evidence: server/src/vendor/shared/contracts/trace.ts (RunStats.cost_usd);
-          server/test/contracts.test.ts ("RunTrace parses a LEGACY stats block")
-Status:   resolved — guarded by the legacy-stats fixture test
-
-> Two promoted entries from 2026-08-01 — *the two `vendor/shared` trees have already diverged*
-> and *an empty table in the schema is a future lesson* — moved to
-> [`docs/insights-archive.md`](docs/insights-archive.md) on 2026-08-02 to keep this file under
-> ~250 lines. Both are live rules in `CLAUDE.md` (Gotchas); the archive keeps their reasoning.
+> Moved to [`docs/insights-archive.md`](docs/insights-archive.md), which keeps their reasoning:
+> on **2026-08-02**, two promoted entries from 2026-08-01 — *the two `vendor/shared` trees have
+> already diverged* and *an empty table in the schema is a future lesson*; on **2026-08-06**,
+> *a shape duplicated inside `vendor/shared` itself* (promoted) and the two `.nullish()` /
+> `.nullable()` entries (2026-08-02 + 2026-08-01, resolved and test-guarded, and they read as
+> one pair — the second amends the first, so they moved together).
+> Every rule they produced is live in `CLAUDE.md` (Gotchas).
 
 ## Tool & Library Notes
 
-### 2026-08-02 · `defaultNow()` is transaction start time, so "newest row wins" can tie exactly
+### 2026-08-06 · `seed.ts` never converges on rename: a skill dropped from `SEED_SKILLS` survives, still linked, and its checklist is still in the prompt
 
-Trigger:  writing an integration test for "the PR list counts the latest review" and finding
-          there was nothing safe to assert about *which* review wins
-Cause:    Postgres `now()` — what `defaultNow()` compiles to — returns the **transaction's**
-          start timestamp, not the statement's. Rows written in one transaction (three agents'
-          reviews, a batch seed) therefore share `created_at` to the microsecond, and
-          `orderBy(desc(createdAt))` + "first row wins" degenerates into planner order. No
-          column can break the tie by recency either: every id in this schema is
-          `uuid().defaultRandom()`.
-Takeaway: for any "latest per group" read, add `desc(<pk>)` as a secondary sort key. It does not
-          make the pick *correct* — it makes it **stable**, which is the property a test can
-          assert ("two identical requests return the same tally") and the one users notice.
-          Real ordering under a tie needs `clock_timestamp()` or a monotonic column, i.e. a
-          migration.
-Evidence: server/src/db/schema/_shared.ts:9; server/src/modules/pulls/routes.ts;
-          server/test/reviews.it.test.ts ("two reviews share a timestamp")
-Status:   resolved for stability; ordering correctness deferred to a migration
+Trigger:  splitting the seeded `api-contract-compat` skill into `breaking-change` /
+          `response-schema` / `semver-discipline`, and asking what `pnpm db:seed` does to a
+          machine that already ran the old seed
+Cause:    the seed is insert-only in **both** halves, and each half fails differently. The
+          skill loop is guarded on *that skill's own absence*, so the three new rows do
+          appear — but nothing deletes the row whose constant was removed, because the loop
+          never enumerates what is in the table. The link loop is guarded on the agent having
+          **no links at all** (`if (existingLinks.length > 0) continue`), so an agent that
+          already carries one link gets none of the new ones. Net effect on a dev DB: the old
+          monolithic skill is still attached and still enabled, the three replacements sit
+          unattached on `/skills`, and the demo runs on exactly the prompt it was supposed to
+          stop using — with no error anywhere. Fresh volumes and CI (`skills.it.test.ts` seeds
+          an empty database) both look green, so nothing catches it.
+Takeaway: the entry below classifies seed additions into "needs a fresh volume" and "upgrades
+          in place". RENAMES are a third class that neither guard handles, and re-seeding
+          cannot fix: write the manual steps into the doc that drives the demo
+          (untick the old link, delete the old skill) rather than assuming `pnpm db:seed`
+          converges. `docker compose down -v` is not the escape — it takes every imported
+          repository with it. The same shape applies to any seeded row keyed by NAME:
+          `SEED_AGENT_SKILLS`, `seedAgents`, `SEED_DEMO_PRS`.
+Evidence: server/src/db/seed.ts (the `SEED_SKILLS` loop and the `existingLinks.length > 0`
+          guard); docs/skills-control-experiment.md § Setup
+Status:   open — a "delete rows whose name left the constant" pass would fix it properly, but
+          it would also delete a user's hand-edited copy of a seeded skill
+
+### 2026-08-06 · `StructuredRequest.timeoutMs` is a no-op on OpenRouter — the timeout is fixed when the client is constructed
+
+Trigger:  the conventions extractor holds an HTTP request open for its single model call, so it
+          asks for a generous `timeoutMs` (180 s) instead of the 60 s adapter default
+Cause:    only `adapters/llm/{openai,anthropic}.ts` read `req.timeoutMs` (`withTimeout(...,
+          req.timeoutMs ?? DEFAULT_TIMEOUT)`). `OpenRouterProvider` passes `opts.timeoutMs ??
+          90_000` to the OpenAI SDK **constructor** and never looks at the request field —
+          and `Container.buildLlm` builds it without `timeoutMs`. So on the provider that
+          serves every default model in this repo (`openrouter / deepseek-v4-flash`), the real
+          ceiling is 90 s per attempt × the SDK's 2 retries, whatever the caller asked for.
+          The port declares the field for all three providers, which is what makes it look
+          honoured.
+Takeaway: a per-request timeout only binds on OpenAI/Anthropic. To change it for OpenRouter,
+          pass `timeoutMs` where `container.buildLlm` constructs the provider — a per-call
+          value would need the provider to apply it per request (`this.client.withOptions`),
+          which it does not do today. Same asymmetry applies to `maxRetries`: OpenRouter reads
+          `req.maxRetries` for SCHEMA reprompts, while network retries come from the SDK
+          constructor.
+Evidence: reviewer-core/src/llm/openrouter.ts:54; server/src/adapters/llm/openai.ts:66;
+          server/src/platform/container.ts (buildLlm); server/src/modules/conventions/constants.ts
+Status:   open — documented in the L02 spec's Risks; fix only if a scan actually times out
+
+### 2026-08-06 · Drizzle's `text(name, { enum })` emits a bare `text` column — widening an enum needs no migration
+
+Trigger:  L02 needed a fifth `SkillSource` (`imported_file`) and the plan budgeted a migration
+          for it, on the assumption that the enum was enforced in the database
+Cause:    `text('source', { enum: [...] })` is a TYPE-level narrowing only. `0000_init.sql`
+          defines the column as plain `"source" text NOT NULL`, and `grep -c CHECK` over that
+          file returns 0 — the schema has no CHECK constraint anywhere. Nothing in Postgres
+          knows the allowed values, so adding one is a TypeScript edit plus the matching Zod
+          enum, and `git status src/db/migrations` stays clean.
+Takeaway: before planning a migration for an enum change, check whether the column is a real
+          PG enum or a `text` with a TS-side `{ enum }`. In this repo it is always the latter.
+          The corollary is the warning: an existing row can hold a value the enum no longer
+          lists, and only the Zod parse at the edge will notice — so NARROWING one is the
+          change that needs care, not widening.
+Evidence: server/src/db/schema/skills.ts:13, server/src/db/migrations/0000_init.sql:316
+Status:   resolved
+
+### 2026-08-06 · `/pr-self-review --override` cannot unblock a scripted CRITICAL, though both the skill and the checks say it can
+
+Trigger:  L02 ended with three scripted CRITICALs, all verified false positives — a
+          user-authorised `vendor/ui/nav.ts` edit, a contract mirror whose two copies are now
+          byte-identical, and a schema change `pnpm db:generate` confirms needs no migration
+Cause:    `scripts/pr-self-review-gate.sh` section 3 re-runs the checks and `exit 2`s on any
+          CRITICAL **before** it ever opens `last-verdict.json`. The override lives in that
+          file and is only consulted in section 6, which section 3 never reaches. So the
+          escape hatch the checks themselves advertise ("or run: /pr-self-review --override")
+          does nothing for the findings that print it. Verified by feeding the gate a
+          `gh pr create` payload: exit 2 with an override recorded.
+Takeaway: for a scripted CRITICAL there are only two real options — change the code so the
+          check stops firing (the right answer for the secret-literal one: a test fixture did
+          not need a credential-shaped string), or `DEVDIGEST_SKIP_PR_REVIEW=1`. Three of the
+          twelve checks are heuristics that cannot see intent: `check:contract-mirror`
+          compares changed LINES, so repairing pre-existing drift on one side trips it even
+          though the files end up identical; `check:schema-migration` cannot tell a DDL change
+          from a TS-only enum widening. Either teach section 3 about the override, or stop
+          suggesting it there.
+Evidence: scripts/pr-self-review-gate.sh:60-78, .claude/skills/pr-self-review/SKILL.md §7
+Status:   open
 
 ### 2026-08-02 · The seed now creates one `agent_run`, and the guard that made it upgradeable
 
@@ -285,6 +405,12 @@ Takeaway: `skills-lock.json` is the only authority on what is vendored — never
           hand-authored skill must stay out of the lock.
 Evidence: skills-lock.json vs .claude/skills/
 Status:   open — the lock is stale in both directions; left untouched on purpose
+
+> Archived 2026-08-06 → [`docs/insights-archive.md`](docs/insights-archive.md): the three
+> resolved `pr-self-review` / dependency-cruiser tooling entries from 2026-08-05 (*`set -euo
+> pipefail` and the empty digest*, *`--name-status` letters are relative to the merge-base*,
+> *a rule that matches nothing looks like a rule that passes*), and *`defaultNow()` is
+> transaction start time* (2026-08-02), now a `CLAUDE.md` Gotcha.
 
 ## Recurring Errors & Fixes
 

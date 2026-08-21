@@ -9,6 +9,12 @@ in the DB). The canonical, reviewable copies live next to this file:
 - [`general-reviewer.md`](./general-reviewer.md)
 - [`security-reviewer.md`](./security-reviewer.md)
 - [`performance-reviewer.md`](./performance-reviewer.md)
+- [`test-quality-reviewer.md`](./test-quality-reviewer.md)
+- [`api-contract-reviewer.md`](./api-contract-reviewer.md)
+
+`server/test/agent-prompts-mirror.test.ts` enforces that each file here is
+byte-identical to its constant in `src/db/seed-prompts.ts`, so the two copies
+cannot drift unnoticed.
 
 > The DB is the source of truth at run time. These files are the human-readable
 > originals — when you change a prompt, edit the file here **and** push it to the
@@ -49,6 +55,32 @@ delimiter-wrapped (`prompt.ts:104-122`):
 Sections with no content are omitted. Everything repo- or author-derived is wrapped
 in `<untrusted source="…">…</untrusted>` so the model can tell instructions
 (system) from data (user).
+
+### `## Skills / rules` — and what belongs there instead of here
+
+A skill is a reusable markdown block attached to an agent on its **Skills** tab and
+injected in link order. `renderSkillBlocks` (`modules/reviews/helpers.ts`) resolves
+them: a `manual` skill's body goes in verbatim, and any imported skill's body is
+`wrapUntrusted`-ed first, because a third-party skill is somebody else's
+instructions sitting inside your agent's prompt.
+
+That gives you two places to put a rule, and the split is deliberate:
+
+| Put in the **system prompt** | Put in a **skill** |
+|---|---|
+| Role, domain, and priorities | The specific checklist to apply |
+| Severity rubric and anti-inflation rule | Catalogues of cases, smells, patterns |
+| Verdict mapping and findings discipline | Rules that other agents should reuse |
+
+A rule written into the system prompt is welded to one agent; the same rule as a
+skill can be attached to several, edited in one place, and switched off to see what
+it was actually contributing. If you find yourself copying a paragraph between two
+agent prompts, it wanted to be a skill.
+
+**Cost note.** Under the `map-reduce` strategy `assemblePrompt` runs once per
+changed file, so the skills section is paid for once per file, not once per run.
+`MAX_SKILLS_CHARS` (`modules/reviews/constants.ts`) caps the section, and skills
+dropped by that cap are named in the run log rather than vanishing quietly.
 
 ## The output schema is NOT in the prompt
 

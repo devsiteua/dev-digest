@@ -6,7 +6,10 @@ import {
   GENERAL_REVIEWER_PROMPT,
   SECURITY_REVIEWER_PROMPT,
   PERFORMANCE_REVIEWER_PROMPT,
+  TEST_QUALITY_REVIEWER_PROMPT,
+  API_CONTRACT_REVIEWER_PROMPT,
 } from './seed-prompts.js';
+import { SEED_AGENT_SKILLS, SEED_DEMO_PRS, SEED_SKILLS } from './seed-skills.js';
 
 /** Default provider/model for the built-in reviewer agents. */
 const DEFAULT_PROVIDER = 'openrouter' as const;
@@ -23,8 +26,12 @@ const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash';
  * review, and the three built-in agents (General + Security + Performance), all
  * on the default openrouter/deepseek-v4-flash provider+model.
  *
- * Course lessons populate the other tables (skills, conventions, memory, eval,
- * …) once their features are built — they start empty here.
+ * L02 adds: four built-in skills, the two agents that use them (Test Quality and
+ * API Contract, seeded DISABLED — see below), and PRs #483/#484 as the fixtures
+ * for the with-skills / without-skills comparison.
+ *
+ * Course lessons populate the remaining tables (conventions, memory, eval, …)
+ * once their features are built — they start empty here.
  */
 
 export const DEFAULT_WORKSPACE_NAME = 'default';
@@ -241,6 +248,37 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
       version: 1,
       createdBy: userId,
     },
+    // ---- L02 skill-driven agents ----
+    // Seeded DISABLED on purpose. "Run review → all enabled agents" resolves
+    // through `AgentsRepository.listEnabled`, so shipping these enabled would
+    // silently take every existing all-agents review from three LLM calls to
+    // five. A specific agent can still be run by name regardless of this flag
+    // (see RunReviewDropdown), which is exactly how the control experiment and
+    // the demo drive them. Switch them on when you want them in the fan-out.
+    {
+      workspaceId,
+      name: 'Test Quality Reviewer',
+      description:
+        'Checks the tests a PR ships: uncovered branches, missing corner cases, over-mocking, flakiness.',
+      provider: DEFAULT_PROVIDER,
+      model: DEFAULT_MODEL,
+      systemPrompt: TEST_QUALITY_REVIEWER_PROMPT,
+      enabled: false,
+      version: 1,
+      createdBy: userId,
+    },
+    {
+      workspaceId,
+      name: 'API Contract Reviewer',
+      description:
+        'Detects breaking changes to routes, exported signatures and shared schemas before they reach a consumer.',
+      provider: DEFAULT_PROVIDER,
+      model: DEFAULT_MODEL,
+      systemPrompt: API_CONTRACT_REVIEWER_PROMPT,
+      enabled: false,
+      version: 1,
+      createdBy: userId,
+    },
   ];
   for (const a of seedAgents) {
     const [existing] = await db
@@ -248,6 +286,123 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
       .from(t.agents)
       .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.name, a.name)));
     if (!existing) await db.insert(t.agents).values(a);
+  }
+
+  // ---- L02: built-in skills ----
+  // Guarded on each skill's own absence, so an already-seeded database picks
+  // them up in place without dropping the volume.
+  for (const s of SEED_SKILLS) {
+    const [existing] = await db
+      .select({ id: t.skills.id })
+      .from(t.skills)
+      .where(and(eq(t.skills.workspaceId, workspaceId), eq(t.skills.name, s.name)));
+    if (existing) continue;
+    // One transaction per skill: the guard above only asks whether the `skills`
+    // row exists, so a crash between the two inserts would leave a skill with no
+    // v1 snapshot that a re-seed would then skip forever.
+    await db.transaction(async (tx) => {
+      const [row] = await tx
+        .insert(t.skills)
+        .values({
+          workspaceId,
+          name: s.name,
+          description: s.description,
+          type: s.type,
+          source: 'manual',
+          body: s.body,
+          enabled: true,
+          version: 1,
+        })
+        .returning();
+      await tx
+        .insert(t.skillVersions)
+        .values({ skillId: row!.id, version: 1, body: row!.body })
+        .onConflictDoNothing();
+    });
+  }
+
+  // ---- L02: attach skills to their agents, in prompt order ----
+  // `order` is the index in the list, which is the order the blocks appear in
+  // the assembled prompt. Guarded on the agent having no links yet, so a user
+  // who has since reordered or detached skills is not overwritten by a re-seed.
+  for (const [agentName, skillNames] of Object.entries(SEED_AGENT_SKILLS)) {
+    const [agent] = await db
+      .select({ id: t.agents.id })
+      .from(t.agents)
+      .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.name, agentName)));
+    if (!agent) continue;
+
+    const existingLinks = await db
+      .select({ skillId: t.agentSkills.skillId })
+      .from(t.agentSkills)
+      .where(eq(t.agentSkills.agentId, agent.id));
+    if (existingLinks.length > 0) continue;
+
+    for (const [order, skillName] of skillNames.entries()) {
+      const [skill] = await db
+        .select({ id: t.skills.id })
+        .from(t.skills)
+        .where(and(eq(t.skills.workspaceId, workspaceId), eq(t.skills.name, skillName)));
+      if (!skill) continue;
+      await db
+        .insert(t.agentSkills)
+        .values({ agentId: agent.id, skillId: skill.id, order })
+        .onConflictDoNothing();
+    }
+  }
+
+  // ---- L02: demo PRs for the with-skills / without-skills comparison ----
+  // These carry real patch text (unlike PR #482), because `loadDiff` falls back
+  // to `diffFromPrFiles`, which skips any file whose `patch` is null — without
+  // it the reviewer would receive an empty diff.
+  for (const demo of SEED_DEMO_PRS) {
+    const [existing] = await db
+      .select({ id: t.pullRequests.id })
+      .from(t.pullRequests)
+      .where(and(eq(t.pullRequests.repoId, repoId), eq(t.pullRequests.number, demo.number)));
+    if (existing) continue;
+
+    // All three tables in one transaction. The guard above tests only the
+    // `pull_requests` row, so a half-written demo PR would keep its row, lose
+    // its patches, and be skipped by every later seed — and a PR with no
+    // `pr_files.patch` reaches the model as an EMPTY diff, where "no findings"
+    // is indistinguishable from a working review that found nothing.
+    await db.transaction(async (tx) => {
+      const [row] = await tx
+        .insert(t.pullRequests)
+        .values({
+          workspaceId,
+          repoId,
+          number: demo.number,
+          title: demo.title,
+          author: demo.author,
+          branch: demo.branch,
+          base: 'main',
+          headSha: demo.headSha,
+          additions: demo.files.reduce((n, f) => n + f.additions, 0),
+          deletions: demo.files.reduce((n, f) => n + f.deletions, 0),
+          filesCount: demo.files.length,
+          status: 'needs_review',
+          body: demo.body,
+        })
+        .returning();
+
+      await tx.insert(t.prFiles).values(
+        demo.files.map((f) => ({
+          prId: row!.id,
+          path: f.path,
+          additions: f.additions,
+          deletions: f.deletions,
+          patch: f.patch,
+        })),
+      );
+      await tx.insert(t.prCommits).values({
+        prId: row!.id,
+        sha: demo.headSha,
+        message: demo.title,
+        author: demo.author,
+      });
+    });
   }
 
   // ---- a settled run for the demo review ----
@@ -301,6 +456,65 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
         .returning();
       await db.update(t.reviews).set({ runId: run!.id }).where(eq(t.reviews.id, demoReview.id));
     }
+  }
+
+  // ---- L02: demo convention candidates ----
+  // Three `pending` rules for the seeded repo, so the conventions screen has a
+  // populated state — cards, evidence, confidence bars, accept/reject — without
+  // an indexed clone, a provider key, or a billable model call. Everything a
+  // real pass produces is here except the pass: the paths are the seeded PR's
+  // files and the snippets are the lines the rules are supposed to have been
+  // read out of.
+  //
+  // Guarded on the candidates' OWN absence rather than inside the `if (!pr)`
+  // block above, so an already-seeded dev database picks them up without
+  // dropping the volume (`INSIGHTS.md`, 2026-08-02).
+  const existingConventions = await db
+    .select({ id: t.conventions.id })
+    .from(t.conventions)
+    .where(and(eq(t.conventions.workspaceId, workspaceId), eq(t.conventions.repoId, repoId)));
+  if (existingConventions.length === 0) {
+    await db.insert(t.conventions).values([
+      {
+        workspaceId,
+        repoId,
+        rule: 'Name module-level constants in SCREAMING_SNAKE_CASE and export them from the module that uses them',
+        category: 'naming',
+        evidencePath: 'src/middleware/ratelimit.ts',
+        evidenceStartLine: 12,
+        evidenceEndLine: 14,
+        evidenceSnippet:
+          'export const WINDOW_SECONDS = 3600;\nexport const MAX_REQUESTS = 100;\nexport const BURST_ALLOWANCE = 20;',
+        confidence: 0.88,
+        status: 'pending',
+      },
+      {
+        workspaceId,
+        repoId,
+        rule: 'Return early with a typed error instead of nesting the happy path',
+        category: 'error-handling',
+        evidencePath: 'src/api/public/webhooks.ts',
+        evidenceStartLine: 61,
+        evidenceEndLine: 64,
+        evidenceSnippet:
+          "  if (!signature) {\n    throw new UnauthorizedError('Missing webhook signature');\n  }\n  const event = verifySignature(signature, rawBody);",
+        confidence: 0.81,
+        status: 'pending',
+      },
+      {
+        workspaceId,
+        repoId,
+        rule: 'Read every environment variable in src/config.ts and import the config object elsewhere',
+        category: 'structure',
+        evidencePath: 'src/config.ts',
+        evidenceStartLine: 8,
+        evidenceEndLine: 11,
+        evidenceSnippet:
+          'export const config = {\n  port: Number(process.env.PORT ?? 3000),\n  redisUrl: process.env.REDIS_URL,\n};',
+        confidence: 0.74,
+        status: 'pending',
+      },
+    ]);
   }
 
   // NOTE: deliberately no `lastReviewedSha` on the demo PR. Setting it would flip

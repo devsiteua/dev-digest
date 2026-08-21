@@ -166,6 +166,10 @@ New arrays, objects, and functions created inline in JSX props break `React.memo
 
 ## Code Organization (MEDIUM)
 
+> Placement questions — which folder a file belongs in, when to promote it, where business logic
+> and the server/client boundary sit — are owned by the `frontend-architecture` skill. This section
+> covers only file-level hygiene.
+
 ### Feature-Based Structure
 - Colocate component + hook + helpers + tests per feature
 - Shared utilities go in `utils/` or `components/ui/`

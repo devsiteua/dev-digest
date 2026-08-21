@@ -8,6 +8,7 @@ import type {
   Provider,
   ReviewStrategy,
 } from '@devdigest/shared';
+import { ValidationError } from '../../platform/errors.js';
 import { AgentsRepository } from './repository.js';
 import { toAgentDto, toAgentVersionDto } from './helpers.js';
 
@@ -55,14 +56,23 @@ export class AgentsService {
     this.repo = new AgentsRepository(container.db);
   }
 
+  /**
+   * NOTE the explicit arrow: `rows.map(toAgentDto)` would hand `map`'s INDEX to
+   * the `skillCount` parameter, and TypeScript accepts it silently — the first
+   * agent would report 0 skills and the second 1.
+   */
   async list(workspaceId: string): Promise<Agent[]> {
-    const rows = await this.repo.list(workspaceId);
-    return rows.map(toAgentDto);
+    const [rows, counts] = await Promise.all([
+      this.repo.list(workspaceId),
+      this.repo.skillCounts(workspaceId),
+    ]);
+    return rows.map((row) => toAgentDto(row, counts.get(row.id) ?? 0));
   }
 
   async get(workspaceId: string, id: string): Promise<Agent | undefined> {
     const row = await this.repo.getById(workspaceId, id);
-    return row ? toAgentDto(row) : undefined;
+    if (!row) return undefined;
+    return toAgentDto(row, await this.repo.skillCountFor(row.id));
   }
 
   /** Delete an agent (and its versions/skill-links, via cascade). */
@@ -85,7 +95,9 @@ export class AgentsService {
       enabled: input.enabled,
       createdBy: userId ?? null,
     });
-    return toAgentDto(row);
+    // A just-created agent provably has no links yet, so this 0 is measured, not
+    // assumed — and it keeps every response the client caches shaped alike.
+    return toAgentDto(row, 0);
   }
 
   async update(
@@ -105,7 +117,10 @@ export class AgentsService {
       ...(patch.repo_intel !== undefined ? { repoIntel: patch.repo_intel } : {}),
       ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
     });
-    return row ? toAgentDto(row) : undefined;
+    if (!row) return undefined;
+    // The toggle on an agent card writes this response straight into the query
+    // cache; without the count the card's badge would blank until a refetch.
+    return toAgentDto(row, await this.repo.skillCountFor(row.id));
   }
 
   /**
@@ -152,6 +167,7 @@ export class AgentsService {
   ): Promise<AgentSkillLink[] | undefined> {
     const agent = await this.repo.getById(workspaceId, agentId);
     if (!agent) return undefined;
+    await this.assertSkillsInWorkspace(workspaceId, skillIds);
     await this.repo.setSkills(agentId, skillIds);
     return this.skillLinks(agentId);
   }
@@ -165,10 +181,30 @@ export class AgentsService {
   ): Promise<AgentSkillLink[] | undefined> {
     const agent = await this.repo.getById(workspaceId, agentId);
     if (!agent) return undefined;
+    await this.assertSkillsInWorkspace(workspaceId, [skillId]);
     const existing = await this.repo.linkedSkills(agentId);
     const resolvedOrder = order ?? existing.length;
     await this.repo.linkSkill(agentId, skillId, resolvedOrder);
     return this.skillLinks(agentId);
+  }
+
+  /**
+   * Every id must name a skill in THIS workspace.
+   *
+   * The agent was already workspace-checked above, but the skill ids were not —
+   * and a linked skill's body is injected verbatim into that agent's prompt. So
+   * without this check a caller could attach another tenant's skill and read its
+   * text back out of the run trace. Unreachable before this lesson only because
+   * no skill rows existed; reachable the moment skills CRUD ships.
+   */
+  private async assertSkillsInWorkspace(workspaceId: string, skillIds: string[]): Promise<void> {
+    if (skillIds.length === 0) return;
+    const unique = [...new Set(skillIds)];
+    const found = await this.container.skillsRepo.idsInWorkspace(workspaceId, unique);
+    if (found.length !== unique.length) {
+      const missing = unique.filter((id) => !found.includes(id));
+      throw new ValidationError(`Unknown skill id(s): ${missing.join(', ')}`);
+    }
   }
 
   /**

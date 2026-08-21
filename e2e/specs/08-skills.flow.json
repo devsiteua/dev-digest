@@ -1,0 +1,22 @@
+{
+  "name": "Skills list renders the seeded skills and opens one for preview",
+  "description": "Loads /skills and confirms the seeded skills render as cards (SkillsListView + SkillCard over GET /skills), then opens one and switches to its Preview tab (SkillEditor). Exercises the skills route, its API fetch, and the list→editor navigation. No step triggers an LLM call.",
+  "steps": [
+    { "cmd": ["open", "{BASE}/skills"], "label": "load the skills page" },
+    { "cmd": ["wait", "--url", "/skills"], "label": "skills route reached" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "skills fetch settles" },
+    { "cmd": ["wait", "--text", "test-coverage-rubric"], "label": "a seeded skill card is visible" },
+    { "cmd": ["wait", "--text", "breaking-change"], "label": "a second seeded skill card is visible" },
+    { "cmd": ["find", "text", "test-coverage-rubric", "click"], "label": "open the skill" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "skill detail fetch settles" },
+    { "cmd": ["wait", "--text", "Configuration"], "label": "the editor opens on its Config tab" },
+    {
+      "cmd": ["find", "role", "button", "click", "--name", "Preview"],
+      "label": "switch to the Preview tab"
+    },
+    {
+      "cmd": ["wait", "--text", "Rendered as the reviewing agent receives it."],
+      "label": "the rendered skill body is shown"
+    }
+  ]
+}

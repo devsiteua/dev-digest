@@ -7,20 +7,75 @@
     "subtitle": "Scan the cloned repo to surface house-rules — each backed by evidence you can turn into a Skill.",
     "scanning": "Scanning…",
     "rescan": "Re-scan",
-    "runExtraction": "Run extraction",
     "extractionFailed": "Extraction failed",
     "loadError": "Could not load conventions.",
+    "acceptAll": "Accept all",
+    "deselectAll": "Deselect all",
+    "acceptedCount": "{accepted} of {total} accepted",
     "empty": {
       "title": "No conventions extracted yet",
       "body": "Scan the repo to surface house-rules — naming, error handling, structure — each backed by evidence you can turn into a Skill.",
       "cta": "Run extraction"
     },
-    "candidateCount": "{count, plural, one {# candidate} other {# candidates}} · grounded against sampled files"
+    "candidateCount": "{count, plural, one {# candidate} other {# candidates}} · grounded against sampled files",
+    "scan": {
+      "summary": "Last scan read {sampled, plural, one {# file} other {# files}}. The model proposed {returned, plural, one {# rule} other {# rules}}: {kept} kept, {discarded} discarded for want of evidence.",
+      "discard": "“{rule}” — {reason}",
+      "more": "…and {count} more"
+    }
   },
   "card": {
     "confidence": "Confidence",
+    "accept": "Accept",
     "accepted": "Accepted",
     "accepting": "Accepting…",
-    "acceptAsSkill": "Accept as Skill"
+    "reject": "Reject",
+    "rejected": "Rejected",
+    "rejecting": "Rejecting…",
+    "evidenceHint": "Open on GitHub",
+    "edit": "Edit",
+    "ruleLabel": "Rule",
+    "categoryLabel": "Category",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "editHint": "The evidence is not editable — it was read from the file on disk. Re-scan to change it.",
+    "saveFailed": "Could not save this edit. Try again."
+  },
+  "create": {
+    "open": "Create skill",
+    "title": "Create skill from conventions",
+    "mergedFrom": "Merged from <b>{count, plural, one {# accepted convention} other {# accepted conventions}}</b> in <mono>{repo}</mono>. Everything below is editable before you save.",
+    "name": "Name",
+    "description": "Description",
+    "type": "Type",
+    "enabled": "Enabled",
+    "enabledHint": "Whether this block is added to agents' prompts.",
+    "body": "Skill body",
+    "bodyHint": "The only text sent to the model. Merged from the accepted rules + evidence — edit freely.",
+    "bodyTokens": "~{tokens} tokens · {chars}/{max} chars",
+    "tooLong": "Too long — trim the body before saving.",
+    "types": {
+      "rubric": "Rubric",
+      "convention": "Convention",
+      "security": "Security",
+      "custom": "Custom"
+    },
+    "savedNote": "Saved to <mono>Skills Lab</mono> · merging again under the same name adds a version",
+    "cancel": "Cancel",
+    "submit": "Create skill",
+    "creating": "Creating…",
+    "failed": "Could not create the skill.",
+    "draft": {
+      "description": "{count, plural, one {# house convention} other {# house conventions}} extracted from {repo}",
+      "intro": "House conventions for {repo}. Flag changes that violate any rule below and cite the offending `file:line`.",
+      "detected": "Detected in `{evidence}`:"
+    },
+    "success": {
+      "title": "Skill created",
+      "body": "{name} is in Skills Lab. It is stamped as extracted, so an agent receives it as untrusted text until you review it there.",
+      "close": "Close",
+      "open": "Open skill"
+    }
   }
 }

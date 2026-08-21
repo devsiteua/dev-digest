@@ -12,10 +12,15 @@ import {
   EvalRun,
   MemoryItem,
   RunTrace,
+  ConventionCandidate,
+  ConventionExtractResult,
+  ConventionSkillRequest,
   Settings,
   Repo,
   PrDetail,
   PrMeta,
+  Agent,
+  SkillStats,
 } from '@devdigest/shared';
 
 /**
@@ -187,6 +192,85 @@ describe('AI contracts parse fixtures', () => {
     });
     expect(trace.stats.cost_usd).toBeUndefined();
   });
+
+  it('ConventionCandidate (data.jsx CONVENTIONS, reshaped for the extractor)', () => {
+    const c = ConventionCandidate.parse({
+      id: 'c1',
+      repo_id: 'r1',
+      rule: 'Always use async/await instead of .then() chains',
+      category: 'async',
+      evidence_path: 'src/api/users.ts',
+      evidence_snippet: 'const user = await db.users.find(id);',
+      evidence_start_line: 23,
+      evidence_end_line: 31,
+      confidence: 0.91,
+      status: 'pending',
+      skill_id: null,
+      created_at: '2026-08-06T10:00:00.000Z',
+    });
+    expect(c.status).toBe('pending');
+    // The prototype pinned the range inside the path ("src/api/users.ts:23-31").
+    // We keep the two numbers separate because the server has to slice the file
+    // with them; rendering them back as one string is the UI's job.
+    expect(c.evidence_end_line - c.evidence_start_line).toBe(8);
+    expect(() =>
+      ConventionExtractResult.parse({
+        candidates: [c],
+        sampled_files: ['src/api/users.ts'],
+        discarded: [{ rule: 'Repos always end in Repository', reason: 'evidence_path not sampled' }],
+      }),
+    ).not.toThrow();
+  });
+
+  it('ConventionCandidate rejects a boolean-era status and an out-of-range confidence', () => {
+    // `accepted: boolean` became a three-state status, so "reviewed and refused"
+    // is distinguishable from "not reviewed yet". Anything outside those three
+    // words — including the old field's shape — must not parse.
+    const base = {
+      id: 'c1',
+      repo_id: 'r1',
+      rule: 'r',
+      category: 'async',
+      evidence_path: 'a.ts',
+      evidence_snippet: 's',
+      evidence_start_line: 1,
+      evidence_end_line: 2,
+      confidence: 0.5,
+      status: 'pending' as const,
+      skill_id: null,
+      created_at: '2026-08-06T10:00:00.000Z',
+    };
+    const { status: _dropped, ...booleanEra } = base;
+    expect(() => ConventionCandidate.parse({ ...base, status: 'approved' })).toThrow();
+    expect(() => ConventionCandidate.parse({ ...booleanEra, accepted: true })).toThrow();
+    expect(() => ConventionCandidate.parse({ ...base, confidence: 1.4 })).toThrow();
+  });
+
+  it('ConventionSkillRequest carries no source — the server stamps it', () => {
+    // Same rule as SkillDraft: provenance is decided by the endpoint, never read
+    // from the body, or a caller could label generated text 'manual' and skip
+    // the untrusted wrapping.
+    const req = ConventionSkillRequest.parse({
+      name: 'repo-conventions',
+      description: '3 house conventions extracted from payments-api',
+      type: 'convention',
+      enabled: true,
+      body: '# repo-conventions\n\n## no-then-chains\n',
+      convention_ids: ['c1', 'c2', 'c3'],
+      source: 'manual',
+    });
+    expect(req).not.toHaveProperty('source');
+    expect(() =>
+      ConventionSkillRequest.parse({
+        name: 'repo-conventions',
+        description: '',
+        type: 'convention',
+        enabled: true,
+        body: '# x',
+        convention_ids: [],
+      }),
+    ).toThrow();
+  });
 });
 
 describe('platform DTOs', () => {
@@ -253,6 +337,53 @@ describe('platform DTOs', () => {
         findings_by_severity: { critical: 2, warning: 1, suggestion: 1 },
       }).findings_by_severity,
     ).toEqual({ critical: 2, warning: 1, suggestion: 1 });
+  });
+
+  // skill_count is DERIVED, so a producer that does not count must be able to
+  // omit the key entirely — .nullable() would make it required and 500 every
+  // response built without a count (a plugin export, a fixture, a version snapshot).
+  it('Agent.skill_count: absent, null and a real count all parse', () => {
+    const base = {
+      id: 'ag1',
+      name: 'Security Reviewer',
+      description: 'd',
+      provider: 'openai' as const,
+      model: 'gpt-4.1',
+      system_prompt: 'p',
+      enabled: true,
+      version: 1,
+    };
+    expect(Agent.parse(base).skill_count).toBeUndefined();
+    expect(Agent.parse({ ...base, skill_count: null }).skill_count).toBeNull();
+    expect(Agent.parse({ ...base, skill_count: 3 }).skill_count).toBe(3);
+    expect(() => Agent.parse({ ...base, skill_count: 1.5 })).toThrow();
+  });
+
+  it('SkillStats keeps accept_rate nullable — untriaged is not 0%', () => {
+    const stats = SkillStats.parse({
+      used_by: [{ agent_id: 'ag1', agent_name: 'A', agent_enabled: false }],
+      window_days: 30,
+      runs: 4,
+      findings: 0,
+      accepted: 0,
+      dismissed: 0,
+      accept_rate: null,
+      by_category: [],
+    });
+    expect(stats.accept_rate).toBeNull();
+    // The key itself is required: a stats response that forgot to compute the
+    // rate must fail here rather than render as "nothing triaged".
+    expect(() =>
+      SkillStats.parse({
+        used_by: [],
+        window_days: 30,
+        runs: 0,
+        findings: 0,
+        accepted: 0,
+        dismissed: 0,
+        by_category: [],
+      }),
+    ).toThrow();
   });
 
   it('PrMeta rejects a non-integer severity tally', () => {
