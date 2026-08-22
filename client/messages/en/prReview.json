@@ -127,5 +127,36 @@
   "tooltip": {
     "title": "{count} findings",
     "loading": "Loading findings…"
+  },
+  "intent": {
+    "title": "Intent",
+    "rederive": "Re-derive",
+    "derive": "Derive intent",
+    "inScope": "IN SCOPE",
+    "outOfScope": "OUT OF SCOPE",
+    "emptyTitle": "No intent derived yet",
+    "emptyBody": "Read the PR's description, linked issue and any plan it points at, and state what it is trying to do.",
+    "derivedBy": "derived by {model}",
+    "kind": {
+      "feature": "feature",
+      "fix": "fix",
+      "refactor": "refactor",
+      "perf": "performance",
+      "docs": "docs",
+      "test": "tests",
+      "chore": "chore",
+      "deps": "dependencies",
+      "revert": "revert",
+      "mixed": "mixed"
+    },
+    "source": {
+      "plan_file": "plan file",
+      "linked_issue": "linked issue",
+      "pr_body": "description",
+      "pr_title": "title",
+      "commits": "commits",
+      "branch": "branch",
+      "file_paths": "changed files"
+    }
   }
 }

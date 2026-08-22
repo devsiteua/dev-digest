@@ -692,13 +692,18 @@ Verify: `cd client && pnpm test && pnpm typecheck`; the card test covers populat
         2026-08-22 — `user-event` is not installed); token-based style assertions use
         `getAttribute("style")` + `toContain`, never `toHaveStyle` (client `INSIGHTS.md`
         2026-08-02).
-        Design conformance, each a real check:
-        `grep -n "ConfidenceNum" IntentCard.tsx` hits and `grep -c "<section" IntentCard.tsx`
-        is 0; the card test asserts the `low` fixture renders `40% conf`;
-        `grep -rn "Chip" IntentCard.tsx` returns nothing;
-        `grep -n "IntentCard\|Description" OverviewTab.tsx` shows `IntentCard` on the earlier
-        line; no literal English string in `IntentCard.tsx`
-        (`grep -nE '"[A-Z][a-z]+ [a-z]' IntentCard.tsx` returns nothing but token/prop values)
+        Design conformance. Two of these are greps and two are assertions, and the
+        split is not arbitrary — a grep over a source file also matches that file's
+        own doc comments, so "no `<section>`" and "no hardcoded copy" grep DIRTY on
+        a correct file. Written as checks that can actually fail:
+          - `grep -c "ConfidenceNum" IntentCard.tsx` > 0 and `grep -c "Chip" IntentCard.tsx`
+            is 0 — both are import/JSX identifiers, so a grep is exact here;
+          - the card test asserts `container.querySelector("section")` is null (the real
+            "absorbable by L05" check) and that the `low` fixture renders `40% conf`;
+          - `grep -n "IntentCard\|SectionLabel" OverviewTab.tsx` shows `IntentCard` first;
+          - hardcoded copy is caught by the card test rendering through
+            `NextIntlClientProvider` with the real `prReview.json`: a literal would not
+            come from the message file, and a missing key throws.
 Depends: Steps 1, 7
 
 ### Step 11 — Client: the Run Trace intent block · package: client
