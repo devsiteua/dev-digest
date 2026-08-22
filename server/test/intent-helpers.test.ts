@@ -306,6 +306,7 @@ describe('buildIntentPrompt', () => {
     planFiles: [],
     commitMessages: [],
     changedFiles: [],
+    missingContext: [],
   };
 
   it('wraps every author-controlled block', () => {
@@ -350,10 +351,32 @@ describe('buildIntentPrompt', () => {
     });
     expect(prompt).toContain('src/a.ts (+12/-3)');
     expect(prompt).toContain('@@ -1,10 +1,12 @@');
-    for (const line of prompt.split('\n')) {
+    // Scoped to the block, not the whole prompt: a markdown PR body opens lines
+    // with `-` all by itself, and so does the missing-context list.
+    const start = prompt.indexOf('## Changed files');
+    const block = prompt.slice(start, prompt.indexOf('</untrusted>', start));
+    for (const line of block.split('\n')) {
       expect(line.startsWith('+')).toBe(false);
       expect(line.startsWith('-')).toBe(false);
     }
+  });
+
+  it('tells the model what it could not read, in OUR voice rather than wrapped', () => {
+    const prompt = buildIntentPrompt({
+      ...BASE,
+      // A wrapped block ahead of it, so "outside a wrap" is an assertion rather
+      // than a property of a prompt that happens to contain no wraps at all.
+      body: 'BODY',
+      missingContext: ['plan file specs/missing.md named in the body but not readable'],
+    });
+    expect(prompt).toContain('## Context that is missing');
+    expect(prompt).toMatch(/do not reconstruct/i);
+    // Unwrapped on purpose: a block the system prompt has declared inert data is
+    // a block the model has been told not to act on.
+    const at = prompt.indexOf('specs/missing.md');
+    expect(prompt.lastIndexOf('<untrusted', at)).toBeLessThan(
+      prompt.lastIndexOf('</untrusted>', at),
+    );
   });
 
   it('omits a section it has no input for', () => {
@@ -361,6 +384,7 @@ describe('buildIntentPrompt', () => {
     expect(prompt).not.toContain('## PR description');
     expect(prompt).not.toContain('## Linked issue');
     expect(prompt).not.toContain('## Changed files');
+    expect(prompt).not.toContain('## Context that is missing');
   });
 });
 
@@ -372,6 +396,7 @@ describe('renderIntentForPrompt', () => {
     kind: 'feature' as const,
     confidence_tier: 'low' as const,
     sources: ['pr_title', 'commits'] as const,
+    missing_context: [] as string[],
   };
 
   it('renders the distillation and nothing else', () => {
@@ -393,6 +418,19 @@ describe('renderIntentForPrompt', () => {
     expect(note).toMatch(/never narrows what you review/i);
   });
 
+  it('carries the missing context into the block the reviewer actually reads', () => {
+    const { intent, note } = renderIntentForPrompt({
+      ...RECORD,
+      sources: [...RECORD.sources],
+      missing_context: ['issue #471 is linked but could not be read (404)'],
+    });
+    expect(intent).toContain('Missing context:');
+    expect(intent).toContain('- issue #471 is linked but could not be read (404)');
+    // In the untrusted distillation, never the trusted note: each line quotes a
+    // path or a number the PR's author supplied.
+    expect(note).not.toContain('#471');
+  });
+
   it('omits an empty scope list rather than printing an empty heading', () => {
     const { intent } = renderIntentForPrompt({
       ...RECORD,
@@ -402,5 +440,6 @@ describe('renderIntentForPrompt', () => {
     });
     expect(intent).not.toContain('Claimed in scope');
     expect(intent).not.toContain('Claimed out of scope');
+    expect(intent).not.toContain('Missing context');
   });
 });

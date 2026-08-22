@@ -211,12 +211,64 @@ d('L03 intent layer (Testcontainers pg)', () => {
   });
 
   it('names a plan file it cannot read instead of pretending it read one', async () => {
-    const app = await makeApp({ git: new MockGitClient({ files: {} }) });
+    const llm = new MockLLMProvider('openai', {
+      structuredBySchema: { PrIntent: INTENT_FIXTURE, Review: REVIEW_FIXTURE },
+    });
+    const app = await makeApp({ llm, git: new MockGitClient({ files: {} }) });
     const prId = await makePr(await makeRepo(), { body: 'See specs/missing.md for the plan.' });
 
     const intent = (await derive(app, prId)).json();
     expect(intent.sources).not.toContain('plan_file');
     expect(intent.confidence_tier).toBe('low');
+
+    // The brief's "an unreachable link must not be silently replaced with
+    // invention" — the absence is not enough, the document has to be NAMED.
+    expect(intent.missing_context).toEqual(
+      expect.arrayContaining([expect.stringContaining('specs/missing.md')]),
+    );
+
+    // And the classifier is told, in our own voice, not to reconstruct it.
+    const req = llm.calls.find((c) => c.method === 'completeStructured')!.req as {
+      messages: { role: string; content: string }[];
+    };
+    const user = req.messages.find((m) => m.role === 'user')!.content;
+    expect(user).toContain('## Context that is missing');
+    expect(user).toContain('specs/missing.md');
+  });
+
+  it('records an issue it was told about and could not read', async () => {
+    const github = new MockGitHubClient();
+    github.getIssue = async () => {
+      throw new Error('Not Found');
+    };
+    const app = await makeApp({ github });
+    const prId = await makePr(await makeRepo(), { body: 'Closes #471' });
+
+    const intent = (await derive(app, prId)).json();
+    expect(intent.sources).not.toContain('linked_issue');
+    expect(intent.missing_context).toEqual(
+      expect.arrayContaining([expect.stringContaining('#471')]),
+    );
+  });
+
+  it('survives a round trip through the row and the GET route', async () => {
+    const app = await makeApp({ git: new MockGitClient({ files: {} }) });
+    const prId = await makePr(await makeRepo(), { body: 'See specs/missing.md for the plan.' });
+
+    const derived = (await derive(app, prId)).json();
+    const fetched = (
+      await app.inject({ method: 'GET', url: `/pulls/${prId}/intent` })
+    ).json();
+    expect(fetched.missing_context).toEqual(derived.missing_context);
+    expect(fetched.missing_context.length).toBeGreaterThan(0);
+  });
+
+  it('says nothing is missing when nothing was', async () => {
+    const app = await makeApp();
+    const prId = await makePr(await makeRepo(), { body: 'x'.repeat(400) });
+
+    const intent = (await derive(app, prId)).json();
+    expect(intent.missing_context).toEqual([]);
   });
 
   // ---- What the classifier is shown ---------------------------------------
@@ -259,12 +311,18 @@ d('L03 intent layer (Testcontainers pg)', () => {
     expect(user).toContain('@@ -1,3 +1,4 @@');
     expect(user).toContain('@@ -40,2 +41,2 @@ export function limit() {');
     expect(user).toContain('docs/rate-limits.md (+0/-0)');
-    // The mechanical form of "change bodies are not sent".
-    for (const line of user.split('\n')) {
+
+    // The mechanical form of "change bodies are not sent", scoped to the block
+    // that carries the change. Whole-prompt would be a weaker claim dressed as a
+    // stronger one: a PR body written in markdown legitimately opens lines with
+    // `-`, and so does our own missing-context list.
+    const block = user.slice(user.indexOf('## Changed files'), user.indexOf('</untrusted>', user.indexOf('## Changed files')));
+    for (const line of block.split('\n')) {
       expect(line.startsWith('+')).toBe(false);
       expect(line.startsWith('-')).toBe(false);
     }
     expect(user).not.toContain('const BURST = 5');
+    expect(user).not.toContain('import { rateLimit }');
   });
 
   // ---- Persistence and the routes -----------------------------------------

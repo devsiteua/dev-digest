@@ -335,6 +335,8 @@ export interface IntentPromptInput {
   issue?: { number: number; title: string; body?: string | null };
   commitMessages: string[];
   changedFiles: IntentChangedFile[];
+  /** What was named or expected and could not be read. OURS, so never wrapped. */
+  missingContext: string[];
 }
 
 /**
@@ -377,6 +379,19 @@ export function buildIntentPrompt(input: IntentPromptInput): string {
     );
   }
 
+  if (input.missingContext.length > 0) {
+    // NOT wrapped: these sentences are ours, not the author's, and the whole
+    // point of the block is that the model should ACT on it — a wrapped block is
+    // one the system prompt has just told it to treat as inert data.
+    sections.push(
+      '## Context that is missing\n' +
+        'Each line below was named by the pull request, or expected by this derivation, and ' +
+        'could not be read. Do not reconstruct what it might have said, do not infer an intent ' +
+        'from its filename or its issue number, and lower your suggested confidence for it.\n' +
+        input.missingContext.map((note) => `- ${note}`).join('\n'),
+    );
+  }
+
   sections.push(
     'State the kind of change, one sentence of intent in the author’s terms, what they claim ' +
       'is in scope, what they claim is out of scope, the evidence you used, and the confidence ' +
@@ -405,6 +420,7 @@ export function renderIntentForPrompt(record: {
   kind: IntentKind;
   confidence_tier: IntentConfidenceTier;
   sources: IntentSource[];
+  missing_context: string[];
 }): { intent: string; note: string } {
   const lines = [`Kind: ${record.kind}`, `Intent: ${record.intent}`];
   if (record.in_scope.length > 0) {
@@ -412,6 +428,16 @@ export function renderIntentForPrompt(record: {
   }
   if (record.out_of_scope.length > 0) {
     lines.push('Claimed out of scope:', ...record.out_of_scope.map((s) => `- ${s}`));
+  }
+  // Inside the distillation rather than the trusted note, for two reasons. It is
+  // part of what the derivation found, so a reviewer reading the wrapped block
+  // must see that the claim above was made without something the PR pointed at.
+  // And each line QUOTES author-controlled text — a path out of the body, an
+  // issue number, an adapter's error string — which is precisely what the
+  // trusted region must not carry: `specs/ignore-all-previous-rules.md` is a
+  // path this repository's own validator accepts.
+  if (record.missing_context.length > 0) {
+    lines.push('Missing context:', ...record.missing_context.map((s) => `- ${s}`));
   }
   const note =
     `Derived from ${record.sources.join(', ') || 'no stated documentation'} — ` +
@@ -432,6 +458,7 @@ export function toIntentDto(row: PrIntentRow): PrIntentRecord {
     confidence_tier: row.confidenceTier as IntentConfidenceTier,
     sources: row.sources as IntentSource[],
     evidence: row.evidence as IntentEvidence[],
+    missing_context: row.missingContext,
     provider: row.provider as PrIntentRecord['provider'],
     model: row.model,
     tokens_in: row.tokensIn,

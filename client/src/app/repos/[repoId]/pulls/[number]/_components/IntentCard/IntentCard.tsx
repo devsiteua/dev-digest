@@ -120,6 +120,21 @@ export function IntentCard({ prId }: IntentCardProps) {
         <ScopeList label={t("intent.outOfScope")} items={intent.out_of_scope} tone="muted" />
       </div>
 
+      {intent.missing_context.length > 0 && (
+        // The brief's "an unreachable link must not be silently replaced with
+        // invention": what the PR named and we could not read is stated on the
+        // card, next to the claim it weakens, rather than left in a log line.
+        <div style={s.missing}>
+          <Icon.AlertTriangle size={13} style={s.missingIcon} />
+          <ul style={s.missingList}>
+            <li>{t("intent.missingContext")}</li>
+            {intent.missing_context.map((note: string, i: number) => (
+              <li key={i}>· {note}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div style={s.sources}>
         <Badge>{t(`intent.kind.${intent.kind}`)}</Badge>
         {intent.sources.map((source: IntentSource) => (

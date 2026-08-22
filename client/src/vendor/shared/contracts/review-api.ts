@@ -87,6 +87,18 @@ export const PrIntentRecord = Intent.extend({
   /** Which sources the derivation actually used, strongest first. */
   sources: z.array(IntentSource),
   evidence: z.array(IntentEvidence),
+  /**
+   * What the PR pointed at, or what a derivation expected, and could not be read
+   * — an unreadable plan file, an issue the token cannot see, a description
+   * nobody has synced yet.
+   *
+   * Kept as a FIELD rather than a log line because the brief asks for exactly
+   * that: an unreachable link must not be silently replaced with invention. A
+   * reader of a row — the card, the reviewing prompt, an audit — has to be able
+   * to tell "the author explained nothing" from "the author explained it
+   * somewhere we could not reach".
+   */
+  missing_context: z.array(z.string()),
   provider: Provider,
   model: z.string(),
   tokens_in: z.number().int(),

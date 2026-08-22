@@ -49,6 +49,9 @@ export default async function intentRoutes(appBase: FastifyInstance) {
         {
           prId: req.params.id,
           sources: intent.sources,
+          // What the derivation could NOT read. Sentences we wrote, carrying a
+          // path or an issue number the author supplied — never a source's text.
+          missingContext: intent.missing_context,
           tier: intent.confidence_tier,
           kind: intent.kind,
           provider: intent.provider,

@@ -91,6 +91,15 @@ export const prIntent = pgTable('pr_intent', {
     .$type<{ source: string; ref: string; quote: string }[]>()
     .notNull()
     .default(sql`'[]'::jsonb`),
+  /**
+   * What the PR named, or a derivation expected, and could not be read.
+   *
+   * Shaped like `in_scope` — `notNull` with a `'[]'::jsonb` default — because an
+   * empty list and a null both mean "nothing was missing", and one of those two
+   * spellings would then have to be handled by every reader. The default also
+   * makes this column addable to a table that already has rows.
+   */
+  missingContext: jsonb('missing_context').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   provider: text('provider').notNull(),
   model: text('model').notNull(),
   tokensIn: integer('tokens_in').notNull(),

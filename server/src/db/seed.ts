@@ -527,6 +527,10 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
   // derives nothing. A seeded intent on a different SHA would be worse than none:
   // the first run would quietly spend a model call replacing it.
   //
+  // `missingContext` is seeded for the same reason the tier is: the body is under
+  // `MIN_SUBSTANTIVE_BODY_CHARS`, so a real derivation says so, and an empty list
+  // here would make the first Re-derive add a warning row out of nowhere.
+  //
   // Tier `low` is not a placeholder — it is what the ladder actually returns for
   // this PR. Its body is 95 characters, under `MIN_SUBSTANTIVE_BODY_CHARS`, it
   // links no issue and names no plan file, so the evidence is title + commits +
@@ -561,6 +565,9 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
         confidence: 0.4,
         confidenceTier: 'low',
         sources: ['pr_title', 'commits', 'branch', 'file_paths'],
+        missingContext: [
+          'the description is too short to state an intent (a template’s boilerplate does not count)',
+        ],
         evidence: [
           {
             source: 'pr_title',

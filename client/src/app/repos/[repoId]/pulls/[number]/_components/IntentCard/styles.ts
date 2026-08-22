@@ -49,6 +49,31 @@ export const s = {
     }) satisfies CSSProperties,
   bullet: (tone: "ok" | "muted") =>
     ({ color: tone === "ok" ? "var(--ok)" : undefined, marginTop: 1 }) satisfies CSSProperties,
+  /**
+   * What the PR pointed at and we could not read.
+   *
+   * Muted rather than alarming: an unreadable plan file is not an error, it is a
+   * reason the confidence above is lower than it looks. `--warn` is on the icon
+   * alone, so the row reads as a caveat on the claim rather than a second status
+   * competing with the confidence reading.
+   */
+  missing: {
+    display: "flex",
+    gap: 7,
+    marginTop: 14,
+    fontSize: 11.5,
+    lineHeight: 1.45,
+    color: "var(--text-muted)",
+  } satisfies CSSProperties,
+  missingIcon: { color: "var(--warn)", flexShrink: 0, marginTop: 2 } satisfies CSSProperties,
+  missingList: {
+    margin: 0,
+    padding: 0,
+    listStyle: "none",
+    display: "flex",
+    flexDirection: "column",
+    gap: 3,
+  } satisfies CSSProperties,
   /** The confidence reading + Re-derive action, in SectionLabel's `right` slot. */
   right: { display: "flex", alignItems: "center", gap: 10 } satisfies CSSProperties,
   /** Source chips — evidence, which is what makes the confidence readable. */

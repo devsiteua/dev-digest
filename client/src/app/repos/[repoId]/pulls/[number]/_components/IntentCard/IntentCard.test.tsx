@@ -24,6 +24,7 @@ const RECORD: PrIntentRecord = {
   confidence_tier: "high",
   sources: ["plan_file", "pr_title"],
   evidence: [],
+  missing_context: [],
   provider: "openrouter",
   model: "deepseek/deepseek-v4-flash",
   tokens_in: 900,
@@ -79,6 +80,27 @@ describe("IntentCard", () => {
     expect(screen.getByText("plan file")).toBeInTheDocument();
     expect(screen.getByText("title")).toBeInTheDocument();
     expect(screen.getByText("feature")).toBeInTheDocument();
+  });
+
+  it("names what the PR pointed at and could not be read", () => {
+    stored = {
+      ...RECORD,
+      missing_context: ["plan file specs/missing.md named in the body but not readable"],
+    };
+    renderCard();
+
+    expect(screen.getByText("Derived without context the PR points at:")).toBeInTheDocument();
+    expect(
+      screen.getByText(/plan file specs\/missing\.md named in the body but not readable/),
+    ).toBeInTheDocument();
+  });
+
+  it("says nothing about missing context when nothing was missing", () => {
+    stored = RECORD;
+    renderCard();
+    expect(
+      screen.queryByText("Derived without context the PR points at:"),
+    ).not.toBeInTheDocument();
   });
 
   it("offers an empty state with a derive action when nothing was derived", () => {

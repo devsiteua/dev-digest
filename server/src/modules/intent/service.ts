@@ -161,6 +161,7 @@ export class IntentService {
       kind: record.kind,
       confidence_tier: record.confidence_tier,
       sources: record.sources,
+      missing_context: record.missing_context,
     });
   }
 
@@ -180,7 +181,12 @@ export class IntentService {
     if (!repo) throw new NotFoundError('Repo not found');
     const ref: RepoRef = { owner: repo.owner, name: repo.name };
 
-    const { input, sources, notes } = await this.gather(pull, repo.fullName, ref, changedFiles);
+    const { input, sources, missingContext } = await this.gather(
+      pull,
+      repo.fullName,
+      ref,
+      changedFiles,
+    );
 
     // The tier the EVIDENCE supports, decided before the model is asked anything.
     const evidenceTier = tierFromSources(sources);
@@ -212,6 +218,7 @@ export class IntentService {
       confidenceTier: tier,
       sources,
       evidence: normalizeEvidence(reply.data.evidence),
+      missingContext,
       provider: choice.provider,
       model: choice.model,
       tokensIn: reply.tokensIn,
@@ -227,7 +234,8 @@ export class IntentService {
       record: toIntentDto(row),
       logLine:
         `intent: derived from ${sources.join(', ')} — ${tier} confidence${lowered}; ` +
-        `${choice.provider}/${choice.model}, ${cost}${notes.length ? `; ${notes.join('; ')}` : ''}`,
+        `${choice.provider}/${choice.model}, ${cost}` +
+        `${missingContext.length ? `; missing context — ${missingContext.join('; ')}` : ''}`,
     };
   }
 
@@ -237,24 +245,36 @@ export class IntentService {
    * Every source is best-effort: one that cannot be read is skipped, never fatal.
    * A missing GitHub token drops the linked issue and nothing else, and a PR with
    * no documentation at all still derives — from its title, commits, branch and
-   * changed paths — and simply earns a lower tier. `notes` carries the things a
-   * reader would otherwise have to guess at, so an unexplained `low` never
-   * reaches the UI.
+   * changed paths — and simply earns a lower tier.
+   *
+   * What could NOT be read is collected rather than discarded. Round 1 computed
+   * these sentences and dropped them on the `POST` path, which left no reader of
+   * a row able to tell "the author explained nothing" from "the author explained
+   * it in a file we could not open". They are persisted, shown to the classifier
+   * as a do-not-reconstruct block, rendered into the reviewer's intent slot and
+   * put on the card — the brief's "an unreachable link must not be silently
+   * replaced with invention".
    */
   private async gather(
     pull: PullRow,
     repoFullName: string,
     ref: RepoRef,
     changedFiles: IntentChangedFile[],
-  ): Promise<{ input: IntentPromptInput; sources: PrIntentRecord['sources']; notes: string[] }> {
+  ): Promise<{
+    input: IntentPromptInput;
+    sources: PrIntentRecord['sources'];
+    missingContext: string[];
+  }> {
     const sources: PrIntentRecord['sources'] = [];
-    const notes: string[] = [];
+    const missingContext: string[] = [];
 
     const planFiles: { path: string; text: string }[] = [];
     for (const path of extractPlanPaths(pull.body)) {
       const text = await this.readOrSkip(ref, path);
       if (text) planFiles.push({ path, text: text.slice(0, MAX_PLAN_FILE_CHARS) });
-      else notes.push(`plan file ${path} named in the body but not readable from the clone`);
+      else {
+        missingContext.push(`plan file ${path} named in the body but not readable from the clone`);
+      }
     }
     if (planFiles.length > 0) sources.push('plan_file');
 
@@ -267,7 +287,9 @@ export class IntentService {
         issue = { number: meta.number, title: meta.title, body: meta.body };
         sources.push('linked_issue');
       } catch (err) {
-        notes.push(`issue #${issueNumber} is linked but could not be read (${(err as Error).message})`);
+        missingContext.push(
+          `issue #${issueNumber} is linked but could not be read (${(err as Error).message})`,
+        );
       }
     }
 
@@ -275,11 +297,22 @@ export class IntentService {
       // pull_requests.body is written only by GET /pulls/:id, so a PR nobody has
       // opened legitimately has none. Say so — an unexplained low tier reads as a
       // broken feature.
-      notes.push('the PR has no stored description (open the PR detail once to sync it)');
+      missingContext.push('the PR has no stored description (open the PR detail once to sync it)');
     } else if (isSubstantiveBody(pull.body)) {
       sources.push('pr_body');
     } else {
-      notes.push('the description is a template with nothing filled in');
+      // Covers both shapes this can take — an untouched template, and a
+      // genuinely one-line description — because the seed's demo PR is the
+      // second, and a note calling it a template would be a sentence the code
+      // cannot honestly reproduce.
+      //
+      // Deliberately quotes no number. `MIN_SUBSTANTIVE_BODY_CHARS` is a value
+      // this repository expects to revise once real derivations settle it, and a
+      // threshold spelled into a persisted sentence would be a second copy of it
+      // — one that `seed.ts` also holds and nothing keeps in step.
+      missingContext.push(
+        'the description is too short to state an intent (a template’s boilerplate does not count)',
+      );
     }
 
     sources.push('pr_title');
@@ -299,9 +332,10 @@ export class IntentService {
         // Capped by `renderChangedFiles`, so the diff path and the `pr_files`
         // path cannot disagree about how much one derivation may cost.
         changedFiles,
+        missingContext,
       },
       sources,
-      notes,
+      missingContext,
     };
   }
 
