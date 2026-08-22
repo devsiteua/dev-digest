@@ -210,10 +210,19 @@ without touching it. L05 must extend this component, not build a second Intent b
 `brief.json` — `brief.block.intent` already carries the same word, and two Intent cards on one
 screen is the failure this note exists to prevent.
 
-**D9 — the engine receives a rendered string.** `ReviewInput.intent?: string`, exactly like
-`callers` and `repoMap`. The server composes tier line + intent + scope lists; `reviewer-core`
-resolves nothing. Required by the purity law (`reviewer-core/CLAUDE.md` § Conventions) and by
-`docs/prompt-contract.md` § "Adding a slot" item 7.
+**D9 — the engine receives rendered strings — TWO of them.** `ReviewInput.intent?: string`
+carries the distilled intent and scope lists, exactly like `callers` and `repoMap`; the
+server composes it and `reviewer-core` resolves nothing (the purity law,
+`reviewer-core/CLAUDE.md` § Conventions, and `docs/prompt-contract.md` § "Adding a slot"
+item 7).
+
+*Corrected during implementation.* This decision originally said ONE string containing the
+tier line as well, which cannot coexist with Step 4's requirement that the tier line sit
+OUTSIDE `wrapUntrusted`: once the caller concatenates them the engine has no way to tell
+the trusted half from the untrusted one. So the slot is two fields —
+`intent` (untrusted, wrapped, capped) and `intentNote` (one trusted line, rendered above
+the delimiter, ignored when `intent` is empty). One section, two trust levels, which is
+why `docs/prompt-contract.md` now says so explicitly.
 
 **D10 — the prompt slot carries a DISTILLATION, never raw source text.** The PR body is
 *already* in the prompt as `## PR description` (`prompt.ts:106-108`). So for a body-only PR the

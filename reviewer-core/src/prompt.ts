@@ -36,6 +36,18 @@ export function wrapUntrusted(label: string, content: string): string {
 /** Cap the PR description so a huge author body can't blow the token budget. */
 const MAX_PR_DESCRIPTION_CHARS = 4000;
 
+/**
+ * Cap the derived intent block.
+ *
+ * Much smaller than the description cap, and deliberately so: this slot carries a
+ * DISTILLATION — one sentence of intent plus two short scope lists — and a
+ * distillation that grows with the PR is not one. The sources it was distilled
+ * from (the body, a linked issue, a spec file) never travel here; the body is
+ * already its own section, and pasting the issue in behind it would double the
+ * prompt to tell the model something it was given twice.
+ */
+const MAX_INTENT_CHARS = 1200;
+
 export interface PromptParts {
   /** Agent's system prompt (trusted). */
   system: string;
@@ -66,6 +78,25 @@ export interface PromptParts {
    * undefined → section omitted.
    */
   prDescription?: string;
+  /**
+   * The derived PR intent (L03): what the PR claims to do, and what it claims is
+   * out of scope. UNTRUSTED — every source it was distilled from is
+   * author-controlled, so the distillate is too, even though we produced it.
+   * Delimiter-wrapped and capped at `MAX_INTENT_CHARS`. Empty/undefined →
+   * section omitted.
+   */
+  intent?: string;
+  /**
+   * One TRUSTED line saying how much that intent is worth — composed by the
+   * caller from its own evidence, never reported by a model.
+   *
+   * A separate field rather than part of `intent` because the two have different
+   * trust: this line is rendered ABOVE the wrap, and a sentence placed INSIDE an
+   * `<untrusted>` block is one the guard has just told the model to treat as
+   * data. Ignored when `intent` is empty — a confidence note about nothing is
+   * nothing.
+   */
+  intentNote?: string;
   /** The unified diff / user task (untrusted content). */
   diff: string;
   /** Optional task framing line, e.g. "Review PR #482 '…'". */
@@ -101,10 +132,21 @@ export function assemblePrompt(parts: PromptParts): AssembledPrompt {
       ? parts.prDescription.slice(0, MAX_PR_DESCRIPTION_CHARS)
       : undefined;
 
+  const intent =
+    parts.intent && parts.intent.trim().length > 0
+      ? parts.intent.slice(0, MAX_INTENT_CHARS)
+      : undefined;
+  const intentNote = intent ? parts.intentNote?.trim() || undefined : undefined;
+
   const userSections: string[] = [];
   if (parts.task) userSections.push(parts.task);
   if (prDescription) {
     userSections.push(`## PR description\n${wrapUntrusted('pr-description', prDescription)}`);
+  }
+  if (intent) {
+    userSections.push(
+      `## PR intent (derived)\n${intentNote ? `${intentNote}\n` : ''}${wrapUntrusted('intent', intent)}`,
+    );
   }
   if (skillsBlock) userSections.push(`## Skills / rules\n${skillsBlock}`);
   if (memoryBlock) userSections.push(`## Relevant memory\n${memoryBlock}`);
@@ -134,6 +176,9 @@ export function assemblePrompt(parts: PromptParts): AssembledPrompt {
     callers: parts.callers ?? null,
     repo_map: parts.repoMap ?? null,
     pr_description: prDescription ?? null,
+    // The section as the model saw it: the trusted note line and the distilled
+    // intent, never the sources it came from.
+    intent: intent ? [intentNote, intent].filter(Boolean).join('\n') : null,
     user,
   };
 

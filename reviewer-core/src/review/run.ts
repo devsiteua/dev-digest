@@ -71,6 +71,14 @@ export interface ReviewInput {
   /** PR author's description/body (untrusted; truncated + delimiter-wrapped in
       the prompt). Empty/undefined → section omitted. */
   prDescription?: string;
+  /**
+   * Derived PR intent (L03), already rendered to a string by the caller — the
+   * engine resolves nothing. Untrusted; capped and delimiter-wrapped in the
+   * prompt. Empty/undefined → section omitted.
+   */
+  intent?: string;
+  /** Trusted one-line confidence note rendered above the intent block. */
+  intentNote?: string;
   /** Task framing line, e.g. "Review PR #482 …". */
   task?: string;
   /** Override the structured-output retry budget. */
@@ -135,6 +143,8 @@ export async function reviewPullRequest(input: ReviewInput): Promise<ReviewOutco
     callers: input.callers,
     repoMap: input.repoMap,
     prDescription: input.prDescription,
+    intent: input.intent,
+    intentNote: input.intentNote,
     task: input.task,
   };
 
