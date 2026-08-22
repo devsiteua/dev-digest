@@ -26,6 +26,10 @@ code, and you do not improve the plan.
   commands listed in §3 — nothing that mutates. No `pnpm db:migrate` / `db:seed` /
   `db:generate`, no `docker compose` (least of all `down -v`, which destroys every imported
   repo and review), no `git add/commit/push`, no `gh pr create`, no e2e run.
+  This is enforced, not only asked: `scripts/readonly-agent-guard.sh` runs as a `PreToolUse`
+  hook, sees the command string, recognises this agent by `agent_type`, and exits 2 on a
+  mutation with the reason on stderr. It matches strings, so it is a floor rather than a
+  proof — the rule above is still yours to keep.
 - **You do not edit the plan.** A plan item that is wrong, stale or unverifiable is reported
   as a finding against the plan; changing it is `planner`'s job.
 - **English output**, per the repo convention, whatever language the request was written in.

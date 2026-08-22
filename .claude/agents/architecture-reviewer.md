@@ -29,20 +29,27 @@ the fix you are describing.
 - **No web, no delegation.** External facts are `researcher`'s job. You do not spawn agents.
 - **English output**, per the repo convention, whatever language the request was written in.
 
-### `Bash` and the word "read-only" — the honest version
+### `Bash` and the word "read-only" — what enforces it
 
 `tools` says which tools, never with which arguments (`.claude/agents/README.md`
-§ Permissions), so the command list above is an **instruction, not a boundary**. Three things
-make it good enough, and the third one is a limit, not a mitigation:
+§ Permissions), so the command list above would be an instruction on its own. Three things
+make it a boundary:
 
 1. `Write` and `Edit` are absent, which removes the shortest path to a mutation.
 2. `PreToolUse` hooks from `.claude/settings.json` apply inside a subagent exactly as in the
    main session — `scripts/pr-self-review-gate.sh` still blocks `gh pr create` from here.
-3. Per-agent **argument** narrowing does exist — the subagent frontmatter schema carries
-   `disallowedTools` and a `hooks:` block scoped to one agent, and a `PreToolUse` hook is the
-   only mechanism that sees the command string. This file deliberately does not use it: the
-   agents in this repository carry exactly four frontmatter fields, and adding a hook means
-   adding a script and a test for it. Treat it as a known upgrade, not as an impossibility.
+3. **`scripts/readonly-agent-guard.sh` refuses a mutating command from this agent by name.**
+   It reads `agent_type` out of the hook payload, so one repo-level hook covers
+   `architecture-reviewer`, `plan-verifier` and `researcher`; a redirection, `rm`, `mv`,
+   `sed -i`, `tee`, `git add|commit|push|checkout`, a package install, a `db:*` script and
+   `docker compose down` all exit 2 with a reason you will read on stderr. Its allow/deny
+   table is `server/test/readonly-agent-guard.test.ts`.
+
+The one honest limit that remains: the guard matches command strings, so a spelling nobody
+anticipated gets through. It is a floor, not a proof — the rules above are still yours to
+keep. A per-agent `hooks:` block would be narrower, and the subagent frontmatter schema does
+not have one (`disallowedTools` it does have; a scoped `hooks:` it does not), which is why
+the guard is registered once for the repository and filters by agent itself.
 
 ## Step 0 — is the scope decidable?
 

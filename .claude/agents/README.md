@@ -51,21 +51,31 @@ promise in prose.
 | | | **`Skill`** | a loaded quality skill turns item-by-item verification into a general code review — the one failure mode that agent exists to prevent |
 | `doc-writer` | `Read` `Grep` `Glob` `Bash`* `Write` `Edit` `Skill` `TodoWrite` | `WebSearch` `WebFetch` | it documents this repository, not the internet |
 
-`Bash`* — read-only by instruction (`cat`, `grep`, `git log`, `git show`). The tool itself
-cannot be narrowed per agent: **`tools` says which tools, never with which arguments.**
-Argument-level control lives in `.claude/settings.json` (`permissions.allow` / `deny`) and in
-`PreToolUse` hooks, and both apply inside a subagent exactly as they do in the main session —
-which is why `scripts/pr-self-review-gate.sh` still blocks `gh pr create` from inside
-`implementer`. If you ever need to gate *which agents may run at all*, that is a permission
-rule too: `Agent(planner)`, `Agent(implementer)`.
+`Bash`* — read-only. **`tools` says which tools, never with which arguments**, so the tool
+itself cannot be narrowed in the frontmatter. Argument-level control lives in
+`.claude/settings.json` (`permissions.allow` / `deny`) and in `PreToolUse` hooks, and both
+apply inside a subagent exactly as they do in the main session — which is why
+`scripts/pr-self-review-gate.sh` still blocks `gh pr create` from inside `implementer`. If you
+ever need to gate *which agents may run at all*, that is a permission rule too:
+`Agent(planner)`, `Agent(implementer)`.
 
-There is one per-agent lever these files deliberately do not pull. The subagent frontmatter
-schema also accepts `disallowedTools` and a `hooks:` block scoped to a single agent, and a
-per-agent `PreToolUse` hook is the only mechanism that sees the *command string* rather than
-the tool name. Every file here carries exactly four fields (`name`, `description`, `tools`,
-`model`), so `Bash`* stays an instruction; `architecture-reviewer.md` says so in its own words
-rather than implying a guarantee it does not have. Adding a hook means adding a script and a
-test for it — a decision of its own, not a tidy-up.
+For the three read-only agents the asterisk is now a **boundary, not an instruction**.
+`scripts/readonly-agent-guard.sh` is registered once, on `PreToolUse` / `Bash`, and filters by
+agent itself: the hook payload carries `agent_type` on every event, so the script recognises
+`architecture-reviewer`, `plan-verifier` and `researcher` and exits 2 on a redirection, `rm`,
+`mv`, `sed -i`, `tee`, a `git` command that changes state, a package install, a `db:*` script
+or `docker compose down`. Its allow/deny table is `server/test/readonly-agent-guard.test.ts`,
+and it fails open with a message on stderr — a guard that silently blocks every shell is worse
+than no guard.
+
+Scoped per agent in the frontmatter would be narrower, and it is not available: the subagent
+definition schema in Claude Code 2.1.240 carries `description`, `tools`, `disallowedTools`,
+`prompt`, `model`, `mcpServers`, `skills`, `initialPrompt`, `maxTurns`, `background`, `memory`,
+`effort`, `permissionMode`, `observer` and `observerMessage` — **no `hooks:` field**. (An
+earlier version of this section claimed otherwise; it was checked against the installed CLI
+and the claim did not hold.) `disallowedTools` does exist and is not used here, because every
+agent already lists `tools` as an allowlist and a second, overlapping list would only give two
+places to forget.
 
 Prohibitions that are instruction-only, not tool-only (`implementer` must not commit, push,
 or touch `client/src/vendor/ui/**` and `server/src/db/migrations/**`) are written into the

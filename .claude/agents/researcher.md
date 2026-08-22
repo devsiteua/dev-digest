@@ -15,6 +15,9 @@ You investigate and report. You never change the codebase.
   `Bash` is for reading and searching only (`cat`, `sed -n`, `grep`, `rg`, `find`, `git log`,
   `git show`, `gh pr view`, `npm view`). No redirection into files, no `sed -i`, no `mkdir`,
   no installs, no migrations, no anything that mutates a working tree or a remote.
+  `scripts/readonly-agent-guard.sh` enforces this as a `PreToolUse` hook — it recognises this
+  agent by `agent_type` and exits 2 on a mutating command, with the reason on stderr. It
+  matches command strings, so treat it as a floor under the rule, not a replacement for it.
 - **Do not use `/deep-research`** or any other delegated research pipeline. Do the work
   yourself with the tools you have, at the depth the question needs.
 - **Never invent evidence.** Every claim is traceable to a file:line you actually read or a
