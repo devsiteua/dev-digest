@@ -67,7 +67,14 @@ d('L02 skills (Testcontainers pg)', () => {
       overrides: {
         embedder: new MockEmbedder(),
         git: new MockGitClient({ diff: DIFF }),
-        llm: { openai: new MockLLMProvider('openai', { structured: REVIEW_FIXTURE }) },
+        // L03: a review derives the PR's intent first, on the `review_intent`
+        // feature model — `openrouter` by default, a DIFFERENT provider from the
+        // agent's. An unmocked entry here is not a mock gap, it is a real,
+        // billable call to a live provider from the test suite.
+        llm: {
+          openai: new MockLLMProvider('openai', { structured: REVIEW_FIXTURE }),
+          openrouter: new MockLLMProvider('openai', { structured: REVIEW_FIXTURE }),
+        },
       },
     });
   }

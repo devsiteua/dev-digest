@@ -5,6 +5,7 @@ import type { PullRow } from '../../db/rows.js';
 import { IntentRepository } from './repository.js';
 import {
   DEFAULT_INTENT_MODEL,
+  INTENT_ISSUE_TIMEOUT_MS,
   INTENT_SYSTEM_PROMPT,
   INTENT_TIMEOUT_MS,
   MAX_CHANGED_PATHS,
@@ -53,6 +54,28 @@ export interface IntentForReview {
   cached: boolean;
   /** One line for the Live Log — always says how this intent came to exist. */
   logLine: string;
+}
+
+/**
+ * Stop waiting after `ms`, whatever the caller is doing.
+ *
+ * The losing promise is not cancelled — an in-flight HTTP request has no abort
+ * handle here — so this bounds how long we WAIT, not how long the work runs. That
+ * is the property review pre-work actually needs: the batch must start on time,
+ * and an enrichment nobody is waiting for any more costs nothing.
+ */
+async function withDeadline<T>(ms: number, fn: () => Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      fn(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 export class IntentService {
@@ -224,7 +247,7 @@ export class IntentService {
     if (issueNumber !== undefined) {
       try {
         const gh = await this.container.github();
-        const meta = await gh.getIssue(ref, issueNumber);
+        const meta = await withDeadline(INTENT_ISSUE_TIMEOUT_MS, () => gh.getIssue(ref, issueNumber));
         issue = { number: meta.number, title: meta.title, body: meta.body };
         sources.push('linked_issue');
       } catch (err) {

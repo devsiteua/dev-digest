@@ -196,3 +196,18 @@ export const INTENT_SYSTEM_PROMPT = [
  * "fix" that here: it is set where the container builds the provider.
  */
 export const INTENT_TIMEOUT_MS = 60_000;
+
+/**
+ * Deadline for the linked-issue fetch, separately from the model call.
+ *
+ * This one is not about cost, it is about BLOCKING. The derivation runs as review
+ * pre-work, before any agent starts, so anything slow here delays every agent in
+ * the batch. `OctokitGitHubClient.getIssue` wraps itself in `withRetry` — right
+ * for an operation the product needs, wrong for an enrichment: a closing keyword
+ * pointing at an issue that was deleted, or a repo the token cannot see, would
+ * otherwise spend the whole retry budget before the review begins.
+ *
+ * Three seconds is generous for one API call and cheap to lose. Losing it costs
+ * one confidence tier, which the Live Log then explains.
+ */
+export const INTENT_ISSUE_TIMEOUT_MS = 3_000;
