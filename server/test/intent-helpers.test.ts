@@ -11,6 +11,7 @@ import {
   buildIntentPrompt,
   changedFilesFromDiff,
   clampEvidence,
+  extractForeignRefs,
   extractLinkedIssue,
   extractPlanPaths,
   hunkHeadersFromPatch,
@@ -79,6 +80,94 @@ describe('extractPlanPaths', () => {
     expect(extractPlanPaths(null)).toEqual([]);
     expect(extractPlanPaths('')).toEqual([]);
   });
+
+  // ---- R2-3: blob URLs into this repo, and D21's boilerplate rule ----------
+
+  const REPO = 'acme/payments-api';
+
+  it('translates a blob URL into this repo into the path it names', () => {
+    expect(
+      extractPlanPaths('Plan: https://github.com/acme/payments-api/blob/main/specs/plan.md', REPO),
+    ).toEqual(['specs/plan.md']);
+    // Markdown link form — the closing paren must not become part of the path.
+    expect(
+      extractPlanPaths('See [the plan](https://github.com/acme/payments-api/blob/abc123/docs/p.md).', REPO),
+    ).toEqual(['docs/p.md']);
+  });
+
+  it('matches the repository case-insensitively, as the issue matcher does', () => {
+    expect(
+      extractPlanPaths('https://github.com/ACME/Payments-API/blob/main/specs/plan.md', REPO),
+    ).toEqual(['specs/plan.md']);
+  });
+
+  it('does not read another repository’s file, and does not fetch it either', () => {
+    expect(
+      extractPlanPaths('Plan: https://github.com/other/repo/blob/main/specs/plan.md', REPO),
+    ).toEqual([]);
+  });
+
+  it('translates nothing when it has not been told which repo is ours', () => {
+    expect(
+      extractPlanPaths('Plan: https://github.com/acme/payments-api/blob/main/specs/plan.md'),
+    ).toEqual([]);
+  });
+
+  it('still refuses a traversal that arrives through a blob URL', () => {
+    expect(
+      extractPlanPaths('https://github.com/acme/payments-api/blob/main/../../etc/passwd.md', REPO),
+    ).toEqual([]);
+  });
+
+  it('refuses a root boilerplate document as a plan, but not one in a folder', () => {
+    expect(extractPlanPaths('Also updated README.md.', REPO)).toEqual([]);
+    expect(extractPlanPaths('Also updated CHANGELOG.md and LICENSE.md.', REPO)).toEqual([]);
+    expect(extractPlanPaths('See docs/README.md for the flow.', REPO)).toEqual([
+      'docs/README.md',
+    ]);
+    expect(extractPlanPaths('The plan is in plan.md.', REPO)).toEqual(['plan.md']);
+  });
+
+  it('spends the cap on what the author linked before what they merely typed', () => {
+    const body =
+      'a.md and b.md, per https://github.com/acme/payments-api/blob/main/specs/real-plan.md';
+    expect(extractPlanPaths(body, REPO)[0]).toBe('specs/real-plan.md');
+  });
+});
+
+describe('extractForeignRefs', () => {
+  const REPO = 'acme/payments-api';
+
+  it('names an issue that belongs to someone else instead of forgetting it', () => {
+    expect(extractForeignRefs('Closes other/repo#12', REPO)).toEqual([
+      'issue other/repo#12 is referenced but belongs to another repository',
+    ]);
+    expect(extractForeignRefs('Refs https://github.com/other/repo/issues/12', REPO)).toEqual([
+      'issue other/repo#12 is referenced but belongs to another repository',
+    ]);
+  });
+
+  it('names a file linked out of another repository', () => {
+    expect(
+      extractForeignRefs('Plan: https://github.com/other/repo/blob/main/specs/plan.md', REPO),
+    ).toEqual(['other/repo/specs/plan.md is linked but belongs to another repository']);
+  });
+
+  it('says nothing about references it can actually follow', () => {
+    expect(extractForeignRefs('Closes #471', REPO)).toEqual([]);
+    expect(
+      extractForeignRefs('https://github.com/acme/payments-api/blob/main/specs/p.md', REPO),
+    ).toEqual([]);
+    expect(extractForeignRefs(null, REPO)).toEqual([]);
+  });
+
+  it('reports one reference once, however many patterns match it', () => {
+    // A cross-repo issue URL is matched by the closing-keyword pattern AND the
+    // bare-URL pattern; the card should not say the same thing twice.
+    expect(
+      extractForeignRefs('Fixes https://github.com/other/repo/issues/12', REPO),
+    ).toHaveLength(1);
+  });
 });
 
 describe('extractLinkedIssue', () => {
@@ -95,9 +184,31 @@ describe('extractLinkedIssue', () => {
     expect(extractLinkedIssue(body, REPO)).toBe(expected);
   });
 
-  it('requires a closing keyword — a bare mention is not a link', () => {
+  it.each([
+    ['Ticket: #471', 471],
+    ['Refs #471', 471],
+    ['Ref: acme/payments-api#471', 471],
+    ['Related to #471', 471],
+    ['Part of #471', 471],
+    ['Issue: #471', 471],
+    // The one form unambiguous with no keyword at all — nobody pastes a whole
+    // issue URL by accident.
+    ['Background: https://github.com/acme/payments-api/issues/471', 471],
+  ])('accepts the deliberate pointer %s', (body, expected) => {
+    expect(extractLinkedIssue(body, REPO)).toBe(expected);
+  });
+
+  it('requires a deliberate pointer — a bare mention in prose is not one', () => {
+    // D15 reopens D4: what a link has to prove is that the author pointed at it
+    // ON PURPOSE, which `see #5` does not and `Ticket: #471` does. The keyword is
+    // still mandatory; the set of keywords is what widened.
     expect(extractLinkedIssue('See #5 for background.', REPO)).toBeUndefined();
-    expect(extractLinkedIssue('Related to #5.', REPO)).toBeUndefined();
+    expect(extractLinkedIssue('This is the #5 attempt.', REPO)).toBeUndefined();
+    expect(extractLinkedIssue('GH-471 covers the rest.', REPO)).toBeUndefined();
+  });
+
+  it('prefers the strongest claim when a body makes several', () => {
+    expect(extractLinkedIssue('Refs #12. Closes #471.', REPO)).toBe(471);
   });
 
   it('discards a cross-repo reference instead of fetching the wrong issue', () => {

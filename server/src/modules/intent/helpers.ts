@@ -20,7 +20,10 @@ import { wrapUntrusted } from '@devdigest/reviewer-core';
 import type { PrIntentRow } from '../../db/rows.js';
 import {
   ALLOWED_DOC_EXTENSIONS,
+  BOILERPLATE_DOC_NAMES,
   DOC_PATH_RE,
+  GITHUB_BLOB_URL_RE,
+  ISSUE_URL_RE,
   LINKED_ISSUE_RE,
   MAX_CHANGED_PATHS,
   MAX_COMMIT_MESSAGES,
@@ -29,6 +32,7 @@ import {
   MAX_HUNK_HEADERS_PER_FILE,
   MAX_PLAN_FILES,
   MIN_SUBSTANTIVE_BODY_CHARS,
+  TICKET_REF_RE,
   TIER_ORDER,
   TIER_SCORE,
 } from './constants.js';
@@ -69,41 +73,71 @@ function isSafeDocPath(path: string): boolean {
 }
 
 /**
+ * Is this document a PLAN, or is it the repository's own furniture?
+ *
+ * A directory segment is the signal: the author navigated somewhere to name the
+ * file. At the root, only a name outside the boilerplate set qualifies — a body
+ * saying "updated README.md" was buying `high` confidence with no plan in sight,
+ * because `DOC_PATH_RE` matches any `.md`. `docs/README.md` still reads.
+ */
+function isPlanDocPath(path: string): boolean {
+  if (path.includes('/')) return true;
+  const base = path.slice(0, path.lastIndexOf('.')).toUpperCase();
+  return !BOILERPLATE_DOC_NAMES.includes(base);
+}
+
+/**
  * Repo-relative document paths a PR body points at, de-duplicated and capped.
  *
  * URLs are stripped BEFORE scanning rather than filtered after: left in,
  * `https://evil.example/plan.md` yields the token `plan.md`, which is a perfectly
  * valid repo-relative path and would be read from the clone. The link would have
  * silently become a local file read of a different file entirely.
+ *
+ * The ONE exception runs before that strip: a `blob` URL into THIS repository's
+ * own tree is translated to the path it names. Nothing is fetched — the path is
+ * read from the clone, exactly as a prose path is. The ordering is the delicate
+ * part, because it is the only way "a remote URL became a local read" could come
+ * back, so the translation is gated on an exact `owner/repo` match and every
+ * other URL still meets the strip untouched.
+ *
+ * `repoFullName` is optional: without it nothing can be established as this
+ * repository, so no URL is translated and the function behaves exactly as it did
+ * before blob URLs were understood.
  */
-export function extractPlanPaths(body?: string | null): string[] {
+export function extractPlanPaths(body?: string | null, repoFullName?: string): string[] {
   if (!body) return [];
-  const withoutUrls = body.replace(fresh(URL_RE), ' ');
   const out: string[] = [];
+  const take = (path: string): boolean => {
+    if (!isSafeDocPath(path) || !isPlanDocPath(path)) return false;
+    if (!out.includes(path)) out.push(path);
+    return out.length >= MAX_PLAN_FILES;
+  };
+
+  // Deliberate links first, so the cap spends itself on what the author took the
+  // trouble to link rather than on the first `.md` token in their prose.
+  if (repoFullName) {
+    for (const match of body.matchAll(fresh(GITHUB_BLOB_URL_RE))) {
+      if (match[1]!.toLowerCase() !== repoFullName.toLowerCase()) continue;
+      if (take(match[2]!)) return out;
+    }
+  }
+
+  const withoutUrls = body.replace(fresh(URL_RE), ' ');
   for (const match of withoutUrls.matchAll(fresh(DOC_PATH_RE))) {
-    const path = match[0];
-    if (!isSafeDocPath(path)) continue;
-    if (out.includes(path)) continue;
-    out.push(path);
-    if (out.length >= MAX_PLAN_FILES) break;
+    if (take(match[0])) break;
   }
   return out;
 }
 
 /**
- * The issue this PR closes, when it says so with a closing keyword.
+ * The number an issue reference in `body` points at, for THIS repository.
  *
- * A cross-repo reference is DISCARDED rather than followed: `getIssue(repo, n)`
- * takes this repository's ref, so honouring `other/repo#12` would fetch issue 12
- * of the wrong project under the right number — worse than finding nothing,
- * because it would then buy `high` confidence with someone else's text.
+ * All three patterns lay their captures out the same way — 1/2 from a URL, 3/4
+ * from a shorthand — so one loop reads any of them.
  */
-export function extractLinkedIssue(
-  body: string | null | undefined,
-  repoFullName: string,
-): number | undefined {
-  if (!body) return undefined;
-  for (const match of body.matchAll(fresh(LINKED_ISSUE_RE))) {
+function firstIssueIn(re: RegExp, body: string, repoFullName: string): number | undefined {
+  for (const match of body.matchAll(fresh(re))) {
     const repo = match[1] ?? match[3];
     const num = match[2] ?? match[4];
     if (!num) continue;
@@ -112,6 +146,71 @@ export function extractLinkedIssue(
     if (Number.isInteger(n) && n > 0) return n;
   }
   return undefined;
+}
+
+/**
+ * The issue this PR points at, when it points at one DELIBERATELY.
+ *
+ * Three forms, strongest claim first: a closing keyword, a ticket word, and a
+ * full issue URL standing on its own. Round 1 accepted only the first and gave
+ * the right reason for it — an unverified claim has no business raising a
+ * confidence tier — attached to the wrong rule. What has to be excluded is the
+ * passing mention (`see #5`), not the tracker spelling: an author who writes
+ * `Ticket: #471` pointed at that issue every bit as deliberately as one who
+ * wrote `Closes #471`, and the tier they buy is paid for by the FETCH
+ * succeeding, never by the wording.
+ *
+ * A cross-repo reference is DISCARDED rather than followed: `getIssue(repo, n)`
+ * takes this repository's ref, so honouring `other/repo#12` would fetch issue 12
+ * of the wrong project under the right number — worse than finding nothing,
+ * because it would then buy `high` confidence with someone else's text. What was
+ * discarded is reported by `extractForeignRefs` rather than forgotten.
+ */
+export function extractLinkedIssue(
+  body: string | null | undefined,
+  repoFullName: string,
+): number | undefined {
+  if (!body) return undefined;
+  for (const re of [LINKED_ISSUE_RE, TICKET_REF_RE, ISSUE_URL_RE]) {
+    const found = firstIssueIn(re, body, repoFullName);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+/**
+ * References the body makes to material in ANOTHER repository.
+ *
+ * Named, deliberate, and unfollowable: this layer fetches nothing over the
+ * network and reads only the clone under review, so someone else's issue and
+ * someone else's file are both out of reach. Saying so is the point — the
+ * alternative is a derivation that quietly ignored the one document the author
+ * pointed at, and a `low` tier nobody can explain.
+ */
+export function extractForeignRefs(
+  body: string | null | undefined,
+  repoFullName: string,
+): string[] {
+  if (!body) return [];
+  const out: string[] = [];
+  const add = (note: string) => {
+    if (!out.includes(note)) out.push(note);
+  };
+  const mine = repoFullName.toLowerCase();
+
+  for (const re of [LINKED_ISSUE_RE, TICKET_REF_RE, ISSUE_URL_RE]) {
+    for (const match of body.matchAll(fresh(re))) {
+      const repo = match[1] ?? match[3];
+      const num = match[2] ?? match[4];
+      if (!repo || !num || repo.toLowerCase() === mine) continue;
+      add(`issue ${repo}#${num} is referenced but belongs to another repository`);
+    }
+  }
+  for (const match of body.matchAll(fresh(GITHUB_BLOB_URL_RE))) {
+    if (match[1]!.toLowerCase() === mine) continue;
+    add(`${match[1]}/${match[2]} is linked but belongs to another repository`);
+  }
+  return out;
 }
 
 /**

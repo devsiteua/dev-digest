@@ -62,6 +62,71 @@ export const LINKED_ISSUE_RE =
   /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b\s*:?\s+(?:https?:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/issues\/(\d+)\b|([\w.-]+\/[\w.-]+)?#(\d+)\b)/gi;
 
 /**
+ * A deliberate pointer at an issue that is NOT a closing keyword.
+ *
+ * D4 made the closing keyword mandatory and gave the right reason with the
+ * wrong rule: what a linked issue has to prove is that the author pointed at it
+ * ON PURPOSE, and `Ticket: #471` proves that exactly as well as `Closes #471`
+ * does. What the keyword was really excluding is `see #5` in running prose,
+ * which this pattern still excludes — the keyword is mandatory here too, it is
+ * simply a wider set of keywords.
+ *
+ * `Ref`/`Refs` are the git-trailer spellings, `Ticket`/`Issue` the tracker ones,
+ * `Related to` and `Part of` the prose ones. Targets and capture groups are
+ * identical to `LINKED_ISSUE_RE`, so one loop reads both.
+ */
+export const TICKET_REF_RE =
+  /\b(?:tickets?|issues?|refs?|related\s+to|part\s+of)\b\s*:?\s+(?:https?:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/issues\/(\d+)\b|([\w.-]+\/[\w.-]+)?#(\d+)\b)/gi;
+
+/**
+ * A full issue URL standing on its own, with no keyword in front of it.
+ *
+ * Admitted for the same reason the keyword sets are: nobody pastes a complete
+ * `https://github.com/owner/repo/issues/471` by accident. It is the one form
+ * that is unambiguous without a keyword, which is why `GH-471` and `#471` are
+ * still not. Capture groups 1 and 2 match `LINKED_ISSUE_RE`'s URL pair, so the
+ * shorthand groups are simply absent.
+ */
+export const ISSUE_URL_RE = /\bhttps?:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/issues\/(\d+)\b/gi;
+
+/**
+ * A link to a file in a GitHub repository's own tree.
+ *
+ * The intent layer fetches nothing over the network — not in this lesson, not
+ * in any of them. A blob URL is therefore never FOLLOWED; when it points at the
+ * repository under review it is TRANSLATED into the repo-relative path it
+ * names, and that path is read from the clone we already have. Pointed anywhere
+ * else it is not read, not fetched, and recorded as missing context.
+ *
+ * Group 1 = `owner/repo`, group 2 = the path after the ref. The path class
+ * stops at whitespace and at the characters that end a URL inside prose —
+ * `)` from a markdown link, `#` from an anchor, `?` from a query — so a link
+ * written as `[the plan](https://…/specs/plan.md)` yields `specs/plan.md` and
+ * not `specs/plan.md)`.
+ */
+export const GITHUB_BLOB_URL_RE =
+  /\bhttps?:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/blob\/[^/\s]+\/([^\s)#?"'`<>]+)/gi;
+
+/**
+ * Documents that live at a repository root by convention and describe the
+ * project rather than the change.
+ *
+ * `DOC_PATH_RE` matches any `.md`, so a body saying "updated README.md" used to
+ * register a `plan_file` and buy `high` confidence with no plan in sight. A path
+ * qualifies as a plan only when it has at least one directory segment — the
+ * author navigated somewhere to name it — or its basename is outside this set.
+ * `docs/README.md` therefore still reads; the root README no longer buys a tier.
+ */
+export const BOILERPLATE_DOC_NAMES: readonly string[] = [
+  'README',
+  'CHANGELOG',
+  'CONTRIBUTING',
+  'LICENSE',
+  'CODE_OF_CONDUCT',
+  'SECURITY',
+];
+
+/**
  * File extensions a PR body may point the derivation at.
  *
  * Prose only. The intent layer reads documents that state a plan, not source

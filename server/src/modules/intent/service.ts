@@ -16,6 +16,7 @@ import {
   buildIntentPrompt,
   changedFilesFromDiff,
   extractLinkedIssue,
+  extractForeignRefs,
   extractPlanPaths,
   hunkHeadersFromPatch,
   isSubstantiveBody,
@@ -268,8 +269,12 @@ export class IntentService {
     const sources: PrIntentRecord['sources'] = [];
     const missingContext: string[] = [];
 
+    // Named, deliberate and out of reach — someone else's issue, someone else's
+    // file. Collected first so the card lists them in the order the body did.
+    missingContext.push(...extractForeignRefs(pull.body, repoFullName));
+
     const planFiles: { path: string; text: string }[] = [];
-    for (const path of extractPlanPaths(pull.body)) {
+    for (const path of extractPlanPaths(pull.body, repoFullName)) {
       const text = await this.readOrSkip(ref, path);
       if (text) planFiles.push({ path, text: text.slice(0, MAX_PLAN_FILE_CHARS) });
       else {

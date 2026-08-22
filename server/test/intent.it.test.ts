@@ -72,6 +72,24 @@ d('L03 intent layer (Testcontainers pg)', () => {
     await pg?.stop();
   });
 
+  /** The id AND the full name, for the cases that put a blob URL in a body. */
+  async function makeRepoRef(): Promise<{ repoId: string; fullName: string }> {
+    const name = `intent-${seq++}`;
+    const fullName = `acme/${name}`;
+    const [repo] = await pg.handle.db
+      .insert(t.repos)
+      .values({
+        workspaceId,
+        owner: 'acme',
+        name,
+        fullName,
+        defaultBranch: 'main',
+        createdBy: userId,
+      })
+      .returning();
+    return { repoId: repo!.id, fullName };
+  }
+
   async function makeRepo(): Promise<string> {
     const name = `intent-${seq++}`;
     const [repo] = await pg.handle.db
@@ -181,6 +199,56 @@ d('L03 intent layer (Testcontainers pg)', () => {
 
     const intent = (await derive(app, prId)).json();
     expect(intent.sources).not.toContain('linked_issue');
+    expect(intent.confidence_tier).toBe('low');
+    // Discarded, but not forgotten — the card has to be able to say why.
+    expect(intent.missing_context).toEqual(
+      expect.arrayContaining([expect.stringContaining('other/repo#12')]),
+    );
+  });
+
+  it('follows a ticket-word reference, not only a closing keyword', async () => {
+    const app = await makeApp();
+    const prId = await makePr(await makeRepo(), { body: 'Ticket: #471' });
+
+    const intent = (await derive(app, prId)).json();
+    expect(intent.sources).toContain('linked_issue');
+    expect(intent.confidence_tier).toBe('high');
+    // The issue was READ, so nothing about it is missing. The short description
+    // still is, and saying both is the honest answer.
+    expect(intent.missing_context.join(' ')).not.toContain('#471');
+  });
+
+  it('reads a plan linked as this repo’s own blob URL, from the clone', async () => {
+    const { repoId, fullName } = await makeRepoRef();
+    const app = await makeApp();
+    const prId = await makePr(repoId, {
+      body: `Plan: https://github.com/${fullName}/blob/main/specs/rate-limit.md`,
+    });
+
+    const intent = (await derive(app, prId)).json();
+    expect(intent.sources).toContain('plan_file');
+    expect(intent.confidence_tier).toBe('high');
+  });
+
+  it('neither reads nor fetches another repo’s blob URL, and says so', async () => {
+    const app = await makeApp();
+    const prId = await makePr(await makeRepo(), {
+      body: 'Plan: https://github.com/other/repo/blob/main/specs/rate-limit.md',
+    });
+
+    const intent = (await derive(app, prId)).json();
+    expect(intent.sources).not.toContain('plan_file');
+    expect(intent.missing_context).toEqual(
+      expect.arrayContaining([expect.stringContaining('other/repo/specs/rate-limit.md')]),
+    );
+  });
+
+  it('does not let a root README buy a confidence tier', async () => {
+    const app = await makeApp({ git: new MockGitClient({ files: { 'README.md': '# Project' } }) });
+    const prId = await makePr(await makeRepo(), { body: 'Also updated README.md.' });
+
+    const intent = (await derive(app, prId)).json();
+    expect(intent.sources).not.toContain('plan_file');
     expect(intent.confidence_tier).toBe('low');
   });
 
