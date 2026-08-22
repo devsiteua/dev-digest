@@ -348,11 +348,16 @@ export class ReviewRunExecutor {
    * the pre-L03 one — the review still happens, it just happens without knowing
    * what the PR claims to be for.
    *
-   * The changed paths come from the DIFF ALREADY IN HAND, not from `pr_files`.
+   * The changed files come from the DIFF ALREADY IN HAND, not from `pr_files`.
    * `loadDiff` prefers a real `git diff base...head` and only falls back to that
    * table, so `pr_files` can be empty for a PR whose diff loaded perfectly — and
    * the changed paths are the one source the confidence ladder counts on always
    * being there.
+   *
+   * `diff.files` is passed whole rather than mapped down to paths: the intent
+   * module wants each file's hunk headers too, and it is the one that knows what
+   * a header is allowed to contain. Nothing of the diff's CONTENT travels — a
+   * `DiffHunk` is four line numbers.
    */
   private async buildIntent(
     workspaceId: string,
@@ -364,11 +369,7 @@ export class ReviewRunExecutor {
       const result = await runLog.step(
         'Deriving PR intent',
         () =>
-          this.container.intent.forReview(
-            workspaceId,
-            pull,
-            diff.files.map((f) => f.path),
-          ),
+          this.container.intent.forReview(workspaceId, pull, diff.files),
         { kind: 'tool' },
       );
       // Always says how this intent came to exist — derived now (with its

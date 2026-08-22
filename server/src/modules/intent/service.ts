@@ -1,4 +1,4 @@
-import type { PrIntentRecord, RepoRef } from '@devdigest/shared';
+import type { PrIntentRecord, RepoRef, UnifiedDiff } from '@devdigest/shared';
 import type { Container } from '../../platform/container.js';
 import { NotFoundError } from '../../platform/errors.js';
 import type { PullRow } from '../../db/rows.js';
@@ -8,15 +8,16 @@ import {
   INTENT_ISSUE_TIMEOUT_MS,
   INTENT_SYSTEM_PROMPT,
   INTENT_TIMEOUT_MS,
-  MAX_CHANGED_PATHS,
   MAX_COMMIT_MESSAGES,
   MAX_PLAN_FILE_CHARS,
 } from './constants.js';
 import {
   IntentReplySchema,
   buildIntentPrompt,
+  changedFilesFromDiff,
   extractLinkedIssue,
   extractPlanPaths,
+  hunkHeadersFromPatch,
   isSubstantiveBody,
   normalizeEvidence,
   normalizeKind,
@@ -26,7 +27,7 @@ import {
   tierFromSources,
   toIntentDto,
 } from './helpers.js';
-import type { IntentPromptInput } from './helpers.js';
+import type { IntentChangedFile, IntentPromptInput } from './helpers.js';
 
 /**
  * The intent layer — what a pull request is TRYING to do, derived before it is
@@ -96,15 +97,21 @@ export class IntentService {
    * The cache-aware entry point for a review run.
    *
    * Reuses the persisted row while it still matches the PR's head; a moved head
-   * means the claim was made about different code. `changedPaths` comes from the
+   * means the claim was made about different code. The diff's files come from the
    * caller because the review path already holds the loaded diff — `pr_files` can
    * be empty for a PR whose diff loaded perfectly, since `loadDiff` prefers a real
    * `git diff` and only falls back to that table.
+   *
+   * The caller hands over `UnifiedDiff['files']` rather than the mapped shape so
+   * that the two ways a hunk header can come to exist — synthesised from a parsed
+   * diff, quoted from a stored patch — both live in this module's helpers and are
+   * covered by one unit suite. `run-executor.ts` therefore passes `diff.files`
+   * unchanged and never learns what a header looks like.
    */
   async forReview(
     workspaceId: string,
     pull: PullRow,
-    changedPaths: string[],
+    diffFiles: UnifiedDiff['files'],
   ): Promise<IntentForReview> {
     const existing = await this.repo.get(pull.id);
     if (existing && existing.headSha === pull.headSha) {
@@ -116,13 +123,17 @@ export class IntentService {
         logLine: `intent: cache hit — head unchanged (${record.confidence_tier} confidence, ${record.sources.join(', ') || 'no sources'})`,
       };
     }
-    const { record, logLine } = await this.deriveFor(workspaceId, pull, changedPaths);
+    const { record, logLine } = await this.deriveFor(
+      workspaceId,
+      pull,
+      changedFilesFromDiff(diffFiles),
+    );
     return { ...this.render(record), record, cached: false, logLine };
   }
 
   /**
    * Derive (or re-derive) and persist. The `POST` path, where no diff is in hand,
-   * so changed paths come from `pr_files`.
+   * so the changed files — and their hunk headers — come from `pr_files`.
    */
   async derive(workspaceId: string, prId: string): Promise<PrIntentRecord> {
     const pull = await this.requirePull(workspaceId, prId);
@@ -130,7 +141,12 @@ export class IntentService {
     const { record } = await this.deriveFor(
       workspaceId,
       pull,
-      files.map((f) => f.path),
+      files.map((f) => ({
+        path: f.path,
+        additions: f.additions,
+        deletions: f.deletions,
+        hunkHeaders: hunkHeadersFromPatch(f.patch),
+      })),
     );
     return record;
   }
@@ -157,14 +173,14 @@ export class IntentService {
   private async deriveFor(
     workspaceId: string,
     pull: PullRow,
-    changedPaths: string[],
+    changedFiles: IntentChangedFile[],
   ): Promise<{ record: PrIntentRecord; logLine: string }> {
     const started = Date.now();
     const repo = await this.container.reviewRepo.getRepo(pull.repoId);
     if (!repo) throw new NotFoundError('Repo not found');
     const ref: RepoRef = { owner: repo.owner, name: repo.name };
 
-    const { input, sources, notes } = await this.gather(pull, repo.fullName, ref, changedPaths);
+    const { input, sources, notes } = await this.gather(pull, repo.fullName, ref, changedFiles);
 
     // The tier the EVIDENCE supports, decided before the model is asked anything.
     const evidenceTier = tierFromSources(sources);
@@ -229,7 +245,7 @@ export class IntentService {
     pull: PullRow,
     repoFullName: string,
     ref: RepoRef,
-    changedPaths: string[],
+    changedFiles: IntentChangedFile[],
   ): Promise<{ input: IntentPromptInput; sources: PrIntentRecord['sources']; notes: string[] }> {
     const sources: PrIntentRecord['sources'] = [];
     const notes: string[] = [];
@@ -270,7 +286,7 @@ export class IntentService {
     const commitMessages = await this.repo.commitMessages(pull.id, MAX_COMMIT_MESSAGES);
     if (commitMessages.length > 0) sources.push('commits');
     if (pull.branch) sources.push('branch');
-    if (changedPaths.length > 0) sources.push('file_paths');
+    if (changedFiles.length > 0) sources.push('file_paths');
 
     return {
       input: {
@@ -280,7 +296,9 @@ export class IntentService {
         planFiles,
         ...(issue ? { issue } : {}),
         commitMessages,
-        changedPaths: changedPaths.slice(0, MAX_CHANGED_PATHS),
+        // Capped by `renderChangedFiles`, so the diff path and the `pr_files`
+        // path cannot disagree about how much one derivation may cost.
+        changedFiles,
       },
       sources,
       notes,

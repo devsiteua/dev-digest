@@ -14,6 +14,7 @@ import type {
   IntentKind,
   IntentSource,
   PrIntentRecord,
+  UnifiedDiff,
 } from '@devdigest/shared';
 import { wrapUntrusted } from '@devdigest/reviewer-core';
 import type { PrIntentRow } from '../../db/rows.js';
@@ -25,6 +26,7 @@ import {
   MAX_COMMIT_MESSAGES,
   MAX_EVIDENCE_CHARS,
   MAX_EVIDENCE_ITEMS,
+  MAX_HUNK_HEADERS_PER_FILE,
   MAX_PLAN_FILES,
   MIN_SUBSTANTIVE_BODY_CHARS,
   TIER_ORDER,
@@ -128,6 +130,82 @@ export function substantiveBodyText(body?: string | null): string {
 /** Is the body evidence, or is it an untouched template? */
 export function isSubstantiveBody(body?: string | null): boolean {
   return substantiveBodyText(body).length >= MIN_SUBSTANTIVE_BODY_CHARS;
+}
+
+// ---- Changed files ----------------------------------------------------------
+
+/**
+ * One changed file as the classifier is shown it: its path, how much of it
+ * moved, and where.
+ *
+ * `hunkHeaders` holds `@@ … @@` lines and NOTHING else. That is the whole point
+ * of the shape — the classifier is told the geometry of the change without
+ * being told its content, which is what the brief means by "change bodies are
+ * not sent" and what keeps a flash-class model the right tool for the job.
+ */
+export interface IntentChangedFile {
+  path: string;
+  additions: number;
+  deletions: number;
+  hunkHeaders: string[];
+}
+
+/**
+ * The changed files of a loaded diff, with each hunk's header SYNTHESISED.
+ *
+ * `diff-parser.ts` reads the four numbers out of a header and throws the header
+ * text away, so there is nothing to quote — the string is rebuilt here. What is
+ * rebuilt is the whole header GitHub renders, minus its optional trailing
+ * section heading, which the parser never captured and we therefore never had.
+ */
+export function changedFilesFromDiff(files: UnifiedDiff['files']): IntentChangedFile[] {
+  return files.map((file) => ({
+    path: file.path,
+    additions: file.additions,
+    deletions: file.deletions,
+    hunkHeaders: file.hunks.map(
+      (h) => `@@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@`,
+    ),
+  }));
+}
+
+/**
+ * The headers of a stored `pr_files.patch`, quoted verbatim.
+ *
+ * The `POST` path has no loaded diff, so the headers come from the column — by
+ * keeping ONLY lines that start `@@ `. An allow-list, not a filter of the lines
+ * we do not want: a patch is author-adjacent text, and "everything except `+`
+ * and `-`" would still let a context line through, which is a change body by
+ * another name.
+ *
+ * A null patch yields an empty list rather than a skipped file
+ * (`db/schema/pulls.ts:44` — the column is nullable, and a row without one
+ * still contributes its path and its `+a/-d` counts).
+ */
+export function hunkHeadersFromPatch(patch?: string | null): string[] {
+  if (!patch) return [];
+  return patch.split('\n').filter((line) => line.startsWith('@@ '));
+}
+
+/**
+ * The `## Changed files` block's body: a path with its counts, then its hunk
+ * headers, indented under it.
+ *
+ * Both caps live here rather than at each call site, so the two paths into this
+ * block — a loaded diff and a stored patch — cannot disagree about how much a
+ * derivation is allowed to cost.
+ */
+export function renderChangedFiles(files: readonly IntentChangedFile[]): string {
+  const lines: string[] = [];
+  for (const file of files.slice(0, MAX_CHANGED_PATHS)) {
+    lines.push(`${file.path} (+${file.additions}/-${file.deletions})`);
+    for (const header of file.hunkHeaders.slice(0, MAX_HUNK_HEADERS_PER_FILE)) {
+      lines.push(`  ${header}`);
+    }
+    const hidden = file.hunkHeaders.length - MAX_HUNK_HEADERS_PER_FILE;
+    if (hidden > 0) lines.push(`  … ${hidden} more hunk(s)`);
+  }
+  return lines.join('\n');
 }
 
 // ---- Confidence -------------------------------------------------------------
@@ -256,7 +334,7 @@ export interface IntentPromptInput {
   planFiles: { path: string; text: string }[];
   issue?: { number: number; title: string; body?: string | null };
   commitMessages: string[];
-  changedPaths: string[];
+  changedFiles: IntentChangedFile[];
 }
 
 /**
@@ -292,10 +370,10 @@ export function buildIntentPrompt(input: IntentPromptInput): string {
         wrapUntrusted('commits', input.commitMessages.slice(0, MAX_COMMIT_MESSAGES).join('\n')),
     );
   }
-  if (input.changedPaths.length > 0) {
+  if (input.changedFiles.length > 0) {
     sections.push(
-      `## Changed files\n` +
-        wrapUntrusted('paths', input.changedPaths.slice(0, MAX_CHANGED_PATHS).join('\n')),
+      `## Changed files — path (+added/-deleted) and its hunk headers\n` +
+        wrapUntrusted('paths', renderChangedFiles(input.changedFiles)),
     );
   }
 

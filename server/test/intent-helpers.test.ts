@@ -9,17 +9,23 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildIntentPrompt,
+  changedFilesFromDiff,
   clampEvidence,
   extractLinkedIssue,
   extractPlanPaths,
+  hunkHeadersFromPatch,
   isSubstantiveBody,
+  renderChangedFiles,
   renderIntentForPrompt,
   scoreForTier,
   settleTier,
   substantiveBodyText,
   tierFromSources,
 } from '../src/modules/intent/helpers.js';
-import { MIN_SUBSTANTIVE_BODY_CHARS } from '../src/modules/intent/constants.js';
+import {
+  MAX_HUNK_HEADERS_PER_FILE,
+  MIN_SUBSTANTIVE_BODY_CHARS,
+} from '../src/modules/intent/constants.js';
 
 describe('extractPlanPaths', () => {
   it('finds a repo-relative doc path in prose and in backticks', () => {
@@ -202,13 +208,104 @@ describe('clampEvidence', () => {
   });
 });
 
+describe('changedFilesFromDiff', () => {
+  it('synthesises the header the parser threw away, from its four numbers', () => {
+    const [file] = changedFilesFromDiff([
+      {
+        path: 'src/a.ts',
+        additions: 4,
+        deletions: 1,
+        hunks: [
+          { file: 'src/a.ts', oldStart: 1, oldLines: 10, newStart: 1, newLines: 12, newLineNumbers: [] },
+          { file: 'src/a.ts', oldStart: 90, oldLines: 3, newStart: 92, newLines: 4, newLineNumbers: [] },
+        ],
+      },
+    ]);
+    expect(file).toEqual({
+      path: 'src/a.ts',
+      additions: 4,
+      deletions: 1,
+      hunkHeaders: ['@@ -1,10 +1,12 @@', '@@ -90,3 +92,4 @@'],
+    });
+  });
+
+  it('keeps a file that has no hunks rather than dropping it', () => {
+    expect(
+      changedFilesFromDiff([{ path: 'docs/x.md', additions: 0, deletions: 0, hunks: [] }]),
+    ).toEqual([{ path: 'docs/x.md', additions: 0, deletions: 0, hunkHeaders: [] }]);
+  });
+});
+
+describe('hunkHeadersFromPatch', () => {
+  const PATCH = [
+    '@@ -1,3 +1,4 @@',
+    ' context line',
+    '-removed line',
+    '+added line',
+    '@@ -20,2 +21,2 @@ function thing() {',
+    '-old',
+    '+new',
+  ].join('\n');
+
+  it('keeps the headers and nothing that carries content', () => {
+    expect(hunkHeadersFromPatch(PATCH)).toEqual([
+      '@@ -1,3 +1,4 @@',
+      '@@ -20,2 +21,2 @@ function thing() {',
+    ]);
+  });
+
+  it('treats a null patch as a file with no headers, not as a missing file', () => {
+    expect(hunkHeadersFromPatch(null)).toEqual([]);
+    expect(hunkHeadersFromPatch(undefined)).toEqual([]);
+    expect(hunkHeadersFromPatch('')).toEqual([]);
+  });
+
+  it('does not mistake a diff body line that merely contains @@ for a header', () => {
+    expect(hunkHeadersFromPatch('+const x = "@@ -1,1 +1,1 @@";')).toEqual([]);
+  });
+});
+
+describe('renderChangedFiles', () => {
+  const file = (hunks: number) => ({
+    path: 'src/a.ts',
+    additions: 12,
+    deletions: 3,
+    hunkHeaders: Array.from({ length: hunks }, (_, i) => `@@ -${i + 1},2 +${i + 1},3 @@`),
+  });
+
+  it('prints the path with its counts and its headers underneath', () => {
+    expect(renderChangedFiles([file(2)])).toBe(
+      ['src/a.ts (+12/-3)', '  @@ -1,2 +1,3 @@', '  @@ -2,2 +2,3 @@'].join('\n'),
+    );
+  });
+
+  it('says how many hunks it stopped printing instead of truncating silently', () => {
+    const rendered = renderChangedFiles([file(MAX_HUNK_HEADERS_PER_FILE + 3)]);
+    const headers = rendered.split('\n').filter((l) => l.startsWith('  @@'));
+    expect(headers).toHaveLength(MAX_HUNK_HEADERS_PER_FILE);
+    expect(rendered).toContain('… 3 more hunk(s)');
+  });
+
+  it('sends the geometry of the change and never a line of it', () => {
+    const rendered = renderChangedFiles([
+      { path: 'src/a.ts', additions: 12, deletions: 3, hunkHeaders: ['@@ -1,2 +1,3 @@'] },
+      { path: 'docs/x.md', additions: 0, deletions: 0, hunkHeaders: [] },
+    ]);
+    expect(rendered).toContain('@@');
+    for (const line of rendered.split('\n')) {
+      expect(line.startsWith('+')).toBe(false);
+      expect(line.startsWith('-')).toBe(false);
+    }
+  });
+});
+
 describe('buildIntentPrompt', () => {
   const BASE = {
     title: 'Add rate limiting',
     branch: 'feat/rate-limit',
     planFiles: [],
     commitMessages: [],
-    changedPaths: [],
+    changedFiles: [],
   };
 
   it('wraps every author-controlled block', () => {
@@ -218,7 +315,7 @@ describe('buildIntentPrompt', () => {
       planFiles: [{ path: 'specs/p.md', text: 'PLAN' }],
       issue: { number: 471, title: 'ISSUE-TITLE', body: 'ISSUE-BODY' },
       commitMessages: ['COMMIT'],
-      changedPaths: ['src/a.ts'],
+      changedFiles: [{ path: 'src/a.ts', additions: 1, deletions: 0, hunkHeaders: [] }],
     });
     for (const untrusted of ['PLAN', 'ISSUE-BODY', 'BODY', 'COMMIT', 'src/a.ts']) {
       const at = prompt.indexOf(untrusted);
@@ -237,6 +334,26 @@ describe('buildIntentPrompt', () => {
     });
     expect(prompt.indexOf('PLAN')).toBeLessThan(prompt.indexOf('ISSUE-BODY'));
     expect(prompt.indexOf('ISSUE-BODY')).toBeLessThan(prompt.indexOf('BODY'));
+  });
+
+  it('carries hunk headers into the prompt with no line of the change itself', () => {
+    const prompt = buildIntentPrompt({
+      ...BASE,
+      changedFiles: [
+        {
+          path: 'src/a.ts',
+          additions: 12,
+          deletions: 3,
+          hunkHeaders: ['@@ -1,10 +1,12 @@', '@@ -90,3 +92,4 @@'],
+        },
+      ],
+    });
+    expect(prompt).toContain('src/a.ts (+12/-3)');
+    expect(prompt).toContain('@@ -1,10 +1,12 @@');
+    for (const line of prompt.split('\n')) {
+      expect(line.startsWith('+')).toBe(false);
+      expect(line.startsWith('-')).toBe(false);
+    }
   });
 
   it('omits a section it has no input for', () => {

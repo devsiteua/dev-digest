@@ -90,7 +90,13 @@ d('L03 intent layer (Testcontainers pg)', () => {
 
   async function makePr(
     repoId: string,
-    opts: { body?: string | null; headSha?: string; commits?: string[]; files?: string[] } = {},
+    opts: {
+      body?: string | null;
+      headSha?: string;
+      commits?: string[];
+      /** A bare path stores a row with a null `patch`, as GitHub's own sync can. */
+      files?: (string | { path: string; patch: string; additions?: number; deletions?: number })[];
+    } = {},
   ): Promise<string> {
     const [pr] = await pg.handle.db
       .insert(t.pullRequests)
@@ -111,8 +117,9 @@ d('L03 intent layer (Testcontainers pg)', () => {
         .insert(t.prCommits)
         .values({ prId: pr!.id, sha: `sha-${seq++}`, message, author: 'marisa.koch' });
     }
-    for (const path of opts.files ?? []) {
-      await pg.handle.db.insert(t.prFiles).values({ prId: pr!.id, path, patch: null });
+    for (const file of opts.files ?? []) {
+      const row = typeof file === 'string' ? { path: file, patch: null } : file;
+      await pg.handle.db.insert(t.prFiles).values({ prId: pr!.id, ...row });
     }
     return pr!.id;
   }
@@ -210,6 +217,54 @@ d('L03 intent layer (Testcontainers pg)', () => {
     const intent = (await derive(app, prId)).json();
     expect(intent.sources).not.toContain('plan_file');
     expect(intent.confidence_tier).toBe('low');
+  });
+
+  // ---- What the classifier is shown ---------------------------------------
+
+  it('shows the classifier each file\'s hunk headers, and no line of the change', async () => {
+    const llm = new MockLLMProvider('openai', {
+      structuredBySchema: { PrIntent: INTENT_FIXTURE, Review: REVIEW_FIXTURE },
+    });
+    const app = await makeApp({ llm });
+    const prId = await makePr(await makeRepo(), {
+      body: null,
+      files: [
+        {
+          path: 'src/middleware/limit.ts',
+          additions: 2,
+          deletions: 1,
+          patch: [
+            '@@ -1,3 +1,4 @@',
+            ' import { rateLimit } from "./rate-limit.js";',
+            '-const WINDOW = 60;',
+            '+const WINDOW = 30;',
+            '+const BURST = 5;',
+            '@@ -40,2 +41,2 @@ export function limit() {',
+            '-  return old();',
+            '+  return next();',
+          ].join('\n'),
+        },
+        // A row GitHub synced without a patch still contributes its path.
+        'docs/rate-limits.md',
+      ],
+    });
+
+    await derive(app, prId);
+
+    const call = llm.calls.find((c) => c.method === 'completeStructured');
+    const req = call!.req as { messages: { role: string; content: string }[] };
+    const user = req.messages.find((m) => m.role === 'user')!.content;
+
+    expect(user).toContain('src/middleware/limit.ts (+2/-1)');
+    expect(user).toContain('@@ -1,3 +1,4 @@');
+    expect(user).toContain('@@ -40,2 +41,2 @@ export function limit() {');
+    expect(user).toContain('docs/rate-limits.md (+0/-0)');
+    // The mechanical form of "change bodies are not sent".
+    for (const line of user.split('\n')) {
+      expect(line.startsWith('+')).toBe(false);
+      expect(line.startsWith('-')).toBe(false);
+    }
+    expect(user).not.toContain('const BURST = 5');
   });
 
   // ---- Persistence and the routes -----------------------------------------

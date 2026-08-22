@@ -123,6 +123,26 @@ export const MAX_COMMIT_MESSAGES = 20;
 /** Changed paths offered to the model — a map of the change, not the change. */
 export const MAX_CHANGED_PATHS = 40;
 
+/**
+ * Hunk headers rendered under one changed file.
+ *
+ * A header is `@@ -oldStart,oldLines +newStart,newLines @@` and nothing else —
+ * the four numbers say WHERE a file moved and how much of it, which is what
+ * turns a flat path list into a shape the classifier can reason about. The
+ * bodies those numbers delimit are never sent: the brief forbids it, and the
+ * distinction is what keeps this call cheap.
+ *
+ * The cap is per FILE, not per derivation, so a forty-file PR cannot be quietly
+ * summarised down to its first file's hunks. A file past the cap prints
+ * `… N more hunk(s)` rather than truncating in silence — a reader of the prompt
+ * can then tell "this file has three hunks" from "we stopped counting".
+ *
+ * Eight is a starting value with nothing behind it yet, the same status
+ * `MIN_SUBSTANTIVE_BODY_CHARS` carries. The first derivations against real PRs
+ * are what should settle it.
+ */
+export const MAX_HUNK_HEADERS_PER_FILE = 8;
+
 /** Evidence rows kept from one reply, and the ceiling on one quote. */
 export const MAX_EVIDENCE_ITEMS = 6;
 export const MAX_EVIDENCE_CHARS = 240;
