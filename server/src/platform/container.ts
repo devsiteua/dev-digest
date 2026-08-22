@@ -30,6 +30,7 @@ import { SkillsRepository } from '../modules/skills/repository.js';
 import { SkillsService } from '../modules/skills/service.js';
 import { ReviewRepository } from '../modules/reviews/repository.js';
 import { ConventionsService, type ConventionsApi } from '../modules/conventions/service.js';
+import { IntentService, type IntentApi } from '../modules/intent/service.js';
 import { getFeatureModelOverride } from '../modules/settings/feature-models.js';
 import type { RepoIntel } from '../modules/repo-intel/types.js';
 import { RepoIntelService } from '../modules/repo-intel/service.js';
@@ -63,6 +64,13 @@ export interface ContainerOverrides {
    * screen must never reach a model.
    */
   conventions?: ConventionsApi;
+  /**
+   * Intent layer (L03). Injected as the verb set rather than the class for the
+   * same reason `conventions` is: a class with private fields can only ever be
+   * satisfied by itself, which is not an override. Stubbing this is what lets a
+   * browser flow render the Intent card without reaching a model.
+   */
+  intent?: IntentApi;
 }
 
 export class Container {
@@ -86,6 +94,7 @@ export class Container {
   private _skillsRepo?: SkillsRepository;
   private _skillsService?: SkillsService;
   private _conventions?: ConventionsApi;
+  private _intent?: IntentApi;
   private _reviewRepo?: ReviewRepository;
   private _repoIntel?: RepoIntel;
   private _depgraph?: DepGraph;
@@ -131,6 +140,18 @@ export class Container {
     if (this.overrides.conventions) return this.overrides.conventions;
     this._conventions ??= new ConventionsService(this);
     return this._conventions;
+  }
+
+  /**
+   * The intent layer, brokered for the same reason `conventions` is: the review
+   * run needs it, and `modules/reviews/` reaching into `modules/intent/` is the
+   * cross-module import the onion guard warns about — a warning that does NOT
+   * fail `arch:check`, so the discipline has to come from here.
+   */
+  get intent(): IntentApi {
+    if (this.overrides.intent) return this.overrides.intent;
+    this._intent ??= new IntentService(this);
+    return this._intent;
   }
 
   get reviewRepo(): ReviewRepository {

@@ -1,0 +1,366 @@
+/**
+ * Pure helpers for the intent layer (side-effect free; operate purely on their
+ * arguments — no DB, no network, no `this`).
+ *
+ * Everything that decides WHAT the model is shown, and everything that decides
+ * how much its answer is worth, lives here. The service does I/O and calls these;
+ * that split is what lets the interesting cases — a traversal attempt in a PR
+ * body, a model trying to talk its confidence up — be tested without a database.
+ */
+import { z } from 'zod';
+import type {
+  IntentConfidenceTier,
+  IntentEvidence,
+  IntentKind,
+  IntentSource,
+  PrIntentRecord,
+} from '@devdigest/shared';
+import { wrapUntrusted } from '@devdigest/reviewer-core';
+import type { PrIntentRow } from '../../db/rows.js';
+import {
+  ALLOWED_DOC_EXTENSIONS,
+  DOC_PATH_RE,
+  LINKED_ISSUE_RE,
+  MAX_CHANGED_PATHS,
+  MAX_COMMIT_MESSAGES,
+  MAX_EVIDENCE_CHARS,
+  MAX_EVIDENCE_ITEMS,
+  MAX_PLAN_FILES,
+  MIN_SUBSTANTIVE_BODY_CHARS,
+  TIER_ORDER,
+  TIER_SCORE,
+} from './constants.js';
+
+/**
+ * A private copy of a module-level regex.
+ *
+ * `LINKED_ISSUE_RE` and `DOC_PATH_RE` are global, and a global regex carries
+ * `lastIndex` between uses. Sharing one across calls makes the SECOND call on the
+ * same body start mid-string and find nothing — a bug that only appears once the
+ * function is called twice, which a single-case test never reaches.
+ */
+const fresh = (re: RegExp): RegExp => new RegExp(re.source, re.flags);
+
+/** Everything that looks like an absolute URL, removed before path scanning. */
+const URL_RE = /\b[a-z][a-z0-9+.-]*:\/\/\S+/gi;
+
+// ---- Source resolution ------------------------------------------------------
+
+/**
+ * Is this a path we are willing to hand to `git.readFile`?
+ *
+ * `SimpleGitClient.readFile` does `join(clonePath, path)` with no validation of
+ * its own, so a body containing `../../../.ssh/id_rsa.md` would read outside the
+ * clone. This function is the only thing standing between an author-controlled
+ * string and the filesystem, which is why it rejects by rule rather than trying
+ * to sanitise: there is no repair for a path that wanted to escape.
+ */
+function isSafeDocPath(path: string): boolean {
+  if (path.length === 0 || path.length > 200) return false;
+  if (path.startsWith('/') || path.startsWith('~')) return false;
+  if (path.includes('\\') || path.includes('\0')) return false;
+  if (path.includes('://')) return false;
+  // `..` climbs out; `.` is noise that only ever obscures the segment before it.
+  if (path.split('/').some((seg) => seg === '..' || seg === '.' || seg === '')) return false;
+  const lower = path.toLowerCase();
+  return ALLOWED_DOC_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
+/**
+ * Repo-relative document paths a PR body points at, de-duplicated and capped.
+ *
+ * URLs are stripped BEFORE scanning rather than filtered after: left in,
+ * `https://evil.example/plan.md` yields the token `plan.md`, which is a perfectly
+ * valid repo-relative path and would be read from the clone. The link would have
+ * silently become a local file read of a different file entirely.
+ */
+export function extractPlanPaths(body?: string | null): string[] {
+  if (!body) return [];
+  const withoutUrls = body.replace(fresh(URL_RE), ' ');
+  const out: string[] = [];
+  for (const match of withoutUrls.matchAll(fresh(DOC_PATH_RE))) {
+    const path = match[0];
+    if (!isSafeDocPath(path)) continue;
+    if (out.includes(path)) continue;
+    out.push(path);
+    if (out.length >= MAX_PLAN_FILES) break;
+  }
+  return out;
+}
+
+/**
+ * The issue this PR closes, when it says so with a closing keyword.
+ *
+ * A cross-repo reference is DISCARDED rather than followed: `getIssue(repo, n)`
+ * takes this repository's ref, so honouring `other/repo#12` would fetch issue 12
+ * of the wrong project under the right number — worse than finding nothing,
+ * because it would then buy `high` confidence with someone else's text.
+ */
+export function extractLinkedIssue(
+  body: string | null | undefined,
+  repoFullName: string,
+): number | undefined {
+  if (!body) return undefined;
+  for (const match of body.matchAll(fresh(LINKED_ISSUE_RE))) {
+    const repo = match[1] ?? match[3];
+    const num = match[2] ?? match[4];
+    if (!num) continue;
+    if (repo && repo.toLowerCase() !== repoFullName.toLowerCase()) continue;
+    const n = Number(num);
+    if (Number.isInteger(n) && n > 0) return n;
+  }
+  return undefined;
+}
+
+/**
+ * The body with the parts nobody wrote removed — HTML comments (a PR template's
+ * instructions to the author) and unticked checklist rows (the boxes they did not
+ * fill in). What is left is the author's own prose.
+ */
+export function substantiveBodyText(body?: string | null): string {
+  if (!body) return '';
+  return body
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/^[ \t]*[-*][ \t]*\[[ ]\][ \t].*$/gm, '')
+    .trim();
+}
+
+/** Is the body evidence, or is it an untouched template? */
+export function isSubstantiveBody(body?: string | null): boolean {
+  return substantiveBodyText(body).length >= MIN_SUBSTANTIVE_BODY_CHARS;
+}
+
+// ---- Confidence -------------------------------------------------------------
+
+/**
+ * The tier the EVIDENCE supports — computed from which sources were found, never
+ * reported by the model.
+ *
+ * Documentation the author pointed at deliberately (`plan_file`, `linked_issue`)
+ * says why the change is being made. Their own prose is a claim about it. Signals
+ * derived from the change itself — title, commits, branch, paths — describe what
+ * moved, and a description of what moved is not a statement of intent.
+ */
+export function tierFromSources(sources: readonly IntentSource[]): IntentConfidenceTier {
+  if (sources.includes('plan_file') || sources.includes('linked_issue')) return 'high';
+  if (sources.includes('pr_body')) return 'medium';
+  return 'low';
+}
+
+/**
+ * The tier that is actually persisted: the LOWER of what the evidence supports
+ * and what the model suggested.
+ *
+ * One-directional on purpose. The model can see something the ladder cannot — a
+ * linked issue that turns out to describe a different change, a spec that
+ * contradicts the diff — and lower the tier for it. It cannot raise one, because
+ * a model arguing for its own confidence is the failure the ladder exists to
+ * avoid. An unrecognised suggestion is ignored rather than treated as `low`: a
+ * malformed reply should not be able to move the number either way.
+ */
+export function settleTier(
+  fromEvidence: IntentConfidenceTier,
+  suggested?: string | null,
+): IntentConfidenceTier {
+  const suggestedIdx = TIER_ORDER.indexOf(suggested as IntentConfidenceTier);
+  if (suggestedIdx < 0) return fromEvidence;
+  const evidenceIdx = TIER_ORDER.indexOf(fromEvidence);
+  return TIER_ORDER[Math.min(evidenceIdx, suggestedIdx)]!;
+}
+
+/** The number that goes next to the tier. Never computed independently of it. */
+export function scoreForTier(tier: IntentConfidenceTier): number {
+  return TIER_SCORE[tier];
+}
+
+/** Trim a model's evidence list to what a card can show and a row should store. */
+export function clampEvidence(evidence: IntentEvidence[] | undefined): IntentEvidence[] {
+  if (!evidence?.length) return [];
+  return evidence.slice(0, MAX_EVIDENCE_ITEMS).map((e) => ({
+    source: e.source,
+    ref: e.ref.slice(0, MAX_EVIDENCE_CHARS),
+    quote: e.quote.slice(0, MAX_EVIDENCE_CHARS),
+  }));
+}
+
+// ---- The model call ---------------------------------------------------------
+
+/**
+ * What one derivation call must return.
+ *
+ * `kind` and `suggested_confidence` are LOOSE strings rather than the contract
+ * enums, deliberately. The default model for this feature runs on OpenRouter,
+ * where structured output is a per-endpoint convention rather than an API-level
+ * guarantee (see `DEFAULT_INTENT_MODEL`), and a strict enum turns "Feature"
+ * instead of "feature" into a failed derivation and a degraded review. They are
+ * normalised below, where an unrecognised value has a defined, tested outcome
+ * instead of an exception.
+ */
+export const IntentReplySchema = z.object({
+  kind: z.string(),
+  intent: z.string(),
+  in_scope: z.array(z.string()),
+  out_of_scope: z.array(z.string()),
+  evidence: z.array(z.object({ source: z.string(), ref: z.string(), quote: z.string() })),
+  suggested_confidence: z.string(),
+});
+export type IntentReply = z.infer<typeof IntentReplySchema>;
+
+const KINDS: readonly IntentKind[] = [
+  'feature',
+  'fix',
+  'refactor',
+  'perf',
+  'docs',
+  'test',
+  'chore',
+  'deps',
+  'revert',
+  'mixed',
+];
+
+const SOURCES: readonly IntentSource[] = [
+  'plan_file',
+  'linked_issue',
+  'pr_body',
+  'pr_title',
+  'commits',
+  'branch',
+  'file_paths',
+];
+
+/**
+ * A model's `kind` mapped onto the taxonomy.
+ *
+ * Falls back to `mixed` rather than throwing: `mixed` is the honest answer for
+ * "this does not fit one label", which is also true of a reply we could not read.
+ */
+export function normalizeKind(value: string | null | undefined): IntentKind {
+  const v = (value ?? '').trim().toLowerCase();
+  return (KINDS as readonly string[]).includes(v) ? (v as IntentKind) : 'mixed';
+}
+
+/** Drop evidence rows whose `source` is not one of ours before persisting. */
+export function normalizeEvidence(rows: IntentReply['evidence']): IntentEvidence[] {
+  return clampEvidence(
+    rows
+      .filter((r) => (SOURCES as readonly string[]).includes(r.source))
+      .map((r) => ({ source: r.source as IntentSource, ref: r.ref, quote: r.quote })),
+  );
+}
+
+export interface IntentPromptInput {
+  title: string;
+  branch: string;
+  body?: string | null;
+  planFiles: { path: string; text: string }[];
+  issue?: { number: number; title: string; body?: string | null };
+  commitMessages: string[];
+  changedPaths: string[];
+}
+
+/**
+ * The user message for the one derivation call.
+ *
+ * Every block is author-controlled and therefore wrapped. Order is strongest
+ * evidence first, so a model reading top-down meets the documents the author
+ * pointed at before their own summary of them.
+ */
+export function buildIntentPrompt(input: IntentPromptInput): string {
+  const sections: string[] = [
+    `Pull request: "${input.title}" on branch \`${input.branch}\`.`,
+  ];
+
+  for (const file of input.planFiles) {
+    sections.push(`## Plan or spec the PR points at: ${file.path}\n${wrapUntrusted(`plan:${file.path}`, file.text)}`);
+  }
+  if (input.issue) {
+    sections.push(
+      `## Linked issue #${input.issue.number}\n` +
+        wrapUntrusted(
+          `issue:${input.issue.number}`,
+          `${input.issue.title}\n\n${input.issue.body ?? ''}`,
+        ),
+    );
+  }
+  if (input.body) {
+    sections.push(`## PR description\n${wrapUntrusted('pr-body', input.body)}`);
+  }
+  if (input.commitMessages.length > 0) {
+    sections.push(
+      `## Commit subjects\n` +
+        wrapUntrusted('commits', input.commitMessages.slice(0, MAX_COMMIT_MESSAGES).join('\n')),
+    );
+  }
+  if (input.changedPaths.length > 0) {
+    sections.push(
+      `## Changed files\n` +
+        wrapUntrusted('paths', input.changedPaths.slice(0, MAX_CHANGED_PATHS).join('\n')),
+    );
+  }
+
+  sections.push(
+    'State the kind of change, one sentence of intent in the author’s terms, what they claim ' +
+      'is in scope, what they claim is out of scope, the evidence you used, and the confidence ' +
+      'that evidence deserves.',
+  );
+  return sections.join('\n\n');
+}
+
+// ---- Rendering --------------------------------------------------------------
+
+/**
+ * The two strings the review prompt's intent slot takes.
+ *
+ * `intent` is the DISTILLATION and nothing else: no body, no issue text, no spec
+ * file. The reviewing prompt already carries the PR description in its own
+ * section, so re-sending the sources here would pay twice for one fact — and the
+ * cheap model earns its place precisely by replacing them with three lines.
+ *
+ * `note` is ours, so it is rendered outside the untrusted block. It says how much
+ * the claim is worth and, explicitly, that a claim is all it is.
+ */
+export function renderIntentForPrompt(record: {
+  intent: string;
+  in_scope: string[];
+  out_of_scope: string[];
+  kind: IntentKind;
+  confidence_tier: IntentConfidenceTier;
+  sources: IntentSource[];
+}): { intent: string; note: string } {
+  const lines = [`Kind: ${record.kind}`, `Intent: ${record.intent}`];
+  if (record.in_scope.length > 0) {
+    lines.push('Claimed in scope:', ...record.in_scope.map((s) => `- ${s}`));
+  }
+  if (record.out_of_scope.length > 0) {
+    lines.push('Claimed out of scope:', ...record.out_of_scope.map((s) => `- ${s}`));
+  }
+  const note =
+    `Derived from ${record.sources.join(', ') || 'no stated documentation'} — ` +
+    `confidence ${record.confidence_tier}. This is what the PR claims about itself, ` +
+    `not a verified fact, and it never narrows what you review.`;
+  return { intent: lines.join('\n'), note };
+}
+
+/** Persisted row → the transport shape. */
+export function toIntentDto(row: PrIntentRow): PrIntentRecord {
+  return {
+    pr_id: row.prId,
+    intent: row.intent,
+    in_scope: row.inScope,
+    out_of_scope: row.outOfScope,
+    kind: row.kind as IntentKind,
+    confidence: row.confidence,
+    confidence_tier: row.confidenceTier as IntentConfidenceTier,
+    sources: row.sources as IntentSource[],
+    evidence: row.evidence as IntentEvidence[],
+    provider: row.provider as PrIntentRecord['provider'],
+    model: row.model,
+    tokens_in: row.tokensIn,
+    tokens_out: row.tokensOut,
+    cost_usd: row.costUsd,
+    duration_ms: row.durationMs,
+    head_sha: row.headSha,
+    generated_at: row.generatedAt.toISOString(),
+  };
+}
