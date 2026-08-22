@@ -1,6 +1,14 @@
 import { z } from 'zod';
 import { Finding, Verdict } from './findings.js';
-import { Intent, SmartDiff } from './brief.js';
+import {
+  Intent,
+  IntentConfidenceTier,
+  IntentEvidence,
+  IntentKind,
+  IntentSource,
+  SmartDiff,
+} from './brief.js';
+import { Provider } from './knowledge.js';
 
 /**
  * A2 — Review-Core API surface contracts. These extend the core
@@ -56,8 +64,43 @@ export const ReviewRunResponse = z.object({
 });
 export type ReviewRunResponse = z.infer<typeof ReviewRunResponse>;
 
-/** Intent persisted for a PR (the Intent plus the pr_id it scopes). */
-export const PrIntentRecord = Intent.extend({ pr_id: z.string() });
+/**
+ * A derived intent as persisted and transported — `Intent` plus everything that
+ * makes it auditable.
+ *
+ * `Intent` itself is left alone deliberately: it is a member of `PrBrief`, which
+ * a later lesson owns, and the fields below describe THIS derivation rather than
+ * what an intent is.
+ *
+ * Only `cost_usd` is nullish, and for the reason `RunStats.cost_usd` gives: null
+ * means the model has no known price, which is a different fact from free. Every
+ * other field is required, because a row is written by exactly one code path that
+ * always knows all of them — an optional field here would only push a null check
+ * into every reader for a case that cannot occur.
+ */
+export const PrIntentRecord = Intent.extend({
+  pr_id: z.string(),
+  kind: IntentKind,
+  /** `TIER_SCORE[confidence_tier]` — never an independent number. */
+  confidence: z.number(),
+  confidence_tier: IntentConfidenceTier,
+  /** Which sources the derivation actually used, strongest first. */
+  sources: z.array(IntentSource),
+  evidence: z.array(IntentEvidence),
+  provider: Provider,
+  model: z.string(),
+  tokens_in: z.number().int(),
+  tokens_out: z.number().int(),
+  cost_usd: z.number().nullish(),
+  duration_ms: z.number().int(),
+  /**
+   * The commit this intent was derived at. A review reuses the row only while it
+   * still matches the PR's head; once the head moves the intent is re-derived,
+   * because scope claimed three force-pushes ago is not this PR's scope.
+   */
+  head_sha: z.string(),
+  generated_at: z.string(),
+});
 export type PrIntentRecord = z.infer<typeof PrIntentRecord>;
 
 /** Smart-diff response for a PR (the SmartDiff). */

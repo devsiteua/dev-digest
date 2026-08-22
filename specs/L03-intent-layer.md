@@ -89,6 +89,12 @@ structured LLM call and the model this module is built from.
   working tree). A spec file introduced *by this PR* is invisible to source (a) and the ladder
   degrades to (c)–(f), correctly. Reconstructing it from `pr_files.patch` is a later idea.
 - **Widening the adapter's own `resolveLinkedIssue`** — see Decisions.
+- **Reconciling the pre-existing `vendor/shared` drift** in `adapters.ts`,
+  `contracts/eval-ci.ts` and `contracts/productionize.ts`. Found while verifying Step 1:
+  the copies are not byte-identical today, so a whole-tree `diff -r` can never be this
+  lesson's gate. `contracts/trace.ts` had drifted too (comment-only — lesson tags stripped
+  on the client side) and IS reconciled, because this lesson edits that file anyway and an
+  unverifiable diff on a file we are changing is worth less than three lines of comment.
 - **Putting raw source text into the prompt slot** — see D10. The slot distils; it never
   pastes.
 - **Deleting or repurposing `prBrief`, `Intent`'s use inside `PrBrief`,** or any other L05
@@ -285,8 +291,9 @@ the wrap-up, not a licence to edit the vendored primitive.
 - [ ] With `intent` present, the section sits after `## PR description` and before
       `## Skills / rules`, the model-written text is inside `wrapUntrusted('intent', …)`, and
       the confidence sentence is outside it.
-- [ ] The two `vendor/shared` trees are byte-identical after the contract steps
-      (`diff -r server/src/vendor/shared client/src/vendor/shared` prints nothing).
+- [ ] Every `vendor/shared` file this lesson touches is byte-identical across the two
+      copies. **Not** the whole tree: `adapters.ts`, `contracts/eval-ci.ts` and
+      `contracts/productionize.ts` already differ, and reconciling them is out of scope.
 - [ ] The Settings row `PR Review · Intent` advertises the model the module actually uses.
 - [ ] The Intent card renders intent, scope lists, a `ConfidenceNum` reading and source
       chips; it sits above the Description section and owns no page-level section wrapper; an
@@ -398,7 +405,9 @@ Do:     In `brief.ts`, **below** the untouched `Intent`, add `IntentKind`
         files for the new MEMBER names, not the symbols (root `CLAUDE.md` Gotchas).
         (`specs/README.md`'s L03 row was already pointed at this file when the plan was
         committed — nothing to do here.)
-Verify: `diff -r server/src/vendor/shared client/src/vendor/shared` prints nothing;
+Verify: for f in brief.ts review-api.ts trace.ts; do diff -q
+        server/src/vendor/shared/contracts/$f client/src/vendor/shared/contracts/$f; done
+        prints nothing;
         `cd server && pnpm typecheck`; `cd client && pnpm typecheck`;
         `cd reviewer-core && npm run typecheck`
 Depends: none
@@ -429,7 +438,8 @@ Do:     Create the module's constants file with
         `defaultModel` to `DEFAULT_INTENT_MODEL`'s values in all three copies, so the Settings
         screen stops advertising `openai / gpt-4.1`, which no code path buys. No enum member is
         added, so there is no enum mirror hunt.
-Verify: `diff -r server/src/vendor/shared client/src/vendor/shared` prints nothing;
+Verify: `diff -q server/src/vendor/shared/contracts/platform.ts
+        client/src/vendor/shared/contracts/platform.ts` prints nothing;
         `grep -n "review_intent" -A5 server/src/vendor/shared/contracts/platform.ts client/src/vendor/shared/contracts/platform.ts client/src/lib/feature-models.ts`
         shows `openrouter` / `deepseek/deepseek-v4-flash` three times, matching
         `DEFAULT_INTENT_MODEL`;
@@ -438,7 +448,11 @@ Depends: none (independent of Step 1)
 
 ### Step 3 — Extend `pr_intent` + the migration · package: server
 Files:  `server/src/db/schema/reviews.ts` (edit, `48-56`) ·
-        `server/src/db/migrations/00NN_*.sql` + `meta/` (generated, do not hand-edit)
+        `server/src/db/migrations/00NN_*.sql` + `meta/` (generated, do not hand-edit) ·
+        `server/src/modules/reviews/repository.ts` (edit — delete `upsertIntent`/`getIntent`,
+        correct the class doc) ·
+        `server/src/modules/reviews/repository/pull.repo.ts` (edit — delete the `intent`
+        section and its now-unused `Intent` import)
 Skills: drizzle-orm-patterns, postgresql-table-design, onion-architecture
 Do:     Add to `prIntent`: `kind` as `text('kind', { enum: [...] })` (a TS-level narrowing that
         emits a bare `text` column — server `INSIGHTS.md` 2026-08-06), `confidence`
@@ -454,7 +468,15 @@ Do:     Add to `prIntent`: `kind` as `text('kind', { enum: [...] })` (a TS-level
         columns nullable and tighten in a second migration (server `INSIGHTS.md` 2026-08-06).
         This migration only ADDs columns, so drizzle-kit's rename prompt should not fire; if it
         does, drive it with `expect` per the same INSIGHTS entry — never pipe into it.
+        Do NOT use the `now()` helper for `generated_at`: it is hardcoded to a column named
+        `created_at` (`db/schema/_shared.ts:9`), and this row is upserted in place rather
+        than created once. Spell the column out.
+        **D2's deletion happens HERE, not in Step 6** (moved during implementation): the
+        widened table is what stops `pullRepo.upsertIntent` compiling — it inserts four
+        columns of thirteen — so leaving it until Step 6 would mean three steps in a row
+        that cannot typecheck, and a step that cannot typecheck cannot be committed.
 Verify: `git status server/src/db/migrations` shows exactly one new `.sql` + the snapshot;
+        `grep -rn "upsertIntent\|getIntent" server/src` returns nothing;
         `grep -c "DROP COLUMN" <the new sql>` returns 0;
         `cd server && pnpm db:migrate` exits clean; `pnpm typecheck`
 Depends: Step 1 (the schema `$type<>`s import the new contract types)
@@ -521,11 +543,8 @@ Depends: Steps 1, 2
 ### Step 6 — Repository, service, and the brokered `container.intent` · package: server
 Files:  `server/src/modules/intent/repository.ts` (new) ·
         `server/src/modules/intent/service.ts` (new) ·
-        `server/src/platform/container.ts` (edit) ·
-        `server/src/modules/reviews/repository.ts` (edit — delete `upsertIntent`/`getIntent`
-        at `130-136`, correct the class doc at `6-14`) ·
-        `server/src/modules/reviews/repository/pull.repo.ts` (edit — delete the `intent`
-        section at `47-68` and its now-unused `Intent` import at `:4`)
+        `server/src/platform/container.ts` (edit)
+        (D2's deletions moved to Step 3 — the schema change is what breaks them.)
 Skills: onion-architecture, drizzle-orm-patterns, postgresql-table-design, typescript-expert
 Do:     `repository.ts` is the **only** SQL over `pr_intent`: `get(prId)`, `upsert(row)`.
         `service.ts` runs one pass, in the shape of `ConventionsService.extract`
@@ -558,7 +577,7 @@ Verify: `cd server && pnpm typecheck`;
         `modules/intent → modules/settings` import would print a warning line here and still
         exit 0 — read the line);
         `grep -rn "upsertIntent\|getIntent" server/src` returns nothing outside
-        `modules/intent/`;
+        `modules/intent/` (already true after Step 3; re-checked here);
         `grep -n "prFiles" server/src/modules/intent/` appears only in the `derive` path
 Depends: Steps 3, 5
 
@@ -717,6 +736,7 @@ Verification:   `cd server && pnpm typecheck && pnpm exec vitest run --exclude '
                 `cd client && pnpm test && pnpm typecheck`
                 `cd reviewer-core && npm test && npm run typecheck`
                 `cd e2e && pnpm e2e:hermetic`
-                `diff -r server/src/vendor/shared client/src/vendor/shared` — must print nothing
+                per-file `diff -q` on every `vendor/shared` file this lesson touched — must
+                print nothing (the tree as a whole does not match; see Acceptance criteria)
 Deviation policy: stop at the step, report the divergence, finish the independent steps.
                   Do not re-plan.
