@@ -240,6 +240,27 @@ Status:   resolved
 
 ## Tool & Library Notes
 
+### 2026-08-22 · `@testing-library/user-event` is not installed — every RTL guide you will read assumes it is
+
+Trigger:  writing the `test-writer` subagent's client rules and going to encode the library's
+          own guidance, "prefer `userEvent` over `fireEvent`"
+Cause:    `client/package.json:27-28` ships `@testing-library/jest-dom` and
+          `@testing-library/react` and nothing else from that family. `user-event` is a
+          separate package. It is the first thing every current RTL tutorial reaches for, so
+          the gap is invisible until an import fails — and the existing tests do not reveal it,
+          because they were written around `fireEvent` from the start.
+Takeaway: in this package, interaction is driven with `fireEvent` from
+          `@testing-library/react`. Accept the two things that costs — `fireEvent` skips the
+          focus/keydown/input sequence a real interaction produces, and it will happily "click"
+          a hidden or disabled element that `userEvent` would refuse — and assert around them
+          rather than assuming a click implies interactability. If a test genuinely needs the
+          full sequence, adding the dependency is a deliberate change with a lockfile in it,
+          not a detail to slip into a test PR.
+Evidence: client/package.json:27-28 (devDependencies); the existing suites' use of `fireEvent`,
+          e.g. .../SkillsTab/SkillsTab.test.tsx
+Status:   open — adding `@testing-library/user-event` is a reasonable call, just not one to
+          make silently
+
 ### 2026-08-12 · A synthetic mouse drag never starts an HTML5 drag — verify DnD by dispatching `DragEvent` with a real `DataTransfer`
 
 Trigger:  checking the new drag-to-reorder on the agent Skills tab in the actual browser;

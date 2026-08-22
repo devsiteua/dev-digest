@@ -114,6 +114,27 @@ Status:   open — fix opportunistically when touching those files
 
 ## Codebase Patterns
 
+### 2026-08-22 · The onion skill's own review checklist ends on a question `arch:check` cannot answer
+
+Trigger:  writing `architecture-reviewer`'s procedure on top of
+          `.claude/skills/onion-architecture/tooling.md` § "Review checklist for a backend diff"
+Cause:    item 9 of that checklist is *"Does `pnpm arch:check` still exit 0?"*. It does — even
+          when a cross-module import was just added, because `no-cross-module-import` is
+          declared `severity: 'warn'` in `server/.dependency-cruiser-onion.cjs:96`, and
+          dependency-cruiser exits 0 on warnings. `server/INSIGHTS.md` (2026-08-06) already
+          records the exit-code half of this, but nothing connects it back to the checklist
+          that a reviewer is told to follow, so the skill quietly instructs you to run a test
+          that cannot fail for the rule it is most likely to catch.
+Takeaway: read the **output** of `pnpm arch:check`, never its exit code, and treat checklist
+          item 9 as "did the output stay empty". Anything automated that gates on this — a
+          hook, a CI step, an agent's `Verify:` line — has the same defect unless it greps the
+          output. `pnpm arch:check:all` (no `--ignore-known`) is the version that also surfaces
+          the frozen debt in `server/.dependency-cruiser-known-violations.json`.
+Evidence: .claude/skills/onion-architecture/tooling.md § "Review checklist for a backend diff"
+          item 9; server/.dependency-cruiser-onion.cjs:96-98; server/package.json:11-12
+Status:   open — the skill is hand-authored and ours to edit, but changing a review checklist
+          is its own decision; `architecture-reviewer.md` § Step 1 states the correction instead
+
 ### 2026-08-21 · The canonical path -> skills routing table lives inside a REVIEW skill, so anything else that needs it must point, not copy
 
 Trigger:  authoring `.claude/agents/planner.md` and `.claude/agents/implementer.md`, both of
@@ -293,6 +314,26 @@ Status:   → promoted to `CLAUDE.md` (Gotchas) on 2026-08-06, after the L02 con
 > Every rule they produced is live in `CLAUDE.md` (Gotchas).
 
 ## Tool & Library Notes
+
+### 2026-08-22 · `grep -E '(Write|Edit)'` on an agent's `tools:` line always fires — `TodoWrite` contains `Write`
+
+Trigger:  verifying that the new read-only `architecture-reviewer` really lacks write access,
+          with the check the plan had specified:
+          `grep -E '^tools:' <file> | grep -Eq '(Write|Edit)' && echo FAIL || echo OK`
+Cause:    the line is `tools: Read, Grep, Glob, Bash, Skill, TodoWrite`. Every agent in this
+          repository carries `TodoWrite`, and a substring match on `Write` hits it, so the
+          check reports FAIL on a file that is correct — and, worse, would report FAIL just as
+          loudly on a file that is genuinely broken. It cannot distinguish the two.
+Takeaway: `tools:` is a comma-separated list, so verify it as a list, not as a string. Split
+          and match whole entries:
+          `grep -E '^tools:' f | sed 's/^tools: *//' | tr ',' '\n' | sed 's/ //g' | grep -qx Write`.
+          The same trap is waiting for `Read` (`ReadMcpResource`) and any future tool whose
+          name contains another's. Applies to every "does this agent lack tool X" assertion in
+          a plan's `Verify:` line.
+Evidence: .claude/agents/architecture-reviewer.md:4; .claude/agents/plan-verifier.md:4;
+          specs/four-new-subagents.md § "Implementation plan" Step 1 (the check as originally
+          written)
+Status:   resolved — the four new agent files were verified with the list-aware form
 
 ### 2026-08-06 · `seed.ts` never converges on rename: a skill dropped from `SEED_SKILLS` survives, still linked, and its checklist is still in the prompt
 
