@@ -15,6 +15,7 @@ import {
   IntentReplySchema,
   buildIntentPrompt,
   changedFilesFromDiff,
+  describePromptBlocks,
   extractLinkedIssue,
   extractForeignRefs,
   extractPlanPaths,
@@ -135,11 +136,19 @@ export class IntentService {
   /**
    * Derive (or re-derive) and persist. The `POST` path, where no diff is in hand,
    * so the changed files — and their hunk headers — come from `pr_files`.
+   *
+   * Returns the block inventory alongside the record because the route logs it
+   * and the record does not carry it: it describes THIS request's prompt, not
+   * the intent, and a persisted column would be answering a question about a
+   * prompt nobody can re-read anyway.
    */
-  async derive(workspaceId: string, prId: string): Promise<PrIntentRecord> {
+  async derive(
+    workspaceId: string,
+    prId: string,
+  ): Promise<{ record: PrIntentRecord; blocks: string }> {
     const pull = await this.requirePull(workspaceId, prId);
     const files = await this.container.reviewRepo.getPrFiles(prId);
-    const { record } = await this.deriveFor(
+    const { record, blocks } = await this.deriveFor(
       workspaceId,
       pull,
       files.map((f) => ({
@@ -149,7 +158,7 @@ export class IntentService {
         hunkHeaders: hunkHeadersFromPatch(f.patch),
       })),
     );
-    return record;
+    return { record, blocks };
   }
 
   // ===========================================================================
@@ -176,7 +185,7 @@ export class IntentService {
     workspaceId: string,
     pull: PullRow,
     changedFiles: IntentChangedFile[],
-  ): Promise<{ record: PrIntentRecord; logLine: string }> {
+  ): Promise<{ record: PrIntentRecord; logLine: string; blocks: string }> {
     const started = Date.now();
     const repo = await this.container.reviewRepo.getRepo(pull.repoId);
     if (!repo) throw new NotFoundError('Repo not found');
@@ -231,11 +240,14 @@ export class IntentService {
 
     const lowered = tier !== evidenceTier ? `, lowered from ${evidenceTier} by the model` : '';
     const cost = row.costUsd == null ? 'unpriced' : `$${row.costUsd.toFixed(4)}`;
+    const blocks = describePromptBlocks(input);
     return {
       record: toIntentDto(row),
+      blocks,
       logLine:
         `intent: derived from ${sources.join(', ')} — ${tier} confidence${lowered}; ` +
-        `${choice.provider}/${choice.model}, ${cost}` +
+        `${choice.provider}/${choice.model}, ${reply.tokensIn}→${reply.tokensOut} tokens, ${cost}; ` +
+        `blocks: ${blocks}` +
         `${missingContext.length ? `; missing context — ${missingContext.join('; ')}` : ''}`,
     };
   }

@@ -11,6 +11,7 @@ import {
   buildIntentPrompt,
   changedFilesFromDiff,
   clampEvidence,
+  describePromptBlocks,
   extractForeignRefs,
   extractLinkedIssue,
   extractPlanPaths,
@@ -24,6 +25,8 @@ import {
   tierFromSources,
 } from '../src/modules/intent/helpers.js';
 import {
+  MAX_CHANGED_PATHS,
+  MAX_COMMIT_MESSAGES,
   MAX_HUNK_HEADERS_PER_FILE,
   MIN_SUBSTANTIVE_BODY_CHARS,
 } from '../src/modules/intent/constants.js';
@@ -496,6 +499,61 @@ describe('buildIntentPrompt', () => {
     expect(prompt).not.toContain('## Linked issue');
     expect(prompt).not.toContain('## Changed files');
     expect(prompt).not.toContain('## Context that is missing');
+  });
+});
+
+describe('describePromptBlocks', () => {
+  const BASE = {
+    title: 'Add rate limiting',
+    branch: 'feat/rate-limit',
+    planFiles: [],
+    commitMessages: [],
+    changedFiles: [],
+    missingContext: [],
+  };
+
+  it('names each kind with its size and nothing of its content', () => {
+    const inventory = describePromptBlocks({
+      ...BASE,
+      planFiles: [{ path: 'specs/p.md', text: 'P'.repeat(3_200) }],
+      issue: { number: 471, title: 'T', body: 'I'.repeat(1_099) },
+      body: 'B'.repeat(840),
+      commitMessages: ['COMMIT-SUBJECT'],
+      changedFiles: [
+        { path: 'src/a.ts', additions: 1, deletions: 0, hunkHeaders: ['@@ -1,1 +1,1 @@'] },
+      ],
+      missingContext: ['a note'],
+    });
+
+    expect(inventory).toBe(
+      'plan_file×1 (3.2k), issue #471 (1.1k), body (840), commits×1, ' +
+        'files×1 (+1 hunks), missing_context×1',
+    );
+    // The whole point: not one character of any source survives into the log.
+    for (const content of ['PPP', 'III', 'BBB', 'COMMIT-SUBJECT', 'src/a.ts', 'a note']) {
+      expect(inventory).not.toContain(content);
+    }
+  });
+
+  it('counts what was SENT, so every cap the prompt applies applies here', () => {
+    const inventory = describePromptBlocks({
+      ...BASE,
+      commitMessages: Array.from({ length: MAX_COMMIT_MESSAGES + 5 }, (_, i) => `c${i}`),
+      changedFiles: Array.from({ length: MAX_CHANGED_PATHS + 5 }, (_, i) => ({
+        path: `f${i}.ts`,
+        additions: 0,
+        deletions: 0,
+        hunkHeaders: Array.from({ length: MAX_HUNK_HEADERS_PER_FILE + 2 }, () => '@@ -1,1 +1,1 @@'),
+      })),
+    });
+    expect(inventory).toContain(`commits×${MAX_COMMIT_MESSAGES}`);
+    expect(inventory).toContain(
+      `files×${MAX_CHANGED_PATHS} (+${MAX_CHANGED_PATHS * MAX_HUNK_HEADERS_PER_FILE} hunks)`,
+    );
+  });
+
+  it('lists nothing for a derivation that was given nothing', () => {
+    expect(describePromptBlocks(BASE)).toBe('');
   });
 });
 

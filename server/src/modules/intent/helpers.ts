@@ -499,6 +499,54 @@ export function buildIntentPrompt(input: IntentPromptInput): string {
   return sections.join('\n\n');
 }
 
+/**
+ * What the classifier's user message was built from — kinds and sizes, never a
+ * character of any of it.
+ *
+ *   `plan_file×1 (3.2k), issue #471 (1.1k), body (840), commits×7, files×12 (+31 hunks)`
+ *
+ * The brief asks the log to show "the prompt's components … without recording
+ * secrets or excess diff content", and a component list is the one form of that
+ * which cannot leak by accident: every value here is a count or a length. The
+ * issue number is the single identifier that appears, and it is already in the
+ * PR body, the sources list and the evidence.
+ *
+ * Counts describe what was SENT, so every cap `buildIntentPrompt` applies is
+ * applied here too — an inventory that reported forty files for a prompt that
+ * carried forty of them would be describing a different request than the one we
+ * paid for.
+ */
+export function describePromptBlocks(input: IntentPromptInput): string {
+  const size = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
+  const parts: string[] = [];
+
+  if (input.planFiles.length > 0) {
+    const chars = input.planFiles.reduce((sum, f) => sum + f.text.length, 0);
+    parts.push(`plan_file×${input.planFiles.length} (${size(chars)})`);
+  }
+  if (input.issue) {
+    const chars = input.issue.title.length + (input.issue.body?.length ?? 0);
+    parts.push(`issue #${input.issue.number} (${size(chars)})`);
+  }
+  if (input.body) parts.push(`body (${size(input.body.length)})`);
+
+  const commits = Math.min(input.commitMessages.length, MAX_COMMIT_MESSAGES);
+  if (commits > 0) parts.push(`commits×${commits}`);
+
+  const files = input.changedFiles.slice(0, MAX_CHANGED_PATHS);
+  if (files.length > 0) {
+    const hunks = files.reduce(
+      (sum, f) => sum + Math.min(f.hunkHeaders.length, MAX_HUNK_HEADERS_PER_FILE),
+      0,
+    );
+    parts.push(`files×${files.length} (+${hunks} hunks)`);
+  }
+  if (input.missingContext.length > 0) {
+    parts.push(`missing_context×${input.missingContext.length}`);
+  }
+  return parts.join(', ');
+}
+
 // ---- Rendering --------------------------------------------------------------
 
 /**

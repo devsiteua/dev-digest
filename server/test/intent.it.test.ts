@@ -393,6 +393,32 @@ d('L03 intent layer (Testcontainers pg)', () => {
     expect(user).not.toContain('import { rateLimit }');
   });
 
+  it('logs what the prompt was built from, and none of what it said', async () => {
+    const lines: Record<string, unknown>[] = [];
+    const app = await makeApp();
+    app.log.info = ((obj: Record<string, unknown>) => {
+      if (obj && typeof obj === 'object') lines.push(obj);
+    }) as typeof app.log.info;
+
+    const prId = await makePr(await makeRepo(), {
+      body: 'Implements the plan in specs/rate-limit.md.',
+      commits: ['add limiter middleware'],
+      files: ['src/middleware/limit.ts'],
+    });
+    await derive(app, prId);
+
+    const line = lines.find((l) => typeof l.blocks === 'string');
+    expect(line).toBeDefined();
+    expect(line!.tokensIn).toBeGreaterThan(0);
+    expect(line!.tokensOut).toBeGreaterThan(0);
+    expect(line!.model).toBe('deepseek/deepseek-v4-flash');
+    expect(line!.blocks).toContain('plan_file×1');
+    expect(line!.blocks).toContain('commits×1');
+    // Kinds and sizes only — no character of the plan, the body or a commit.
+    expect(line!.blocks).not.toContain('stop unauthenticated abuse');
+    expect(line!.blocks).not.toContain('add limiter middleware');
+  });
+
   // ---- Persistence and the routes -----------------------------------------
 
   it('persists the model, the cost and the head it was derived at', async () => {

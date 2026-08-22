@@ -137,6 +137,8 @@
     "emptyTitle": "No intent derived yet",
     "emptyBody": "Read the PR's description, linked issue and any plan it points at, and state what it is trying to do.",
     "derivedBy": "derived by {model}",
+    "usage": "{tokensIn}→{tokensOut} tokens · {cost}",
+    "unpriced": "unpriced",
     "missingContext": "Derived without context the PR points at:",
     "kind": {
       "feature": "feature",

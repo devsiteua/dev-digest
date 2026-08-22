@@ -103,6 +103,29 @@ describe("IntentCard", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("shows what the derivation cost, which D6 promised and Round 1 did not ship", () => {
+    stored = RECORD;
+    renderCard();
+    expect(screen.getByText(/900→120 tokens/)).toBeInTheDocument();
+    expect(screen.getByText(/\$0\.0004/)).toBeInTheDocument();
+    expect(screen.getByText(/deepseek\/deepseek-v4-flash/)).toBeInTheDocument();
+  });
+
+  it("says unpriced rather than $0.0000 for a model with no known price", () => {
+    // Null and free are different facts, and only one of them is worth a number.
+    stored = { ...RECORD, cost_usd: null };
+    renderCard();
+    expect(screen.getByText(/unpriced/)).toBeInTheDocument();
+    expect(screen.queryByText(/\$0/)).not.toBeInTheDocument();
+  });
+
+  it("prints a genuinely free run as a number, not as unpriced", () => {
+    stored = { ...RECORD, cost_usd: 0 };
+    renderCard();
+    expect(screen.getByText(/\$0\.00/)).toBeInTheDocument();
+    expect(screen.queryByText(/unpriced/)).not.toBeInTheDocument();
+  });
+
   it("offers an empty state with a derive action when nothing was derived", () => {
     stored = null;
     renderCard();

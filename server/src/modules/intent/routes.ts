@@ -42,13 +42,21 @@ export default async function intentRoutes(appBase: FastifyInstance) {
     { schema: { params: IdParams }, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
     async (req): Promise<PrIntentRecord> => {
       const { workspaceId } = await getContext(app.container, req);
-      const intent = await app.container.intent.derive(workspaceId, req.params.id);
+      const { record: intent, blocks } = await app.container.intent.derive(
+        workspaceId,
+        req.params.id,
+      );
       // What it cost and what it was built from, on the server too — the card is
       // not the only place this has to be answerable from.
+      //
+      // `blocks` is the brief's "log the prompt's components … without recording
+      // secrets or excess diff content": kinds and sizes, no character of any
+      // source. Everything else here is metadata the row already carries.
       req.log.info(
         {
           prId: req.params.id,
           sources: intent.sources,
+          blocks,
           // What the derivation could NOT read. Sentences we wrote, carrying a
           // path or an issue number the author supplied — never a source's text.
           missingContext: intent.missing_context,
@@ -56,6 +64,8 @@ export default async function intentRoutes(appBase: FastifyInstance) {
           kind: intent.kind,
           provider: intent.provider,
           model: intent.model,
+          tokensIn: intent.tokens_in,
+          tokensOut: intent.tokens_out,
           costUsd: intent.cost_usd,
           durationMs: intent.duration_ms,
         },

@@ -13,6 +13,7 @@ import {
 } from "@devdigest/ui";
 import type { IntentSource, PrIntentRecord } from "@devdigest/shared";
 import { usePrIntent, useDeriveIntent } from "../../../../../../../lib/hooks/intent";
+import { formatCost, formatTokenCount } from "../../../../../../../lib/format";
 import { s } from "./styles";
 
 interface IntentCardProps {
@@ -142,7 +143,17 @@ export function IntentCard({ prId }: IntentCardProps) {
             {t(`intent.source.${source}`)}
           </Badge>
         ))}
-        <span style={s.meta}>{t("intent.derivedBy", { model: intent.model })}</span>
+        <span style={s.meta}>
+          {t("intent.derivedBy", { model: intent.model })}
+          {" · "}
+          {t("intent.usage", {
+            tokensIn: formatTokenCount(intent.tokens_in),
+            tokensOut: formatTokenCount(intent.tokens_out),
+            // Never "$0.0000" for a model we have no price for: null and free are
+            // different facts, and only one of them is worth a number.
+            cost: intent.cost_usd == null ? t("intent.unpriced") : formatCost(intent.cost_usd),
+          })}
+        </span>
       </div>
     </Card>
   );
