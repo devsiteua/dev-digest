@@ -517,6 +517,81 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
     ]);
   }
 
+  // ---- L03: the demo PR's derived intent ----
+  // One `pr_intent` row for PR #482, so the Intent card, the prompt's intent slot
+  // and the Run Trace block all have a populated state without a provider key or
+  // a billable call — the trap recorded for `agent_runs` (root `INSIGHTS.md`,
+  // 2026-08-01).
+  //
+  // `headSha` is the PR's own head, so a review reads this row as a CACHE HIT and
+  // derives nothing. A seeded intent on a different SHA would be worse than none:
+  // the first run would quietly spend a model call replacing it.
+  //
+  // Tier `low` is not a placeholder — it is what the ladder actually returns for
+  // this PR. Its body is 95 characters, under `MIN_SUBSTANTIVE_BODY_CHARS`, it
+  // links no issue and names no plan file, so the evidence is title + commits +
+  // branch + changed paths, which `tierFromSources` calls `low`
+  // (0.4 = `TIER_SCORE.low`). Seeding `high` would demo a number the code cannot
+  // reproduce, and the first Re-derive would visibly downgrade it on screen.
+  //
+  // Guarded on the intent row's OWN absence rather than inside the `if (!pr)`
+  // block above, so an already-seeded dev database picks it up without dropping
+  // the volume (server `INSIGHTS.md`, 2026-08-02).
+  if (demoPr) {
+    const existingIntent = await db
+      .select({ prId: t.prIntent.prId })
+      .from(t.prIntent)
+      .where(eq(t.prIntent.prId, demoPr.id));
+    if (existingIntent.length === 0) {
+      await db.insert(t.prIntent).values({
+        prId: demoPr.id,
+        intent:
+          'Throttle the public, unauthenticated API surface so one client cannot exhaust it.',
+        inScope: [
+          'A token-bucket limiter in front of the public endpoints',
+          'Per-endpoint budgets read from src/config.ts',
+          'Rate-limit headers on throttled responses',
+        ],
+        outOfScope: [
+          'Authenticated internal endpoints',
+          'The webhook signature check the limiter sits next to',
+        ],
+        kind: 'feature',
+        // Never chosen independently of the tier: this is `TIER_SCORE.low`.
+        confidence: 0.4,
+        confidenceTier: 'low',
+        sources: ['pr_title', 'commits', 'branch', 'file_paths'],
+        evidence: [
+          {
+            source: 'pr_title',
+            ref: 'PR #482',
+            quote: 'Add rate limiting to public API endpoints',
+          },
+          {
+            source: 'commits',
+            ref: 'a1b2c3d4e5f6',
+            quote: 'Add token-bucket rate limiter',
+          },
+          {
+            source: 'file_paths',
+            ref: 'src/middleware/ratelimit.ts',
+            quote: 'new middleware, +84 lines',
+          },
+        ],
+        // Equal to `DEFAULT_INTENT_MODEL` today. Kept as the seed's own literals
+        // rather than imported: `src/db/` sits below `src/modules/`, and a seed
+        // reaching up into a module inverts that direction for two strings.
+        provider: DEFAULT_PROVIDER,
+        model: DEFAULT_MODEL,
+        tokensIn: 1_840,
+        tokensOut: 214,
+        costUsd: 0.0002,
+        durationMs: 2_310,
+        headSha: demoPr.headSha,
+      });
+    }
+  }
+
   // NOTE: deliberately no `lastReviewedSha` on the demo PR. Setting it would flip
   // deriveReviewStatus to `reviewed`, and the PR list opens on the `needs_review`
   // filter — the demo PR would vanish from the list it is meant to demonstrate.

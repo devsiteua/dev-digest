@@ -41,6 +41,7 @@ sequenceDiagram
   participant R as reviews/routes.ts
   participant S as ReviewService
   participant X as ReviewRunExecutor
+  participant N as intent module
   participant I as repoIntel facade
   participant E as reviewer-core
   participant L as LLM
@@ -56,9 +57,18 @@ sequenceDiagram
   W->>R: GET /runs/:id/events (SSE, replay buffer first)
 
   X->>X: loadDiff (GitHub or local git)
+  X->>N: forReview(pull, changed paths) — once per batch
+  N->>D: SELECT pr_intent
+  alt head_sha unchanged
+    N-->>X: cached intent, zero model calls
+  else never derived, or head moved
+    N->>L: one cheap structured call (review_intent model)
+    N->>D: UPSERT pr_intent
+    N-->>X: derived intent + confidence note
+  end
   X->>I: getRepoMap / getFileRank / getCallerSignatures
   I-->>X: repo map + "top 5% blast risk" note + caller signatures
-  X->>E: reviewPullRequest({systemPrompt, diff, repoMap, callers, prDescription, llm})
+  X->>E: reviewPullRequest({systemPrompt, diff, repoMap, callers, prDescription, intent, llm})
   E->>E: assemblePrompt + INJECTION_GUARD + wrapUntrusted
   E->>L: completeStructured(schema = Review)
   L-->>E: JSON findings
@@ -69,6 +79,11 @@ sequenceDiagram
   X--)W: SSE events → complete
   W->>R: refetch GET /pulls/:id/reviews
 ```
+
+Two of those steps are **pre-work**: the diff and the intent are resolved once for the whole
+batch, before the first agent starts, and every agent in the batch is handed the same pair.
+The intent step is a cache keyed on `pr_intent.head_sha` — an unchanged head costs nothing — and
+it is allowed to fail: the run continues without the section, with the reason in the Live Log.
 
 ## The five invariants
 
