@@ -18,10 +18,19 @@ here, and do not let this table become a second source of truth.
 | [`planner`](planner.md) | Turns a task into a Development Plan grounded in this repo's constraints | `opus` | proactively, or "plan X" |
 | [`implementer`](implementer.md) | Executes an approved plan across `server/` and `client/` | `inherit` | **explicitly only** |
 | [`researcher`](researcher.md) | Investigates and reports — repository, external docs, or both | `sonnet` | proactively, or "research X" |
+| [`test-writer`](test-writer.md) | Writes tests as the deliverable, across `client/`, `server/` and `reviewer-core/` | `inherit` | **explicitly only** |
+| [`architecture-reviewer`](architecture-reviewer.md) | Judges the design of code that exists, one axis in depth, read-only | `opus` | **explicitly only** |
+| [`plan-verifier`](plan-verifier.md) | Checks finished code against a plan, item by item, with an evidence cell per item | `opus` | **explicitly only** |
+| [`doc-writer`](doc-writer.md) | Turns a shipped feature into permanent documentation, with diagrams | `sonnet` | **explicitly only** |
 
-`model: inherit` means the implementer runs on whatever the session runs on, so
-implementation quality tracks the model you chose. `planner` is pinned to `opus` because
-planning is where reasoning buys the most.
+`model: inherit` means the agent runs on whatever the session runs on, so its output quality
+tracks the model you chose — `implementer` and `test-writer` both write code, so both take it.
+`planner` is pinned to `opus` because planning is where reasoning buys the most;
+`architecture-reviewer` and `plan-verifier` are pinned there too, because neither produces
+code and both fail by being lazy rather than by being uninformed.
+
+Only `planner` and `researcher` are invited to run proactively. Everything that writes to the
+tree, and every agent that returns a verdict someone might act on, is invoked by name.
 
 ## Permissions
 
@@ -35,6 +44,12 @@ promise in prose.
 | | | `WebSearch` `WebFetch` | external facts are `researcher`'s job |
 | `implementer` | `Read` `Edit` `Write` `Grep` `Glob` `Bash` `Skill` `TodoWrite` | `WebSearch` `WebFetch` | implementation does not browse; unknowns come back as questions |
 | `researcher` | `Read` `Grep` `Glob` `Bash`* `WebSearch` `WebFetch` `TodoWrite` | `Write` `Edit` | reports never mutate the tree |
+| `test-writer` | `Read` `Edit` `Write` `Grep` `Glob` `Bash` `Skill` `TodoWrite` | `WebSearch` `WebFetch` | same as `implementer`: unknowns come back as questions |
+| `architecture-reviewer` | `Read` `Grep` `Glob` `Bash`* `Skill` `TodoWrite` | `Write` `Edit` | a reviewer that can write becomes the author it is reviewing |
+| | | `WebSearch` `WebFetch` | external facts are `researcher`'s job |
+| `plan-verifier` | `Read` `Grep` `Glob` `Bash`* `TodoWrite` | `Write` `Edit` | a verifier that fixes what it finds stops being a verifier |
+| | | **`Skill`** | a loaded quality skill turns item-by-item verification into a general code review — the one failure mode that agent exists to prevent |
+| `doc-writer` | `Read` `Grep` `Glob` `Bash`* `Write` `Edit` `Skill` `TodoWrite` | `WebSearch` `WebFetch` | it documents this repository, not the internet |
 
 `Bash`* — read-only by instruction (`cat`, `grep`, `git log`, `git show`). The tool itself
 cannot be narrowed per agent: **`tools` says which tools, never with which arguments.**
@@ -43,6 +58,14 @@ Argument-level control lives in `.claude/settings.json` (`permissions.allow` / `
 which is why `scripts/pr-self-review-gate.sh` still blocks `gh pr create` from inside
 `implementer`. If you ever need to gate *which agents may run at all*, that is a permission
 rule too: `Agent(planner)`, `Agent(implementer)`.
+
+There is one per-agent lever these files deliberately do not pull. The subagent frontmatter
+schema also accepts `disallowedTools` and a `hooks:` block scoped to a single agent, and a
+per-agent `PreToolUse` hook is the only mechanism that sees the *command string* rather than
+the tool name. Every file here carries exactly four fields (`name`, `description`, `tools`,
+`model`), so `Bash`* stays an instruction; `architecture-reviewer.md` says so in its own words
+rather than implying a guarantee it does not have. Adding a hook means adding a script and a
+test for it — a decision of its own, not a tidy-up.
 
 Prohibitions that are instruction-only, not tool-only (`implementer` must not commit, push,
 or touch `client/src/vendor/ui/**` and `server/src/db/migrations/**`) are written into the
@@ -55,29 +78,41 @@ agent file because no tool boundary expresses them.
 | `planner` | a task, plus the packages it touches | one plan file: `specs/<slug>.md`, or `<pkg>/specs/<slug>.md` for single-package work, following `specs/TEMPLATE.md` plus `Constraints in force` · `Implementation plan` · `Handoff` | path, step count, skills the implementer will need, risks, blocking questions |
 | `implementer` | **a path to a plan file** + which steps to run | the code changes themselves | changes table, every command with its real output, deviations, blocked steps, what was not checked, insight candidates |
 | `researcher` | a concrete question | nothing | a fixed-template report: conclusion, evidence with `file:line` or URL, and an explicit "Not found" |
+| `test-writer` | what to cover, and the regression the test must catch | test files, fixtures and test helpers — nothing else | files table, every command with its real output and test count, what is deliberately not covered, whether production code stayed untouched |
+| `architecture-reviewer` | **a scope that resolves to a file list** — a diff, paths, or a package | nothing | findings with a severity and a `file:line` each, pre-existing debt kept separate, `Checked and clean`, `Not checked` |
+| `plan-verifier` | **a path to a plan file** + what counts as the finished code | nothing | `Items extracted: N` and a table with exactly N rows, each `MET`/`PARTIAL`/`NOT MET`/`NOT VERIFIED` with evidence, plus scope creep and out-of-scope sweeps |
+| `doc-writer` | the subject, its source material, and who will read it | markdown at the addresses in `docs/README.md`, plus its pointer lines | routing decision, every claim with the `file:line` that verified it, diagrams and why each earned its place, contradictions found |
 
 ```
 task ─► planner ─► specs/<slug>.md ─► implementer ─► code + report
-                                          │
-                                          ├─ architecture review   ─┐
-                                          ├─ security review        ├─ not this agent's job
-                                          └─ /pr-self-review        ─┘
+                         │                                │
+                         │       ┌────────────────────────┤
+                         │       ├─► test-writer           ─► tests + report
+                         │       ├─► architecture-reviewer ─► findings
+                         └───────┼─► plan-verifier         ─► N items, N verdicts
+                                 ├─► doc-writer            ─► docs/ + pointers
+                                 │
+                                 ├─  security review   ─┐  still nobody's job
+                                 └─  /pr-self-review   ─┘  a skill, not an agent
 ```
+
+`plan-verifier` is drawn from both ends because it takes two inputs: the plan `planner` wrote
+and the code `implementer` produced. Nothing in this picture spawns anything else in it.
 
 ## What is deliberately not here
 
-- **No architecture or security review agent yet.** `implementer` names both as out of scope
-  in every report, so the gap is visible rather than silently filled by the agent that wrote
-  the code.
+- **No security review agent yet.** `implementer` names it as out of scope in every report,
+  and `architecture-reviewer` repeats the exclusion, so the gap stays visible rather than
+  being silently filled by the agent that wrote the code.
 - **Review skills are not agents.** `/pr-self-review` (this repo) and `/code-review`
   (built-in) stay skills; `implementer` runs neither, because an implementer that reviews
   itself produces a green that hides findings.
 - **`engineering-insights` is nobody's subagent.** `implementer` returns insight *candidates*;
   the main session records them. Two agents appending to one `INSIGHTS.md` is a conflict
   waiting to happen.
-- **No agent chains further.** None of the three can spawn another.
+- **No agent chains further.** None of the seven can spawn another.
 
-## Where planner's and implementer's rules come from
+## Where these agents' rules come from
 
 External, official — read 2026-08-21:
 
@@ -99,6 +134,11 @@ Internal, this repository:
 | `specs/README.md`, `specs/TEMPLATE.md` | where a plan lives, its sections, and why `Out of scope` carries the most weight |
 | `docs/agent-prompts/README.md` § Skills / rules | a rule copied between two prompts wanted to be a skill — the reason the routing table is single-sourced |
 | `INSIGHTS.md` 2026-08-21 entry | the routing table's location, and the three implementation-time deltas to it |
+| `docs/README.md` | the index `doc-writer` routes by, so the routing table is not copied into an agent file |
+| `TESTING.md` § Suite map, § Conventions | the four lanes `test-writer` chooses between, and the `*.it.test.ts` split |
+| `docs/architecture.md` § "The five invariants" · § Tenancy | the axes `architecture-reviewer` walks |
+| `server/INSIGHTS.md` 2026-08-06 | `arch:check` exits 0 on a `warn` — why the reviewer reads output, not exit codes |
+| `specs/README.md` rule 3 | why `plan-verifier` sweeps `Out of scope` as a negative check |
 
 **One thing the sources do not settle.** Whether splitting `planner → implementer` is itself
 an anti-pattern is genuinely open: one community writeup calls role-based handoff a
@@ -112,7 +152,7 @@ which is the point of that section.
 
 1. `name` + `description` are the only required fields — but list `tools` anyway.
 2. Write the `description` for the router, not for a human: what it does, when to use it, and
-   the trigger terms (English and Ukrainian, as the existing three do). "Use proactively" is
+   the trigger terms (English and Ukrainian, as every agent here does). "Use proactively" is
    an invitation — leave it out for anything that writes to the tree.
 3. Give it a **fixed output template** where every section stays even when empty. An empty
    "Not found" is a claim; an omitted one is a gap.
