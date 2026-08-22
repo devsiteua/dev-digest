@@ -21,10 +21,16 @@ const TRACE: RunTrace = {
 
 /** Set by a test that needs the L03 slot; the drawer reads the trace via the hook. */
 let intentSlot: string | null = null;
+/** Undefined on every trace written before the scope gate existed. */
+let scopeGate: string | undefined;
 
 vi.mock("../../../../../../../lib/hooks/trace", () => ({
   useRunTrace: () => ({
-    data: { ...TRACE, prompt_assembly: { ...TRACE.prompt_assembly, intent: intentSlot } },
+    data: {
+      ...TRACE,
+      stats: { ...TRACE.stats, ...(scopeGate === undefined ? {} : { scope_gate: scopeGate }) },
+      prompt_assembly: { ...TRACE.prompt_assembly, intent: intentSlot },
+    },
     isLoading: false,
   }),
 }));
@@ -34,7 +40,11 @@ vi.mock("../../../../../../../lib/hooks/reviews", () => ({
 
 import RunTraceDrawer from "./RunTraceDrawer";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  intentSlot = null;
+  scopeGate = undefined;
+});
 
 function renderWithIntl(ui: React.ReactElement) {
   return render(
@@ -51,6 +61,22 @@ describe("A5 Run Trace drawer (smoke)", () => {
     expect(screen.getByText("Stats")).toBeInTheDocument();
     expect(screen.getByText("2/2 passed")).toBeInTheDocument();
     expect(screen.getByText("Tool calls")).toBeInTheDocument();
+  });
+
+  it("shows what the scope gate did, beside grounding", () => {
+    scopeGate = "2/6 in scope; 1 out-of-scope CRITICAL kept as the signal";
+    renderWithIntl(<RunTraceDrawer runId="r1" agentName="Security" prNumber={482} onClose={() => {}} />);
+    expect(screen.getByText("2/2 passed")).toBeInTheDocument();
+    expect(screen.getByText(/1 out-of-scope CRITICAL kept as the signal/)).toBeInTheDocument();
+  });
+
+  it("says nothing about a gate that did not exist when the run was written", () => {
+    // `scope_gate` is nullish precisely so a historical trace still opens; the
+    // absence must render as no badge, never as a dash.
+    scopeGate = undefined;
+    renderWithIntl(<RunTraceDrawer runId="r1" agentName="Security" prNumber={482} onClose={() => {}} />);
+    expect(screen.getByText("2/2 passed")).toBeInTheDocument();
+    expect(screen.queryByText(/in scope/)).not.toBeInTheDocument();
   });
 
   it("shows the derived-intent prompt block only when the run had one", () => {

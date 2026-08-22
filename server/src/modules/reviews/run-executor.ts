@@ -233,7 +233,7 @@ export class ReviewRunExecutor {
           if (this.container.runBus.isCancelled(runId)) throw new RunCancelledError();
         },
       });
-      const { tokensIn, tokensOut, costUsd, grounding } = outcome;
+      const { tokensIn, tokensOut, costUsd, grounding, scopeGate } = outcome;
 
       const keptFindings = outcome.review.findings;
 
@@ -292,6 +292,10 @@ export class ReviewRunExecutor {
           cost_usd: costUsd,
           findings: findingRows.length,
           grounding,
+          // What the scope gate did. Written on every run from here on; a trace
+          // from before the gate existed simply has no key, which is why
+          // `RunStats.scope_gate` is nullish.
+          scope_gate: scopeGate,
         },
         prompt_assembly: outcome.assembly,
         tool_calls: outcome.chunks.map((c) => ({

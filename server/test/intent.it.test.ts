@@ -527,6 +527,68 @@ d('L03 intent layer (Testcontainers pg)', () => {
     expect(user).not.toContain('mock issue');
   });
 
+  it('drops out-of-scope noise end to end, and keeps one signal', async () => {
+    // The unit suite proves the gate's arithmetic. This proves the WIRING:
+    // contract → structured reply → grounding → gate → persisted findings →
+    // the trace stat the drawer reads. The mock diff touches src/config.ts
+    // around line 11, so every finding here grounds.
+    const at = (over: Record<string, unknown>) => ({
+      id: `f-${Math.random().toString(36).slice(2, 8)}`,
+      severity: 'WARNING',
+      category: 'bug',
+      title: 'finding',
+      file: 'src/config.ts',
+      start_line: 11,
+      end_line: 11,
+      rationale: 'because',
+      confidence: 0.8,
+      ...over,
+    });
+    const llm = new MockLLMProvider('openai', {
+      structuredBySchema: {
+        PrIntent: INTENT_FIXTURE,
+        Review: {
+          verdict: 'request_changes',
+          summary: 'mixed',
+          score: 40,
+          findings: [
+            at({ scope: 'in', title: 'in-scope bug' }),
+            at({ scope: 'out', severity: 'CRITICAL', confidence: 0.95, title: 'the signal' }),
+            at({ scope: 'out', severity: 'CRITICAL', confidence: 0.5, title: 'quieter crit' }),
+            at({ scope: 'out', title: 'out-of-scope warning' }),
+          ],
+        },
+      },
+    });
+    const app = await makeApp({ llm });
+    const prId = await makePr(await makeRepo(), { body: 'Closes #471' });
+
+    await app.inject({ method: 'POST', url: `/pulls/${prId}/review`, payload: { all: true } });
+    const runs = await waitForPrRuns(pg.handle.db, prId);
+    expect(runs.every((r) => r.status === 'done')).toBe(true);
+
+    const reviews = await pg.handle.db.select().from(t.reviews).where(eq(t.reviews.prId, prId));
+    const rows = await pg.handle.db
+      .select()
+      .from(t.findings)
+      .where(eq(t.findings.reviewId, reviews[0]!.id));
+    expect(rows.map((r) => r.title).sort()).toEqual(['in-scope bug', 'the signal']);
+
+    // The gate is not allowed to be silent: the drops are in the run log and the
+    // summary is in the trace the drawer reads.
+    const [trace] = await pg.handle.db
+      .select()
+      .from(t.runTraces)
+      .where(eq(t.runTraces.runId, runs[0]!.id));
+    const doc = trace!.trace as { stats: { scope_gate?: string }; log: { msg: string }[] };
+    expect(doc.stats.scope_gate).toContain('2/4 in scope');
+    expect(doc.stats.scope_gate).toContain('kept as the signal');
+    expect(doc.log.some((l) => l.msg.includes('scope gate dropped "quieter crit"'))).toBe(true);
+    expect(doc.log.some((l) => l.msg.includes('scope gate dropped "out-of-scope warning"'))).toBe(
+      true,
+    );
+  });
+
   it('uses the loaded diff for changed paths, not pr_files', async () => {
     // pr_files is empty; the diff still names a file, and file_paths is still a
     // source. loadDiff prefers `git diff` and only falls back to that table.

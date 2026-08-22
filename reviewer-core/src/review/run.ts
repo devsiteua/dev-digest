@@ -9,6 +9,7 @@ import type {
 import { Review as ReviewSchema } from '@devdigest/shared';
 import { assemblePrompt } from '../prompt.js';
 import { groundFindings, groundingSummary } from '../grounding.js';
+import { applyScopeGate, scopeGateSummary } from '../scope-gate.js';
 import { reduceReviews, scoreFromFindings, sliceDiff } from './reduce.js';
 
 /**
@@ -107,6 +108,12 @@ export interface ReviewOutcome {
   grounding: string;
   /** Findings dropped by grounding, with reasons (for logs / "never go silent"). */
   dropped: { finding: Finding; reason: string }[];
+  /** Human-readable scope-gate summary, e.g. "2/6 in scope". */
+  scopeGate: string;
+  /** Findings dropped as out of scope, with reasons. Kept apart from grounding's
+   *  so a reader of the trace can tell a hallucinated location from a real
+   *  defect that simply was not this PR's job. */
+  scopeDropped: { finding: Finding; reason: string }[];
   /** Which path ran. */
   mode: ReviewMode;
   /** Prompt assembly (for the run trace). Single-pass: the one call; map-reduce: the whole-diff assembly. */
@@ -211,13 +218,31 @@ export async function reviewPullRequest(input: ReviewInput): Promise<ReviewOutco
   }
   emit('result', `Citation grounding: ${grounding}`);
 
-  // Score is derived from the findings that SURVIVED grounding (not the model's
+  // The scope gate, immediately after grounding and for the same reason it sits
+  // here rather than in a caller: it is a property of the review, not of who
+  // asked for one. Inert unless the reviewing model labelled something `out`,
+  // which it is only asked to do when the prompt carried a derived intent.
+  const scoped = applyScopeGate(ground.kept);
+  const scopeGate = scopeGateSummary(scoped);
+  for (const d of scoped.dropped) {
+    emit('info', `scope gate dropped "${d.finding.title}": ${d.reason}`);
+  }
+  // Announced only when the model actually labelled something out of scope.
+  // The summary is persisted either way; a run whose prompt carried no intent
+  // would otherwise report "8/8 in scope" about a question nobody asked.
+  if (ground.kept.some((f) => f.scope === 'out')) {
+    emit('result', `Scope gate: ${scopeGate}`);
+  }
+
+  // Score is derived from the findings that SURVIVED both gates (not the model's
   // self-reported number, and not the pre-grounding set) so the score, the
   // findings list, and the deterministic event always agree.
   return {
-    review: { ...merged, findings: ground.kept, score: scoreFromFindings(ground.kept) },
+    review: { ...merged, findings: scoped.kept, score: scoreFromFindings(scoped.kept) },
     grounding,
     dropped: ground.dropped,
+    scopeGate,
+    scopeDropped: scoped.dropped,
     mode,
     assembly,
     chunks: chunks.map((c) => ({ label: c.label })),

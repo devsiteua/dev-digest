@@ -584,7 +584,12 @@ describe('renderIntentForPrompt', () => {
     const { note } = renderIntentForPrompt({ ...RECORD, sources: [...RECORD.sources] });
     expect(note).toContain('confidence low');
     expect(note).toMatch(/claims about itself/i);
-    expect(note).toMatch(/never narrows what you review/i);
+    // D19: the old clause forbade the behaviour the scope gate now depends on.
+    // What it protected is still said — the claim excuses nothing — but the note
+    // no longer tells the model not to distinguish in-scope from out.
+    expect(note).not.toMatch(/never narrows what you review/i);
+    expect(note).toMatch(/never excuses a defect/i);
+    expect(note).toMatch(/inside this change or beside it/i);
   });
 
   it('carries the missing context into the block the reviewer actually reads', () => {

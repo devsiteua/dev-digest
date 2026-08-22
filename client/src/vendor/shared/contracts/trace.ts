@@ -75,6 +75,15 @@ export const RunStats = z.object({
   cost_usd: z.number().nullish(),
   findings: z.number().int(),
   grounding: z.string(),
+  /**
+   * What the scope gate did, e.g. `2/6 in scope; 1 out-of-scope CRITICAL kept as
+   * the signal`.
+   *
+   * Nullish for the same reason `cost_usd` is: every trace written before the
+   * gate existed has no such key, and requiring it would make the trace drawer
+   * 500 on every historical run.
+   */
+  scope_gate: z.string().nullish(),
 });
 export type RunStats = z.infer<typeof RunStats>;
 

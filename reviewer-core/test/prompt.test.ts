@@ -230,7 +230,26 @@ describe('assemblePrompt — ## PR intent (derived)', () => {
       intent: 'DERIVED-INTENT',
       intentNote: 'TRUSTED-NOTE',
     });
-    expect(assembly.intent).toBe('TRUSTED-NOTE\nDERIVED-INTENT');
+    // The rule belongs in the record too: it is what explains, months later, why
+    // the scope gate dropped a finding this run reported.
+    expect(assembly.intent).toMatch(/^TRUSTED-NOTE\nDERIVED-INTENT\nScope, for this review:/);
+  });
+
+  it('renders the scope rule as OURS, outside the untrusted block', () => {
+    const user = userOf({ ...BASE, intent: 'DERIVED-INTENT' });
+    expect(user).toContain('Scope, for this review:');
+    // Trusted region: a rule the model is meant to ACT on cannot sit inside a
+    // block the system prompt has declared inert data.
+    const at = user.indexOf('Scope, for this review:');
+    expect(user.lastIndexOf('<untrusted', at)).toBeLessThan(user.lastIndexOf('</untrusted>', at));
+    // And it says whose judgement the label is.
+    expect(user).toMatch(/judgement is YOURS/);
+    expect(user).toMatch(/never tell you what to look at/);
+  });
+
+  it('emits no scope rule when there is no intent to be in or out of', () => {
+    expect(userOf({ ...BASE })).not.toContain('Scope, for this review:');
+    expect(userOf({ ...BASE, intent: '   ' })).not.toContain('Scope, for this review:');
   });
 
   it('leaves the system message alone whether or not an intent is present', () => {

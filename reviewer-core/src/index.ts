@@ -22,6 +22,10 @@ export {
 // Citation grounding — the mandatory mechanical gate for diff findings.
 export { groundFindings, groundingSummary, type GroundingResult } from './grounding.js';
 
+// The scope gate — drops findings the reviewer judged beside the change, keeping
+// one signal for a serious problem outside the PR's bounds.
+export { applyScopeGate, scopeGateSummary, type ScopeGateResult } from './scope-gate.js';
+
 // Structured-output helpers (Zod → JSON Schema + parse-with-repair).
 export {
   toJsonSchema,

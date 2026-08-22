@@ -56,9 +56,16 @@ export function TraceBody({ trace, findings }: { trace: RunTrace; findings: Find
         icon="Gauge"
         title={t("trace.stats")}
         right={
-          <Badge color="var(--ok)" bg="var(--ok-bg)" icon="Check">
-            {stats.grounding}
-          </Badge>
+          <>
+            <Badge color="var(--ok)" bg="var(--ok-bg)" icon="Check">
+              {stats.grounding}
+            </Badge>
+            {/* Absent on every trace written before the gate existed — the key is
+                nullish for exactly that reason, so this must not render "—". */}
+            {stats.scope_gate != null && (
+              <Badge icon="Target">{stats.scope_gate}</Badge>
+            )}
+          </>
         }
       >
         <div style={s.statsRow}>
