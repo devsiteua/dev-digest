@@ -73,6 +73,43 @@ Status:   resolved — the recipe generalises to experiment 1 and to any future 
 
 ## What Doesn't Work
 
+### 2026-08-22 · A plan's § Out of scope is a decision about EFFORT, never about the brief
+
+Trigger:  L03 Round 1 shipped, every one of its own acceptance criteria green. Auditing it
+          against the course brief afterwards found four requirements it did not meet — and the
+          most important of them, the scope filter, was sitting in the plan's own § Out of scope
+          marked "a product decision".
+Cause:    § Out of scope is written while planning, from the repository's constraints, and
+          nothing in the process ever diffs it against the document the work is graded on. So a
+          requirement can be declared out of scope by the same person who is supposed to deliver
+          it, and every later check — the plan's criteria, the tests, the self-review — measures
+          the narrowed plan rather than the brief. Round 1 went further and told the reviewing
+          model the opposite of the requirement in so many words ("it never narrows what you
+          review", `intent/helpers.ts`), which is what a plan sounds like once it has argued
+          itself out of a feature.
+Takeaway: before a lesson is called done, put the brief and the plan's § In scope / § Out of
+          scope side by side, item by item, and write the verdict down. A line in § Out of scope
+          is legitimate only when it says what will not be BUILT YET; it can never say what the
+          brief does not require. Round 2's audit table in `specs/L03-intent-layer.md` is the
+          shape to copy — one row per brief item, ✅/⚠️/❌, each with a `file:line`.
+Evidence: specs/L03-intent-layer.md § "Audit — every brief item against what Round 1 shipped"
+Status:   resolved
+
+### 2026-08-22 · `printf '%s' | tr | while read` silently skips a single-segment command — a guard that allowed everything
+
+Trigger:  `scripts/readonly-agent-guard.sh` was written, registered, and returned exit 0 for
+          `rm -rf server/dist`. Every deny case in its table failed at once; `bash -n` was clean.
+Cause:    `printf '%s'` emits no trailing newline, so `read` hits EOF on the only line, returns
+          non-zero with the data still unread, and the `while` body never runs. The script did
+          nothing and said nothing — exactly the failure mode a guard must not have.
+          `scripts/pr-self-review-gate.sh` has the same `printf '%s' | tr` shape and is fine only
+          because it pipes into `grep -q`, which does not care about the final newline.
+Takeaway: any `printf … | while read` loop needs `printf '%s\n'`. And a security control's first
+          test must be a DENY case that is known to fire: an allow-only table passes perfectly
+          against a script that does nothing at all.
+Evidence: scripts/readonly-agent-guard.sh:112 · server/test/readonly-agent-guard.test.ts
+Status:   resolved
+
 ### 2026-08-02 · Building a screen from design screenshots — the prototype's source says things a PNG cannot
 
 Trigger:  re-doing the L01 severity feature against the unpacked design prototype, after
@@ -314,6 +351,26 @@ Status:   → promoted to `CLAUDE.md` (Gotchas) on 2026-08-06, after the L02 con
 > Every rule they produced is live in `CLAUDE.md` (Gotchas).
 
 ## Tool & Library Notes
+
+### 2026-08-22 · Subagent frontmatter has no `hooks:` — but every hook payload carries `agent_type`
+
+Trigger:  three agent files and `.claude/agents/README.md` all claimed the subagent frontmatter
+          schema "accepts `disallowedTools` and a `hooks:` block scoped to a single agent",
+          citing it as the known upgrade that would make `Bash`-read-only a real boundary.
+Cause:    half of it was wrong. The subagent definition schema in Claude Code 2.1.240 carries
+          `description`, `tools`, `disallowedTools`, `prompt`, `model`, `mcpServers`,
+          `criticalSystemReminder_EXPERIMENTAL`, `skills`, `initialPrompt`, `maxTurns`,
+          `background`, `memory`, `effort`, `permissionMode`, `observer`, `observerMessage`.
+          There is no `hooks:` field. `disallowedTools` is real.
+Takeaway: to scope a `PreToolUse` rule to one agent, register ONE repo-level hook and branch on
+          `agent_type` inside it — the shared payload builder sets `agent_type` and `agent_id` on
+          every hook event, `PreToolUse` included, so the script can see both the agent and the
+          command string. That is the only place a per-agent argument rule can live. Verify a
+          frontmatter field against the installed binary before writing prose about it:
+          `strings -a "$(readlink -f "$(which claude)")" | grep -oE "disallowedTools:.{0,1500}"`
+          prints the schema with its `.describe()` strings.
+Evidence: scripts/readonly-agent-guard.sh:10-18 · .claude/agents/README.md § Permissions
+Status:   resolved
 
 ### 2026-08-22 · `grep -E '(Write|Edit)'` on an agent's `tools:` line always fires — `TodoWrite` contains `Write`
 

@@ -11,6 +11,24 @@ _None yet._
 
 ## What Doesn't Work
 
+### 2026-08-22 · "No line in the prompt begins with `+` or `-`" is a weaker claim wearing a stronger one's clothes
+
+Trigger:  the assertion that proves the intent classifier is sent hunk HEADERS and never change
+          bodies. Written over the whole user message, green, and it broke the moment the next
+          step added a `missing_context` list rendered with `- ` bullets.
+Cause:    it was never true of the whole prompt. A PR description written in markdown opens
+          lines with `-` all by itself; the test only passed because every fixture body happened
+          to be prose. The property it was reaching for belongs to one BLOCK — the one that
+          carries the change — and stating it globally made it depend on what every other block
+          happens to contain.
+Takeaway: scope a "this content never appears" assertion to the section that could carry it,
+          by slicing between the heading and its `</untrusted>`. A global negative over a
+          composed prompt breaks on unrelated additions, and until it does it is quietly proving
+          less than it says.
+Evidence: server/test/intent-helpers.test.ts § "carries hunk headers into the prompt" ·
+          server/test/intent.it.test.ts § "shows the classifier each file's hunk headers"
+Status:   resolved
+
 ### 2026-08-12 · Giving a DTO mapper a second optional argument turns every `rows.map(mapper)` into an index injection — and TypeScript agrees to it
 
 Trigger:  adding a derived `skill_count` to `toAgentDto(row, skillCount?: number)`, with

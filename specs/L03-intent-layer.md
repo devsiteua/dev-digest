@@ -1,6 +1,6 @@
 # L03 — Intent layer
 
-Status: Round 1 implemented · Round 2 draft
+Status: Round 1 implemented · Round 2 implemented · Smart Diff unspecced
 Owner: —
 Packages touched: server, client, reviewer-core, e2e
 
@@ -278,46 +278,57 @@ the wrap-up, not a licence to edit the vendored primitive.
 
 ## Acceptance criteria
 
-- [ ] A PR whose body names an existing repo-relative `.md` path gets that file's content into
+Ticked during Round 2's Step R2-7, against evidence re-run that session — not against
+Round 1's own report. `intent.it` = `server/test/intent.it.test.ts`.
+
+- [x] A PR whose body names an existing repo-relative `.md` path gets that file's content into
       the derivation and a `high` tier, with `plan_file` in `sources` and the path in `evidence`.
-- [ ] A PR whose body says `Closes #471` and nothing else substantive gets `high`, with
-      `linked_issue` in `sources`, resolved through `GitHubClient.getIssue`.
-- [ ] A PR with **no** body, no linked issue and no plan file still produces an intent, from
+      — `intent.it:173`. **Half proven:** `evidence[]` rows come from the model's reply, and the
+      fixture returns a `pr_title` row, so nothing exercises the path landing there.
+- [x] A PR whose body says `Closes #471` and nothing else substantive gets `high`, with
+      `linked_issue` in `sources`, resolved through `GitHubClient.getIssue`. — `intent.it:187`
+- [x] A PR with **no** body, no linked issue and no plan file still produces an intent, from
       title + commits + branch + changed paths, and is persisted with tier `low`. It is not an
-      error and not an empty card.
-- [ ] A PR with **zero `pr_files` rows** but a non-empty diff still yields file-path evidence
-      on the review path (D11).
-- [ ] The model cannot raise the tier: given a fixture whose `suggested_tier` is `high` over a
-      body-only PR, the persisted tier is `medium`.
-- [ ] The rendered prompt slot contains no substring of the PR body, the linked issue body, or
-      a plan file beyond a short quoted evidence span (D10).
-- [ ] `GET /pulls/:id/intent` returns `PrIntentRecord` for a derived PR and **404** for one
-      that was never derived.
-- [ ] `POST /pulls/:id/intent` re-derives and overwrites the row, and is rate-limited to the
-      same budget as `POST /pulls/:id/review` (`reviews/routes.ts:29`).
-- [ ] A review run reuses the persisted intent when `pr_intent.head_sha === pull.head_sha` and
-      makes **zero** LLM calls for intent; the Live Log says it was a cache hit.
-- [ ] A review run whose intent derivation throws still completes every agent run
+      error and not an empty card. — `intent.it:266`
+- [x] A PR with **zero `pr_files` rows** but a non-empty diff still yields file-path evidence
+      on the review path (D11). — `intent.it:592`
+- [x] The model cannot raise the tier: given a fixture whose `suggested_tier` is `high` over a
+      body-only PR, the persisted tier is `medium`. — `intent.it:255`
+- [x] The rendered prompt slot contains no substring of the PR body, the linked issue body, or
+      a plan file beyond a short quoted evidence span (D10). — `intent.it:510`
+      (`not.toContain('mock issue')`) and `intent-helpers.test.ts` § "renders the distillation
+      and nothing else"
+- [x] `GET /pulls/:id/intent` returns `PrIntentRecord` for a derived PR and **404** for one
+      that was never derived. — `intent.it:437`
+- [x] `POST /pulls/:id/intent` re-derives and overwrites the row, and is rate-limited to the
+      same budget as `POST /pulls/:id/review` (`reviews/routes.ts:29`). — overwrite at
+      `intent.it:448`. **The rate limit is code, not test:** `intent/routes.ts:42` sets the same
+      budget, and no suite exercises a 429 anywhere in this repository.
+- [x] A review run reuses the persisted intent when `pr_intent.head_sha === pull.head_sha` and
+      makes **zero** LLM calls for intent; the Live Log says it was a cache hit. — `intent.it:461`
+- [x] A review run whose intent derivation throws still completes every agent run
       successfully, with the failure reason in the Live Log and no `## PR intent` section in
-      the prompt — the same degradation `buildCallersDigest` / `buildRepoMapDigest` perform
-      (`run-executor.ts:396-402`).
-- [ ] **Regression:** with `intent` absent/undefined, `assemblePrompt` produces a prompt
-      byte-identical to today's, and `PromptAssembly.intent` is null. Pinned by a literal in
-      `reviewer-core/test/prompt.test.ts`, the shape used at `:86-103`.
-- [ ] With `intent` present, the section sits after `## PR description` and before
+      the prompt. — `intent.it:491`
+- [x] **Regression:** with `intent` absent/undefined, `assemblePrompt` produces a prompt
+      byte-identical to today's, and `PromptAssembly.intent` is null. — the pinned literal at
+      `reviewer-core/test/prompt.test.ts:159`, still green after Round 2 added the scope rule
+- [x] With `intent` present, the section sits after `## PR description` and before
       `## Skills / rules`, the model-written text is inside `wrapUntrusted('intent', …)`, and
-      the confidence sentence is outside it.
-- [ ] Every `vendor/shared` file this lesson touches is byte-identical across the two
-      copies. **Not** the whole tree: `adapters.ts`, `contracts/eval-ci.ts` and
-      `contracts/productionize.ts` already differ, and reconciling them is out of scope.
-- [ ] The Settings row `PR Review · Intent` advertises the model the module actually uses.
-- [ ] The Intent card renders intent, scope lists, a `ConfidenceNum` reading and source
+      the confidence sentence is outside it. — `prompt.test.ts:201`
+- [x] Every `vendor/shared` file this lesson touches is byte-identical across the two
+      copies. — `diff -q` on `review-api.ts`, `findings.ts`, `trace.ts`, all silent
+- [x] The Settings row `PR Review · Intent` advertises the model the module actually uses.
+      — by inspection: `DEFAULT_INTENT_MODEL`, `contracts/platform.ts:53` and
+      `client/src/lib/feature-models.ts:22` all read `openrouter` / `deepseek/deepseek-v4-flash`.
+      **Nothing pins them together** — see Open questions.
+- [x] The Intent card renders intent, scope lists, a `ConfidenceNum` reading and source
       chips; it sits above the Description section and owns no page-level section wrapper; an
       un-derived PR renders the empty state with a Derive action and no card body.
-- [ ] The Run Trace drawer shows an `Intent (dynamic)` prompt block for a run that had one,
-      and no block for a run that did not.
-- [ ] `pnpm arch:check` **output** is empty for `server/` (read the output, never the exit
-      code — root `INSIGHTS.md` 2026-08-22 and 2026-08-06).
+      — `IntentCard.test.tsx`; placement at `OverviewTab.tsx:26`
+- [x] The Run Trace drawer shows an `Intent (dynamic)` prompt block for a run that had one,
+      and no block for a run that did not. — `RunTraceDrawer.test.tsx`
+- [x] `pnpm arch:check` **output** is empty for `server/` — `✔ no dependency violations found
+      (167 modules, 552 dependencies cruised)`, 16 known ignored, unchanged from Round 1
 
 ## Test plan
 
@@ -766,7 +777,7 @@ Deviation policy: stop at the step, report the divergence, finish the independen
 
 # Round 2 — conformance with the assignment brief
 
-Status: draft · opened 2026-08-22
+Status: implemented · opened 2026-08-22 · closed 2026-08-22
 Packages touched: server, client, reviewer-core, e2e, `.claude/agents`
 
 ## Context
@@ -975,43 +986,80 @@ author points at `docs/README.md`; what is refused is the root README buying a t
 
 ## Acceptance criteria
 
-- [ ] The classifier's user message lists changed files **with hunk headers** and contains no
+`intent.it` = `server/test/intent.it.test.ts`, `helpers` = `server/test/intent-helpers.test.ts`.
+Every lane below was re-run in Step R2-7, including the `.it` lane and `e2e:hermetic`.
+
+- [x] The classifier's user message lists changed files **with hunk headers** and contains no
       line beginning with `+` or `-`. True on the review path (from the diff) and on the
       `POST` path (from `pr_files.patch`), including for a PR whose `pr_files` rows have a null
-      patch.
-- [ ] A PR whose body names `specs/missing.md`, or links an issue that cannot be read, persists
+      patch. — `intent.it:344` (a two-hunk patch and a null-patch row in one PR) and
+      `helpers` § `renderChangedFiles` / `hunkHeadersFromPatch`. **Scope of the assertion
+      changed:** it is made over the `## Changed files` block, not the whole prompt, because a
+      markdown PR body opens lines with `-` all by itself and so does `missing_context`.
+      Whole-prompt was a weaker claim wearing a stronger one's clothes.
+- [x] A PR whose body names `specs/missing.md`, or links an issue that cannot be read, persists
       that fact in `missing_context`, renders it on the card, and passes it to the classifier as
-      a trusted "do not reconstruct" block. `intent.it.test.ts:206` asserts the naming, not
-      only the absence.
-- [ ] `Ticket: #471` and `https://github.com/<this repo>/issues/471` resolve the issue through
+      a trusted "do not reconstruct" block. `intent.it:281` asserts the naming, not
+      only the absence. — plus `intent.it:307` (unreadable issue), `:322` (round trip through
+      the row and `GET`), `:334` (empty when nothing was missing), `IntentCard.test.tsx`
+- [x] `Ticket: #471` and `https://github.com/<this repo>/issues/471` resolve the issue through
       `getIssue` and record `linked_issue`; a bare `#5` in prose still resolves nothing.
-- [ ] `https://github.com/<this repo>/blob/main/specs/plan.md` in a body is read **from the
+      — `intent.it:209`, `helpers` § `extractLinkedIssue`
+- [x] `https://github.com/<this repo>/blob/main/specs/plan.md` in a body is read **from the
       clone** and recorded as `plan_file`; the same URL for another repo is not read, is not
-      fetched, and lands in `missing_context`.
-- [ ] Every traversal form Round 1 rejects (`/etc/passwd.md`, `../x.md`, `a/../../b.md`,
+      fetched, and lands in `missing_context`. — `intent.it:221` and `:233`
+- [x] Every traversal form Round 1 rejects (`/etc/passwd.md`, `../x.md`, `a/../../b.md`,
       `~/x.md`, `https://evil.example/plan.md`) is still rejected, and a remote URL still never
-      becomes a local file read.
-- [ ] A body that only says "updated README.md" does not earn `high`.
-- [ ] With an intent present, findings the reviewer labels `out` are dropped unless CRITICAL;
+      becomes a local file read. — those `helpers` cases are **unedited** and green; a traversal
+      arriving *through* a blob URL was added beside them
+- [x] A body that only says "updated README.md" does not earn `high`. — `intent.it:246`,
+      `helpers` § "refuses a root boilerplate document as a plan, but not one in a folder"
+- [x] With an intent present, findings the reviewer labels `out` are dropped unless CRITICAL;
       of the out-of-scope CRITICALs exactly one survives; every drop appears in the Live Log
-      and the count in `RunStats.scope_gate`.
-- [ ] **Regression:** with no intent, the assembled prompt is byte-identical to Round 1's and
-      the gate changes no finding set. Pinned by a literal in `reviewer-core/test/prompt.test.ts`.
-- [ ] A finding with no `scope` label is kept, whatever its severity.
-- [ ] The review's score is computed from the findings that survived the gate, not from the
-      pre-gate set.
-- [ ] The derivation's log line and the `POST` route's pino line carry token counts, the model,
+      and the count in `RunStats.scope_gate`. — `reviewer-core/test/scope-gate.test.ts` for the
+      rule, `intent.it:530` for the wiring end to end (4 findings in, 2 persisted, both drops
+      in the trace's log, `scope_gate` = `2/4 in scope; 1 out-of-scope CRITICAL kept as the
+      signal`)
+- [x] **Regression:** with no intent, the assembled prompt is byte-identical to Round 1's and
+      the gate changes no finding set. — `prompt.test.ts:159` (the literal, unedited) and
+      `prompt.test.ts` § "emits no scope rule when there is no intent to be in or out of"
+- [x] A finding with no `scope` label is kept, whatever its severity. — `scope-gate.test.ts`
+      § "keeps an unlabelled finding whatever its severity" (`undefined` and `null` both)
+- [x] The review's score is computed from the findings that survived the gate, not from the
+      pre-gate set. — `review/run.ts`: `scoreFromFindings(scoped.kept)`
+- [x] The derivation's log line and the `POST` route's pino line carry token counts, the model,
       the sources, the missing context and a block inventory (kind + size), and carry no secret
-      and no diff content.
-- [ ] The Intent card shows the model, the token counts and the cost, or `unpriced` where the
-      model has no price.
-- [ ] `docs/agent-prompts/README.md`'s ordered section list names `## PR intent (derived)` in
-      the position `prompt.ts` actually emits it.
-- [ ] A read-only agent's `Bash` cannot write: the guard denies a redirection, `rm`, `sed -i`
+      and no diff content. — `intent.it:396`, and `helpers` § `describePromptBlocks` asserts the
+      negative directly (no character of a plan, a body, a commit subject or a path survives).
+      Read by eye once: `blocks: plan_file×1 (62), issue #471 (20), body (56), commits×2,
+      files×2 (+2 hunks), missing_context×1`
+- [x] The Intent card shows the model, the token counts and the cost, or `unpriced` where the
+      model has no price. — `IntentCard.test.tsx`, three cases: priced, null, and a genuinely
+      free `$0.00`
+- [x] `docs/agent-prompts/README.md`'s ordered section list names `## PR intent (derived)` in
+      the position `prompt.ts` actually emits it. — added after `## PR description`, before
+      `## Skills / rules`; `agent-prompts-mirror.test.ts` still green
+- [x] A read-only agent's `Bash` cannot write: the guard denies a redirection, `rm`, `sed -i`
       and `git commit`, and allows `cat`, `grep`, `sed -n`, `git log`, `pnpm test`,
-      `pnpm arch:check`.
-- [ ] Every `vendor/shared` file this round touches is byte-identical across the two copies.
-- [ ] `pnpm arch:check` **output** is empty for `server/` (read the output, never the exit code).
+      `pnpm arch:check`. — `server/test/readonly-agent-guard.test.ts`, 49 cases over the three
+      agents, the four agents it must not touch, and the main session
+- [x] Every `vendor/shared` file this round touches is byte-identical across the two copies.
+      — `diff -q` on `review-api.ts`, `findings.ts`, `trace.ts`, all silent
+- [x] `pnpm arch:check` **output** is empty for `server/` (read the output, never the exit
+      code). — `✔ no dependency violations found (167 modules, 552 dependencies cruised)`
+
+### Lanes, Step R2-7
+
+| Lane | Result |
+|---|---|
+| `server` typecheck | clean |
+| `server` unit | 301 passed (219 at the start of Round 2) |
+| `server` `.it` (Docker) | 90 passed / 10 files |
+| `server` `arch:check` | no violations, 16 known ignored — unchanged all round |
+| `client` typecheck + test | 236 passed (229 at the start) |
+| `reviewer-core` test + typecheck | 49 passed (39 at the start) |
+| `e2e:hermetic` | 8/8 flows |
+| `vendor/shared` mirrors | `review-api.ts`, `findings.ts`, `trace.ts` identical |
 
 ## Test plan
 
@@ -1050,14 +1098,25 @@ author points at `docs/README.md`; what is refused is the root README buying a t
 
 ## Open questions
 
-- **Blocking — none.**
-- **Non-blocking — per-agent frontmatter hooks.** `architecture-reviewer.md:38-46` asserts the
-  subagent schema carries a scoped `hooks:` block. Verify that against the installed Claude Code
-  version at the start of Step R2-6; if it is not supported, fall back to a repo-level
-  `PreToolUse` hook in `.claude/settings.json` that reads the agent name from the hook payload,
-  and say so in the agent files rather than leaving the claim standing.
-- **Non-blocking — `MAX_HUNK_HEADERS_PER_FILE`** starts at 8 with no evidence behind it, the
-  same status `MIN_SUBSTANTIVE_BODY_CHARS` carries. The first real derivations settle it.
+- **Answered — per-agent frontmatter hooks. There are none.** Checked against the installed
+  CLI (2.1.240) in Step R2-6: the subagent definition schema carries `description`, `tools`,
+  `disallowedTools`, `prompt`, `model`, `mcpServers`, `criticalSystemReminder_EXPERIMENTAL`,
+  `skills`, `initialPrompt`, `maxTurns`, `background`, `memory`, `effort`, `permissionMode`,
+  `observer` and `observerMessage` — no `hooks:` field. The claim standing in
+  `architecture-reviewer.md` and `.claude/agents/README.md` was half right: `disallowedTools`
+  is real, a scoped `hooks:` block is not. The named fallback works and is what shipped: the
+  common hook payload builder puts `agent_type` on every event including `PreToolUse`, so
+  `scripts/readonly-agent-guard.sh` is registered once and filters by agent itself.
+- **Still open — `MAX_HUNK_HEADERS_PER_FILE`** is 8 with nothing behind it, the same status
+  `MIN_SUBSTANTIVE_BODY_CHARS` carries. The first real derivations settle both.
+- **New — nothing pins `review_intent`'s registry default to `DEFAULT_INTENT_MODEL`.** Three
+  copies agree today (`intent/constants.ts:34`, `contracts/platform.ts:53`,
+  `client/src/lib/feature-models.ts:22`) and a comment asks the next person to keep them in
+  step. This repository's own `INSIGHTS.md` says that is not enough — "a prompt that lives in
+  two hand-synced files needs a test, not a comment" (server, 2026-08-06). The same is true of
+  a model id, and `conventions` has the identical gap.
+- **New — nothing exercises a 429.** Both `POST /pulls/:id/intent` and `POST /pulls/:id/review`
+  declare a rate limit and no suite has ever proven one fires.
 
 ## Implementation plan
 
@@ -1204,6 +1263,55 @@ Do:     Tick the acceptance criteria against evidence, set Round 2's status, and
         called done.
 Verify: the full Handoff command set below, all lanes green
 Depends: R2-1 … R2-6
+
+## Deviations from the plan as written
+
+Five, each an in-step refinement rather than a change of scope. Recorded because a plan whose
+deviations go unwritten is a plan the next round cannot trust.
+
+**R2-1 — `forReview` takes `UnifiedDiff['files']`, not the mapped shape.** The step said
+`run-executor.ts` maps `diff.files` into `IntentChangedFile[]` and synthesises each header. That
+puts the header FORMAT in `modules/reviews/`, outside the unit suite that pins it, and moving it
+to a shared helper would need a cross-module import (`no-cross-module-import`). Both mappings —
+synthesised from a parsed diff, quoted from a stored patch — now live in the intent module's
+helpers, and `run-executor.ts` never learns what a header looks like.
+
+**R2-2 — the short-description note quotes no threshold.** A number spelled into a persisted
+sentence is a second copy of `MIN_SUBSTANTIVE_BODY_CHARS`, which `seed.ts` would also hold and
+nothing would keep in step.
+
+**R2-2 — the demo row seeds the note it earns, not an empty list.** The step said empty. The
+demo PR's body is 95 characters, under the threshold, so a real derivation produces one note;
+seeding `[]` would make the first Re-derive add a warning row out of nowhere — the failure the
+seed's own comment block already reasons about for the tier.
+
+**R2-3 — one Round 1 test changed.** `'Related to #5.' → undefined` was asserted under the
+title "requires a closing keyword". D15 lists `Related to` among the ticket words, so that
+assertion IS the rule Round 2 reopens. `see #5`, `the #5 attempt` and `GH-471` still resolve
+nothing, and the test now names the rule it pins. Every `extractPlanPaths` traversal case is
+unedited.
+
+**R2-5 — the `Scope gate:` log line is conditional.** Emitted only when the model actually
+labelled something `out`. The summary is persisted either way; a run whose prompt carried no
+intent would otherwise announce "8/8 in scope" about a question nobody asked.
+
+## Status
+
+**Round 2 is complete.** Every acceptance criterion above is ticked against named evidence,
+with the two half-proven Round 1 items and the two new Open questions stated rather than
+rounded up. Six commits, `151bc2c` … `783db27`, each on a green lane:
+
+| Commit | Step |
+|---|---|
+| `151bc2c` | R2-1 — hunk headers into the classifier |
+| `47ff38b` | R2-2 — `missing_context` persisted, prompted, rendered |
+| `c303400` | R2-3 — ticket references, this repo's blob URLs, D21 |
+| `9b87e83` | R2-4 — tokens and prompt composition in the logs |
+| `8442ce9` | R2-5 — the scope gate |
+| `783db27` | R2-6 — the read-only agent boundary, and the section list |
+
+**L03 is not finished.** Smart Diff is the other half of the lesson's row in
+[`README.md`](README.md) and has no spec yet.
 
 ## Handoff
 

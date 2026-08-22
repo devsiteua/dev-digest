@@ -30,7 +30,7 @@ lesson starts, not upfront.
 |--------|-------|------|
 | L01 | Run cost badge · severity counters and filter on findings | [`L01-run-cost.md`](L01-run-cost.md) `done` · [`findings-severity-filter.md`](findings-severity-filter.md) `done` (incl. Round 2 — design parity) |
 | L02 | Skills in the product · Conventions extractor | [`L02-skills.md`](L02-skills.md) `done` (incl. Round 2 — the four gaps the mentor named) · [`L02-conventions-extractor.md`](L02-conventions-extractor.md) `done` · [`pr-self-review.md`](pr-self-review.md) `done` (repo tooling, adjacent) |
-| L03 | Intent layer · Smart Diff | [`L03-intent-layer.md`](L03-intent-layer.md) — Round 1 implemented, Round 2 `draft` (conformance with the course brief: hunk headers, scope gate, missing context, link widening); Smart Diff not yet specced |
+| L03 | Intent layer · Smart Diff | [`L03-intent-layer.md`](L03-intent-layer.md) — Intent layer `done` (incl. Round 2 — conformance with the course brief: hunk headers, `missing_context`, link widening, token/prompt-composition logging, the scope gate, the read-only agent boundary); Smart Diff not yet specced |
 | L04 | `devdigest-mcp` server · Blast Radius | — |
 | L05 | Project Context Folder · Onboarding generator · PR Brief card | — |
 | L06 | Eval pipeline · Secret/Phantom gates · Plan Verifier · Export to CI | — |
