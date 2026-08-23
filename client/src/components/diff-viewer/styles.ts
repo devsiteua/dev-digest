@@ -1,4 +1,6 @@
 import type { CSSProperties } from "react";
+import { SEV } from "@devdigest/ui";
+import type { SeverityKey } from "@/lib/severity";
 import type { Line } from "./helpers";
 
 /** Co-located styles for the DiffViewer (extracted from inline styles). */
@@ -88,5 +90,64 @@ export function lineSignFor(kind: Line["kind"]): CSSProperties {
     textAlign: "center",
     color: kind === "add" ? "var(--code-add-text)" : kind === "del" ? "var(--code-del-text)" : "var(--text-muted)",
     flexShrink: 0,
+  };
+}
+
+/**
+ * The 3 px severity stripe down the left edge of a flagged line.
+ *
+ * Absolutely positioned so it cannot shift the gutter by a pixel: a diff whose
+ * line numbers move when a review lands would read as a different diff.
+ */
+export function severityBarFor(severity: SeverityKey): CSSProperties {
+  return {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 3,
+    background: SEV[severity].c,
+  };
+}
+
+/** The right-hand severity word on a flagged line ("blocker" for CRITICAL). */
+export function severityWordFor(severity: SeverityKey): CSSProperties {
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    paddingRight: 12,
+    fontSize: 11,
+    fontWeight: 600,
+    color: SEV[severity].c,
+    flexShrink: 0,
+  };
+}
+
+/**
+ * The momentary highlight on the line a findings badge just jumped to.
+ *
+ * Returns an empty object rather than `undefined` so the caller can spread it
+ * unconditionally — the row's own background stays whatever the line kind says.
+ */
+export function focusRowFor(focused: boolean | undefined): CSSProperties {
+  return focused ? { outline: "2px solid var(--accent)", outlineOffset: -2 } : {};
+}
+
+/** The findings badge in a file-card header, coloured by its worst severity. */
+export function findingBadgeFor(severity: SeverityKey | undefined): CSSProperties {
+  const colour = severity ? SEV[severity].c : "var(--text-muted)";
+  const background = severity ? SEV[severity].bg : "var(--bg-surface)";
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    padding: "1px 7px",
+    borderRadius: 5,
+    border: "none",
+    cursor: "pointer",
+    fontSize: 11,
+    fontWeight: 600,
+    color: colour,
+    background,
   };
 }

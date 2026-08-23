@@ -22,6 +22,7 @@ import { useActiveRepo, useRepoNotFound } from "../../../../../lib/repo-context"
 import { ApiError } from "../../../../../lib/api";
 import { githubPrUrl } from "../../../../../lib/github-urls";
 import { severityCounts } from "@/lib/severity";
+import { latestReviewFindings } from "@/lib/findings";
 import type { FindingRecord } from "@devdigest/shared";
 
 export default function PRDetailPage() {
@@ -79,6 +80,13 @@ export default function PRDetailPage() {
   // Header scoreboard. Tallied over the same set as `findingsCount`, so the two
   // never disagree; the PR *list* counts the latest review only, on purpose.
   const severity = React.useMemo(() => severityCounts(allFindings), [allFindings]);
+  // The Files tab badges the LATEST review only — the same set the PR list
+  // counts — while the header above counts every finding on the PR. Two rules,
+  // both deliberate (root `INSIGHTS.md`, 2026-08-02); this is the list's one.
+  const latestFindings = React.useMemo(
+    () => (reviews ? latestReviewFindings(reviews) : null),
+    [reviews],
+  );
 
   const repoName = activeRepo?.full_name ?? repoId;
   // The real "owner/repo" (null until the repo is loaded) — used to build
@@ -162,6 +170,10 @@ export default function PRDetailPage() {
               invalidateActiveRuns();
               invalidateRunHistory();
               refetchReviews();
+              // The smart diff orders files by how many findings they carry, so
+              // a finished run changes the ORDER as well as the badges. The
+              // badges themselves come from the reviews refetched above.
+              if (prId) qc.invalidateQueries({ queryKey: ["smart-diff", prId] });
             }}
           />
         )}
@@ -172,6 +184,7 @@ export default function PRDetailPage() {
             filesCount={pr.files_count}
             files={pr.files}
             canComment={pr.status === "open"}
+            findings={latestFindings}
           />
         )}
       </div>
