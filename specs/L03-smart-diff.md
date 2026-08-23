@@ -567,3 +567,154 @@ Verification:   `cd server && pnpm typecheck && pnpm arch:check && pnpm exec vit
                 `cd e2e && pnpm e2e:hermetic`
 Deviation policy: stop at the step, report the divergence, finish the independent steps.
                   Do not re-plan.
+
+---
+
+# Round 2 — the two gaps the mentor named
+
+Status: in-progress · 2026-08-23
+
+## Context
+
+The lesson was submitted. The mentor's review of the cohort named two checklist
+items most submissions missed. Unlike L02's Round 2, neither is a Round 1
+`Out of scope` entry being paid off: the first is a **naming and harness gap over
+work that is already done**, and the second is a **behaviour Round 1 built in the
+wrong direction**.
+
+| Reviewed | Round 1 status |
+|---|---|
+| `pnpm verify:l03` must run a test file at `server/src/modules/pulls/classifier.test.ts` covering `classifyFile()` | The function exists as `classifyPath` in `smart-diff/helpers.ts:98` with 23 table cases in `test/smart-diff-helpers.test.ts:30`. **Nothing is missing but the name, the path and the script.** |
+| A findings badge in the Smart Diff must navigate to the Findings tab and expand that finding's card, with no page reload | Round 1 read "jumps the reader to the offending line" and built exactly that: the file-header badge scrolls the diff to the line (`FileCard.tsx` `focusToken`). The **line-level** severity badge (`CodeLine.tsx`) is a `<span>` — it is not clickable at all, and nothing anywhere navigates to a finding. |
+
+Writing the checklist's test file also surfaced a real defect the existing 23
+cases do not catch. `classifyFile("0001_migration.sql")` — the mentor's own
+example — returns `core`. Migrations are recognised only by the `migrations`
+directory segment (`BOILERPLATE_DIR_SEGMENTS`), so a migration checked in beside
+its schema, as most tutorials and several ORMs do, is read as business logic.
+
+## In scope
+
+**server**
+
+- `classifyPath` is renamed **`classifyFile`** — the name the assignment uses. One
+  function, one name; the two call sites inside `helpers.ts` and the spec's own
+  prose move with it.
+- The classifier's tests move out of `test/smart-diff-helpers.test.ts` into
+  **`server/src/modules/pulls/classifier.test.ts`**, the path the checklist names.
+  They are moved, not copied: two homes for one table is how they drift.
+- `"verify:l03": "vitest run src/modules/pulls/classifier.test.ts"` in
+  `server/package.json`.
+- `MIGRATION_FILE_PATTERN` in `smart-diff/constants.ts` and a branch in
+  `isGenerated`, so a numerically-prefixed `.sql` file is boilerplate wherever it
+  sits.
+
+**client** — the badge becomes a way into the finding, in two halves.
+
+- *Consumer.* `?findingId=<uuid>` on the PR-detail route opens the Findings tab
+  with that finding's card expanded, scrolled to and highlighted: `page.tsx`
+  reads it, `FindingsTab` opens the run that holds it, `FindingsPanel` makes sure
+  no active filter is hiding it, `FindingCard` expands itself.
+- *Producer.* `buildFindingOverlay` starts carrying a finding **id** per flagged
+  line; `FileCard` passes it down; `CodeLine`'s severity word becomes a button
+  that asks the page to open that finding. The callback travels down as a prop —
+  `diff-viewer/` is a shared component and stays router-free, exactly as
+  `onOpenTrace` already does for the trace drawer.
+
+**e2e** — one more leg on `09-pr-smart-diff.flow.json`, over the seeded review
+that PR #482 already has.
+
+## Out of scope
+
+- **A production `server/src/modules/pulls/classifier.ts`.** A re-export file
+  there would be a `pulls → smart-diff` edge, which `no-cross-module-import`
+  reports (verified: `warn`, exit 0 — noise in a check whose value is silence).
+  Test files are excluded from the cruise (`.dependency-cruiser-onion.cjs`
+  `options.exclude`), so the checklist's test path costs nothing. The classifier
+  stays in the module that owns it.
+- **Removing the file-header badge's jump-to-line.** It is a different
+  destination for a different question ("where in this file?"), it is an
+  acceptance criterion of Round 1, and two affordances on two distinct controls
+  is not a duplicate.
+- **`router.push` for this navigation.** The whole tab bar uses `replace`
+  (`page.tsx` `setParam`); one transition that pushes would make Back work
+  sometimes and not others.
+- **Making the badge deep-linkable from outside the PR.** `?findingId` is read on
+  the PR-detail route only; no other surface produces it.
+- **Widening the migration rule to every `.sql` file.** Hand-written queries live
+  in `.sql` files and are business logic.
+
+## Decisions
+
+1. **`classifyFile`, not an alias.** Two names for one function is worse than
+   either name. The rename is mechanical and lands in its own commit so the
+   behaviour change that follows is readable on its own.
+2. **The migration rule is a numeric prefix**, `/^\d+[_-].*\.sql$/` on the
+   basename — `0001_migration.sql`, `20240101120000_init.sql`. That prefix is the
+   convention of drizzle-kit, Flyway and golang-migrate alike, and it is what
+   makes the rule safe: `schema.sql` and `src/queries/report.sql` stay `core`.
+3. **The clickable badge is the one on the line**, because that is where the
+   mentor put it and because it is the one that knows *which* finding it means.
+   The header badge counts findings and cannot name one.
+4. **The line badge is clickable only when the client knows the finding id.**
+   Ids come from `usePrReviews` via the overlay; the contract's `finding_lines`
+   carries none (Round 1 Decision 8). Before reviews load, the severity word
+   stays the `<span>` it is today rather than becoming a button that would have
+   to do nothing.
+5. **`tab` and `findingId` are set in one `replace`.** Two sequential `setParam`
+   calls read the same stale `search` in one tick and the second would drop the
+   first. The page gets `setParams(record)`; `setParam` is written in terms of it.
+6. **A focus target overrides the panel's filters.** If `hideLow` or a severity
+   chip would hide the card being navigated to, the panel resets them. A click
+   that lands on an empty list is a broken link; a filter silently widening is
+   visible and undoable.
+7. **`findingId` survives in the URL after the jump**, so a reload reproduces it.
+   It is cleared only when the reader changes tab by hand — at that point it
+   describes something they have navigated away from.
+8. **A `findingId` no finding matches does nothing.** Stale link, deleted run,
+   reviews not loaded yet: the tab renders normally. It is not an error state.
+
+## Acceptance criteria
+
+- [ ] `cd server && pnpm verify:l03` runs and passes.
+- [ ] `server/src/modules/pulls/classifier.test.ts` exists and covers all three
+      categories, including the mentor's four examples verbatim.
+- [ ] `classifyFile("0001_migration.sql") === 'boilerplate'`, while
+      `classifyFile("schema.sql") === 'core'`.
+- [ ] `grep -rn "classifyPath" server/src server/test specs` finds nothing.
+- [ ] Clicking a severity badge on a diff line navigates to `?tab=findings` with
+      `findingId` set, with no page reload, and that finding's card is expanded
+      and scrolled to.
+- [ ] The jump works when the target finding is in a run whose accordion is
+      collapsed, and when a severity filter or `hideLow` would have hidden it.
+- [ ] With reviews not yet loaded, the severity word renders as before and is not
+      a button.
+- [ ] `09-pr-smart-diff.flow.json` clicks a badge and lands on the finding.
+- [ ] Every existing test still passes: server 344, client 249 at the start of
+      this round.
+
+## Test plan
+
+| Lane | File | What it pins |
+|---|---|---|
+| server unit | `src/modules/pulls/classifier.test.ts` | the whole classification table, the ladder's collisions, the migration rule and its negatives |
+| client component | `FindingCard.test.tsx` | a focus token expands the card and scrolls to it |
+| client component | `FindingsPanel.test.tsx` | the target is revealed even behind `hideLow` / a severity chip |
+| client component | `FindingsTab.test.tsx` (new) | the run holding the target opens; an unmatched id is inert |
+| client component | `SmartDiffViewer.test.tsx` | the line badge calls back with the right finding id; no id → no button |
+| e2e | `09-pr-smart-diff.flow.json` | badge → Findings tab → the finding is on screen |
+
+## Risks
+
+- **The rename touches a closed spec's prose.** Mitigated by doing it in one
+  commit with no behaviour change, and by the grep in the acceptance criteria.
+- **The focus effect can fire before the reviews arrive.** `FindingsTab` is
+  unmounted while another tab is active, so it mounts *after* the click with the
+  data already in the query cache; the effect keys on the resolved finding, not
+  on mount alone.
+- **Widening the migration rule could reclassify a real file.** The negatives in
+  the test table are the guard, and the rule is anchored on both ends.
+
+## Open questions
+
+None.
