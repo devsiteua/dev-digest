@@ -1,5 +1,5 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
+import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import type { FindingRecord } from "@devdigest/shared";
 import messages from "../../../../../../../../messages/en/prReview.json";
@@ -56,5 +56,36 @@ describe("FindingCard (smoke, both themes)", () => {
     expect(onAction).toHaveBeenCalledWith("accept");
     fireEvent.click(screen.getByText("Dismiss"));
     expect(onAction).toHaveBeenCalledWith("dismiss");
+  });
+});
+
+/**
+ * The card is the far end of the jump a severity badge in the Smart Diff starts.
+ * Both halves are asserted, because either one alone is a broken landing: an
+ * expanded card nobody scrolled to is off screen, and a scrolled-to card that is
+ * still collapsed asks the reader to click the thing they already clicked.
+ */
+describe("FindingCard — the target of ?findingId=", () => {
+  const scrollIntoView = vi.fn();
+  beforeEach(() => {
+    scrollIntoView.mockReset();
+    Element.prototype.scrollIntoView = scrollIntoView;
+  });
+
+  it("expands itself and scrolls into view when it is the target", async () => {
+    renderWithIntl(<FindingCard f={FINDING} focusTarget onAction={() => {}} />);
+    // `defaultExpanded` is deliberately NOT passed: expanding is the focus
+    // effect's doing, not the caller's.
+    expect(screen.getByText("Suggested fix")).toBeInTheDocument();
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+    const target = scrollIntoView.mock.instances[0] as HTMLElement;
+    expect(target.getAttribute("data-finding-id")).toBe("f1");
+  });
+
+  it("stays collapsed and still when it is not the target", async () => {
+    renderWithIntl(<FindingCard f={FINDING} onAction={() => {}} />);
+    expect(screen.queryByText("Suggested fix")).not.toBeInTheDocument();
+    await new Promise((r) => requestAnimationFrame(r));
+    expect(scrollIntoView).not.toHaveBeenCalled();
   });
 });

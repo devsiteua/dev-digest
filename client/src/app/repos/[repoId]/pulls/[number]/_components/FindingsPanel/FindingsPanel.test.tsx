@@ -39,6 +39,12 @@ const FINDINGS: FindingRecord[] = [
   finding({ id: "N+1 query", severity: "WARNING", category: "perf" }),
 ];
 
+/** One finding under `LOW_CONFIDENCE_THRESHOLD` (0.65), one well over it. */
+const LOW_AND_HIGH: FindingRecord[] = [
+  finding({ id: "Hardcoded secret", severity: "CRITICAL", confidence: 0.95 }),
+  finding({ id: "Shaky guess", severity: "WARNING", confidence: 0.3 }),
+];
+
 function renderWithIntl(ui: React.ReactElement) {
   return render(
     <NextIntlClientProvider locale="en" messages={{ prReview: messages }}>
@@ -169,5 +175,65 @@ describe("FindingsPanel — click to filter", () => {
     // The first panel is filtered to the single WARNING; the second still shows all 3.
     expect(screen.getAllByText("N+1 query")).toHaveLength(2);
     expect(screen.getAllByText("Hardcoded secret")).toHaveLength(1);
+  });
+});
+
+/**
+ * A finding reached from a Smart Diff badge has to be ON SCREEN when the reader
+ * lands, whatever the panel was filtered to a moment ago. A click that ends on
+ * "No findings match" is indistinguishable from a dead link, so the filters give
+ * way — visibly, and one click from being put back.
+ */
+describe("FindingsPanel — the target of ?findingId=", () => {
+  const withTarget = (id: string | null) => (
+    <NextIntlClientProvider locale="en" messages={{ prReview: messages }}>
+      <FindingsPanel findings={LOW_AND_HIGH} prId="pr1" focusFindingId={id} />
+    </NextIntlClientProvider>
+  );
+
+  it("reveals a target a severity filter was hiding", () => {
+    const { rerender } = renderWithIntl(
+      <FindingsPanel findings={FINDINGS} prId="pr1" focusFindingId={null} />,
+    );
+    fireEvent.click(chip("Warning"));
+    expect(screen.queryByText("Hardcoded secret")).not.toBeInTheDocument();
+
+    rerender(
+      <NextIntlClientProvider locale="en" messages={{ prReview: messages }}>
+        <FindingsPanel findings={FINDINGS} prId="pr1" focusFindingId="Hardcoded secret" />
+      </NextIntlClientProvider>,
+    );
+    expect(screen.getByText("Hardcoded secret")).toBeInTheDocument();
+    expect(screen.queryByText("No findings match")).not.toBeInTheDocument();
+  });
+
+  it("reveals a target that hide-low-confidence was hiding", () => {
+    const { rerender } = render(withTarget(null));
+    fireEvent.click(screen.getByText("Hide low confidence").closest("div")!.querySelector("button")!);
+    expect(screen.queryByText("Shaky guess")).not.toBeInTheDocument();
+
+    rerender(withTarget("Shaky guess"));
+    expect(screen.getByText("Shaky guess")).toBeInTheDocument();
+  });
+
+  it("expands the target instead of the first card", () => {
+    renderWithIntl(
+      <FindingsPanel findings={FINDINGS} prId="pr1" focusFindingId="N+1 query" />,
+    );
+    // One card is open, and it is the one asked for: `rationale` renders only in
+    // an expanded body, so counting them counts open cards.
+    expect(screen.getAllByText("why")).toHaveLength(1);
+    const open = screen.getByText("why").closest("[data-finding-id]");
+    expect(open).toHaveAttribute("data-finding-id", "N+1 query");
+  });
+
+  it("leaves the panel alone when no finding matches the id", () => {
+    renderWithIntl(
+      <FindingsPanel findings={FINDINGS} prId="pr1" focusFindingId="deleted-run-finding" />,
+    );
+    expect(screen.getAllByText("why")).toHaveLength(1);
+    const open = screen.getByText("why").closest("[data-finding-id]");
+    // The resting default: the first card of the list, not nothing at all.
+    expect(open).toHaveAttribute("data-finding-id", "Hardcoded secret");
   });
 });

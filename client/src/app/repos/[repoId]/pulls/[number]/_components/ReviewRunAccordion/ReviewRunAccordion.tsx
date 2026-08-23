@@ -33,6 +33,7 @@ export function ReviewRunAccordion({
   costUsd = null,
   targetRunId = null,
   targetNonce = 0,
+  focusFindingId = null,
 }: {
   review: ReviewRecord;
   prId: string;
@@ -46,6 +47,12 @@ export function ReviewRunAccordion({
    *  (driven from the Timeline: clicking an agent name navigates here). */
   targetRunId?: string | null;
   targetNonce?: number;
+  /**
+   * The finding `?findingId=` names. This accordion opens when it is one of
+   * ITS findings — a badge in the Smart Diff can name a finding in any run, and
+   * only the first run's accordion is open by default.
+   */
+  focusFindingId?: string | null;
 }) {
   const [open, setOpen] = React.useState(defaultOpen);
   const rootRef = React.useRef<HTMLDivElement | null>(null);
@@ -58,6 +65,16 @@ export function ReviewRunAccordion({
   }, [targetRunId, targetNonce, review.run_id]);
   const del = useDeleteReview(prId);
   const findings = review.findings;
+  const holdsFocus = !!focusFindingId && findings.some((f) => f.id === focusFindingId);
+  /**
+   * Opening is all this does — the FindingCard below does the scrolling.
+   *
+   * Two scrolls for one click would fight each other, and the card is the more
+   * precise of the two answers to "where did I ask to go".
+   */
+  React.useEffect(() => {
+    if (holdsFocus) setOpen(true);
+  }, [holdsFocus, focusFindingId]);
   const blockers = findings.filter((f) => f.severity === "CRITICAL" && !f.dismissed_at).length;
   const verdictColor = review.verdict ? VERDICT_COLOR[review.verdict] ?? "var(--text-muted)" : "var(--text-muted)";
 
@@ -160,6 +177,7 @@ export function ReviewRunAccordion({
             prId={prId}
             repoFullName={repoFullName}
             headSha={headSha}
+            focusFindingId={holdsFocus ? focusFindingId : null}
           />
         </div>
       )}

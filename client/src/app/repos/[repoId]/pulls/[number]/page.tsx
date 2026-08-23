@@ -62,13 +62,31 @@ export default function PRDetailPage() {
 
   const tab = search.get("tab") ?? "overview";
   const traceRunId = search.get("trace");
-  const setParam = (key: string, val: string | null) => {
+  // Set by a severity badge in the Smart Diff; read by the Findings tab, which
+  // opens the run holding that finding and expands its card. Surviving in the
+  // URL is the point — a reload lands on the same finding.
+  const focusFindingId = search.get("findingId");
+  /**
+   * Write several query params in ONE navigation.
+   *
+   * Two `setParam` calls in the same tick both read the same `search`, so the
+   * second overwrites the first's URL and its param is lost. Opening a finding
+   * moves `tab` and `findingId` together, so it has to be one call.
+   */
+  const setParams = (patch: Record<string, string | null>) => {
     const sp = new URLSearchParams(search.toString());
-    if (val == null) sp.delete(key);
-    else sp.set(key, val);
+    for (const [key, val] of Object.entries(patch)) {
+      if (val == null) sp.delete(key);
+      else sp.set(key, val);
+    }
     router.replace(`/repos/${repoId}/pulls/${number}${sp.toString() ? `?${sp.toString()}` : ""}`);
   };
-  const setTab = (t: string) => setParam("tab", t);
+  const setParam = (key: string, val: string | null) => setParams({ [key]: val });
+  // Changing tab by hand drops the finding: it describes a card the reader has
+  // just navigated away from, and leaving it would re-open that card the next
+  // time they come back to Findings for an unrelated reason.
+  const setTab = (t: string) => setParams({ tab: t, findingId: null });
+  const openFinding = (findingId: string) => setParams({ tab: "findings", findingId });
 
   // Reviews come newest-first; each is its own run (grouped into accordions).
   const runs = reviews ?? [];
@@ -161,6 +179,7 @@ export default function PRDetailPage() {
             prCommits={pr.commits}
             repoFullName={repoFullName}
             headSha={pr.head_sha}
+            focusFindingId={focusFindingId}
             cancelMutation={cancel}
             onOpenTrace={(id) => setParam("trace", id)}
             onDelete={(id) => {
