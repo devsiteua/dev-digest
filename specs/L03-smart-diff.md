@@ -572,7 +572,7 @@ Deviation policy: stop at the step, report the divergence, finish the independen
 
 # Round 2 — the two gaps the mentor named
 
-Status: in-progress · 2026-08-23
+Status: done · 2026-08-23
 
 ## Context
 
@@ -676,23 +676,67 @@ that PR #482 already has.
 
 ## Acceptance criteria
 
-- [ ] `cd server && pnpm verify:l03` runs and passes.
-- [ ] `server/src/modules/pulls/classifier.test.ts` exists and covers all three
+Every box was ticked against a command that was run, or a `file:line` that was
+read — never against the intention to satisfy it.
+
+- [x] `cd server && pnpm verify:l03` runs and passes.
+      → run: 35 tests, 1 file. The script is `server/package.json`, verbatim as
+      the checklist states it.
+- [x] `server/src/modules/pulls/classifier.test.ts` exists and covers all three
       categories, including the mentor's four examples verbatim.
-- [ ] `classifyFile("0001_migration.sql") === 'boilerplate'`, while
+      → 25 table rows plus five collision cases; the four examples are their own
+      `describe`, "classifyFile — the checklist examples", so checking the
+      assignment does not mean first mapping requirements onto table rows.
+- [x] `classifyFile("0001_migration.sql") === 'boilerplate'`, while
       `classifyFile("schema.sql") === 'core'`.
-- [ ] `grep -rn "classifyPath" server/ client/ e2e/` finds nothing — the old name
+      → `MIGRATION_FILE_PATTERN` in `constants.ts`, checked inside `isGenerated`;
+      test "reads a migration by its numeric prefix, not by its extension" pins
+      three positives and three negatives. None of PR #482's nine seeded files
+      changes group.
+- [x] `grep -rn "classifyPath" server/ client/ e2e/` finds nothing — the old name
       survives only in this round's § Context, where it is history.
-- [ ] Clicking a severity badge on a diff line navigates to `?tab=findings` with
+      → run, exit 1, no output.
+- [x] Clicking a severity badge on a diff line navigates to `?tab=findings` with
       `findingId` set, with no page reload, and that finding's card is expanded
       and scrolled to.
-- [ ] The jump works when the target finding is in a run whose accordion is
+      → end to end in `09-pr-smart-diff.flow.json` (four steps: the click, both
+      URL params, the finding's title, and its suggestion body — which renders
+      only in an expanded card). The halves are unit-pinned by
+      `SmartDiffViewer.test.tsx` "asks the page to open the finding the clicked
+      line carries" and `FindingCard.test.tsx` "expands itself and scrolls into
+      view when it is the target".
+- [x] The jump works when the target finding is in a run whose accordion is
       collapsed, and when a severity filter or `hideLow` would have hidden it.
-- [ ] With reviews not yet loaded, the severity word renders as before and is not
+      → `FindingsTab.test.tsx` "opens a collapsed run when the target finding is
+      inside it", with its inverse; `FindingsPanel.test.tsx` "reveals a target a
+      severity filter was hiding" and "…that hide-low-confidence was hiding".
+- [x] With reviews not yet loaded, the severity word renders as before and is not
       a button.
-- [ ] `09-pr-smart-diff.flow.json` clicks a badge and lands on the finding.
-- [ ] Every existing test still passes: server 344, client 249 at the start of
+      → "badges the file but not the line while the reviews have not loaded":
+      the header badge still renders from the server's `finding_lines` (2 of
+      them), and the line carries neither the word nor a control. Its inverse,
+      over a loaded-but-empty finding set, is asserted separately.
+- [x] `09-pr-smart-diff.flow.json` clicks a badge and lands on the finding.
+      → `pnpm e2e:hermetic`, 9/9 flows, twice in a row.
+- [x] Every existing test still passes: server 344, client 249 at the start of
       this round.
+      → server 351 (344 + 7 new classifier cases), client 263 (249 + 14). No
+      test was deleted; the 23 classifier cases moved file.
+
+## Deviations from this plan, and why
+
+1. **The badge's accessible name is per-line**, not one shared string. § In scope
+   said "a button that asks the page to open that finding" and said nothing about
+   its label; `09-pr-smart-diff.flow.json` then needed to click ONE of a dozen
+   identical words, and `e2e/INSIGHTS.md` (2026-08-06) rules out `find text …
+   click` for a button. "Open the {severity} on line {line} in the Findings tab"
+   makes the locator unambiguous and is the better screen-reader label anyway.
+   Pinned by "names each badge by its own line, so a screenful of them stays
+   distinct" — the test exists because the e2e flow depends on that string.
+2. **The flow returns to the Files tab** before its two original ordering steps,
+   rather than the jump being appended at the end. Those steps assert the
+   "Original order" toggle, which only exists on the diff tab; leaving the flow
+   on Findings would have made them assert from the wrong screen.
 
 ## Test plan
 

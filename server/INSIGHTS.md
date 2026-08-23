@@ -178,6 +178,26 @@ Status:   → promoted to `CLAUDE.md` (Gotchas)
 
 ## Codebase Patterns
 
+### 2026-08-23 · A test file may sit in any module — the onion cruise never sees it
+
+Trigger:  the L03 checklist mandates `server/src/modules/pulls/classifier.test.ts` for a
+          function that lives in `modules/smart-diff/`, which reads like a forced
+          cross-module import
+Cause:    `.dependency-cruiser-onion.cjs` sets `options.exclude: { path: '\\.test\\.ts$' }`,
+          so `depcruise src` never walks a test file and never scores its imports. Checked
+          both directions with planted files: a PRODUCTION `modules/pulls/_probe.ts`
+          re-exporting from `../smart-diff/helpers.js` printed
+          `warn no-cross-module-import`, and the same import from a `.test.ts` at the same
+          path printed "✔ no dependency violations found".
+Takeaway: a test may live wherever it is most findable and import across module lines
+          freely — the architecture is not an argument against a test's location. It is an
+          argument against a PRODUCTION re-export file placed only to make an import look
+          local, which is what was almost written here. See the warn-severity entry below
+          for why that warning still has to be read by a human.
+Evidence: server/.dependency-cruiser-onion.cjs (options.exclude);
+          server/src/modules/pulls/classifier.test.ts
+Status:   resolved
+
 ### 2026-08-06 · `no-cross-module-import` is a WARNING, so the onion guard exits 0 on the violation it is named for
 
 Trigger:  the conventions service needs three things another module owns — `SkillsService`,

@@ -376,6 +376,24 @@ Takeaway: assert on `element.getAttribute("style")` with `toContain("... var(--c
 Evidence: client/src/app/repos/[repoId]/pulls/_components/SeverityCounters/SeverityCounters.test.tsx
 Status:   resolved
 
+### 2026-08-23 · Two `setParam` calls in one tick keep only the last param — `search` does not advance between them
+
+Trigger:  a badge in the Smart Diff has to land on `?tab=findings&findingId=…`, and the
+          page already had a `setParam(key, val)` helper that looked like it could be
+          called twice
+Cause:    `setParam` builds its URL from `new URLSearchParams(search.toString())`, and
+          `search` is the render's `useSearchParams()` value. Two calls in the same tick
+          both read the SAME pre-navigation snapshot, so the second `router.replace`
+          overwrites the first's URL and the first param is gone. Nothing errors; the
+          navigation happens, one param short. Fixed by `setParams(patch)` taking a record
+          and doing one `replace`, with `setParam` rewritten in terms of it.
+Takeaway: any helper that derives the next URL from the CURRENT `search` is single-use per
+          tick. If two params move together, they have to move in one call — and a helper
+          shaped `(key, value)` quietly invites the bug, so give it the plural form as
+          soon as a second param exists.
+Evidence: client/src/app/repos/[repoId]/pulls/[number]/page.tsx (setParams)
+Status:   resolved
+
 ### 2026-08-02 · `borderColor` is itself a shorthand — pairing it with `borderLeftColor` makes React warn
 
 Trigger:  adding a filter to `FindingsPanel`, which made its cards rerender for the first

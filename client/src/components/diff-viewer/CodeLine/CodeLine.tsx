@@ -56,6 +56,12 @@ export function CodeLine({
   }
 
   const sign = ln.kind === "add" ? "+" : ln.kind === "del" ? "−" : "";
+  const openFindingLabel = severity
+    ? t("diffViewer.openFinding", {
+        severity: t(`diffViewer.severityWord.${severity}`),
+        line: ln.newNo ?? 0,
+      })
+    : "";
   const target = commenting?.canComment ? commentTargetFor(ln) : null;
   const showAdd = hover && !!target && !composing;
 
@@ -103,8 +109,11 @@ export function CodeLine({
           (findingId && onOpenFinding ? (
             <button
               type="button"
-              title={t("diffViewer.openFinding")}
-              aria-label={t("diffViewer.openFinding")}
+              // Named by the line it sits on, so the label is unique on a screen
+              // that can hold a dozen of these — for a screen reader moving
+              // through them, and for the browser flow that has to click one.
+              title={openFindingLabel}
+              aria-label={openFindingLabel}
               style={severityWordFor(severity, true)}
               onClick={() => onOpenFinding(findingId)}
             >

@@ -42,7 +42,7 @@
     "postedToGitHub": "Posts to GitHub immediately",
     "outdatedTitle": "{count} comment(s) on older revisions",
     "findingBadgeTitle": "{count} flagged line(s) — jump to the first",
-    "openFinding": "Open this finding in the Findings tab",
+    "openFinding": "Open the {severity} on line {line} in the Findings tab",
     "severityWord": {
       "CRITICAL": "blocker",
       "WARNING": "warning",

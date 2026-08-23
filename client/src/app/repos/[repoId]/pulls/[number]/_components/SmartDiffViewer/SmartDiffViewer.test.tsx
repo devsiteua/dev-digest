@@ -298,6 +298,19 @@ describe("SmartDiffViewer — the badge on a line opens its finding", () => {
     expect(onOpenFinding).toHaveBeenCalledWith("the-critical-one");
   });
 
+  it("names each badge by its own line, so a screenful of them stays distinct", () => {
+    // Not decoration: this label is the accessible name a screen reader reads
+    // out, and it is also the only locator `09-pr-smart-diff.flow.json` has for
+    // picking ONE of a dozen identical-looking words on the page.
+    renderViewer({ findings: FINDINGS, onOpenFinding: vi.fn() });
+    expect(
+      screen.getByRole("button", { name: "Open the blocker on line 28 in the Findings tab" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Open the warning on line 12 in the Findings tab" }),
+    ).toBeInTheDocument();
+  });
+
   it("badges the file but not the line while the reviews have not loaded", () => {
     // `findings={null}` is the pre-load state. Severity and finding id both come
     // from the overlay, so neither exists yet: the file still carries its header
@@ -308,7 +321,7 @@ describe("SmartDiffViewer — the badge on a line opens its finding", () => {
     expect(screen.getAllByLabelText("1 flagged line(s) — jump to the first")).toHaveLength(2);
     expect(screen.queryByText("blocker")).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Open this finding in the Findings tab" }),
+      screen.queryByRole("button", { name: /Open the .* on line/ }),
     ).not.toBeInTheDocument();
   });
 
@@ -320,7 +333,7 @@ describe("SmartDiffViewer — the badge on a line opens its finding", () => {
     renderViewer({ findings: [], onOpenFinding });
     expect(screen.queryByText("blocker")).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Open this finding in the Findings tab" }),
+      screen.queryByRole("button", { name: /Open the .* on line/ }),
     ).not.toBeInTheDocument();
   });
 });

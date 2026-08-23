@@ -32,6 +32,25 @@ _None yet._
 
 ## Recurring Errors & Fixes
 
+### 2026-08-23 · `find role button --name` needs a name that is unique — a repeated control has to be labelled by what it points at
+
+Trigger:  extending `09-pr-smart-diff` to click a severity badge on a diff line, where the
+          seeded PR renders four of them and the design draws each as the same word
+Cause:    the entry below rules out `find text … click` for a button, which leaves
+          `--name`; but the component's first draft gave every badge the same aria-label
+          ("Open this finding in the Findings tab"), so the locator could only ever mean
+          "whichever the runner picks first" — deterministic today, and silently pointing
+          at a different finding the moment the smart diff's ordering changes.
+Takeaway: when a flow must click ONE of N identical controls, fix it in the COMPONENT, not
+          the flow: give the control a name carrying the thing it acts on ("Open the
+          suggestion on line 28 in the Findings tab"). The flow then reads as an assertion
+          about which one, the label is better for a screen reader, and a component test
+          can pin the exact string the flow depends on.
+Evidence: e2e/specs/09-pr-smart-diff.flow.json;
+          client/src/components/diff-viewer/CodeLine/CodeLine.tsx;
+          client/messages/en/shell.json (diffViewer.openFinding)
+Status:   resolved
+
 ### 2026-08-06 · `find text … click` misses a tab; buttons need `find role button --name`
 
 Trigger:  `08-skills` passed every step up to `find text Preview click`, which failed with

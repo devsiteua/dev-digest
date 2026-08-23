@@ -1,6 +1,6 @@
 {
-  "name": "PR detail Files changed tab renders the reviewer-ordered diff",
-  "description": "From PR #482, open the Files changed tab and confirm the Smart Diff (L03) groups the seeded nine files by role: the 'Core logic' header is present, so is a core file (src/middleware/ratelimit.ts) and the lock file (package-lock.json) the classifier must put in Boilerplate. Exercises useSmartDiff → SmartDiffViewer → FileCard over GET /pulls/:id/smart-diff, which makes no model call. Read-only seeded data. Assumes a freshly-seeded DB where acme/payments-api (PR #482) is the first repo — guaranteed by e2e-web.yml; run locally via the hermetic stack (see e2e/README.md).",
+  "name": "PR detail Files changed tab renders the reviewer-ordered diff, and a badge on a line opens its finding",
+  "description": "From PR #482, open the Files changed tab and confirm the Smart Diff (L03) groups the seeded nine files by role: the 'Core logic' header is present, so is a core file (src/middleware/ratelimit.ts) and the lock file (package-lock.json) the classifier must put in Boilerplate. Then click the severity badge on that core file's flagged line and land on the Findings tab with the finding's card open — Round 2's cross-tab journey, the one thing here no component test can prove, because it crosses the route's query state. Exercises useSmartDiff → SmartDiffViewer → FileCard → CodeLine over GET /pulls/:id/smart-diff, which makes no model call, then page.tsx → FindingsTab → ReviewRunAccordion → FindingsPanel → FindingCard over the SEEDED review. Read-only seeded data; the badge's accessible name and both asserted strings are seed literals (server/src/db/seed.ts). Assumes a freshly-seeded DB where acme/payments-api (PR #482) is the first repo — guaranteed by e2e-web.yml; run locally via the hermetic stack (see e2e/README.md).",
   "steps": [
     { "cmd": ["open", "{BASE}/"], "label": "load the app root" },
     { "cmd": ["wait", "--url", "/pulls"], "label": "land on the PR list" },
@@ -13,6 +13,13 @@
     { "cmd": ["wait", "--text", "Core logic"], "label": "the smart diff groups the files by role" },
     { "cmd": ["wait", "--text", "src/middleware/ratelimit.ts"], "label": "a core file renders under its group" },
     { "cmd": ["wait", "--text", "package-lock.json"], "label": "the lock file renders in the boilerplate group" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Open the suggestion on line 28 in the Findings tab"], "label": "click the severity badge on the flagged line of ratelimit.ts" },
+    { "cmd": ["wait", "--url", "tab=findings"], "label": "the badge navigated to the Findings tab, without a reload" },
+    { "cmd": ["wait", "--url", "findingId="], "label": "…and the URL names the finding it came from" },
+    { "cmd": ["wait", "--text", "Extract the magic number 3600 into a named constant"], "label": "the seeded finding on ratelimit.ts:28 is the one on screen" },
+    { "cmd": ["wait", "--text", "Name it WINDOW_SECONDS and reuse it in both places."], "label": "its card is EXPANDED — the suggestion body renders only when it is" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Files changed"], "label": "back to the diff for the ordering checks" },
+    { "cmd": ["wait", "--url", "tab=diff"], "label": "diff tab is active again" },
     { "cmd": ["find", "role", "button", "click", "--name", "Original order"], "label": "switch to the PR's own file order" },
     { "cmd": ["wait", "--text", "src/config.ts"], "label": "every changed file is still listed in the flat order" }
   ]
