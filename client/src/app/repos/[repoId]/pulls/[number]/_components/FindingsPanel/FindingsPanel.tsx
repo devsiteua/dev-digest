@@ -74,10 +74,26 @@ export function FindingsPanel({
 
   // Keyboard focus follows the reader, so j/k continues from the card they were
   // brought to rather than from the top of a list they never looked at.
+  //
+  // ONCE per target, guarded by a ref rather than by the dep array. `shown` is a
+  // fresh array on every recompute (`visibleFindings` ends in a sort), and it
+  // recomputes whenever `findings` changes identity — which `useFindingAction`
+  // causes on every accept/dismiss by invalidating `["reviews", prId]`, and
+  // `onRunDone` causes again. Without the guard, accepting a finding after
+  // walking down the list with `j` would yank the cursor back to the one the URL
+  // names; so would the reader's own next click on a severity chip.
+  const seatedFor = React.useRef<string | null>(null);
   React.useEffect(() => {
-    if (!target) return;
+    if (!target) {
+      seatedFor.current = null;
+      return;
+    }
+    if (seatedFor.current === target) return;
     const i = shown.findIndex((f) => f.id === target);
-    if (i >= 0) setFocusIdx(i);
+    if (i >= 0) {
+      seatedFor.current = target;
+      setFocusIdx(i);
+    }
   }, [target, shown]);
 
   const toggleSeverity = React.useCallback((key: SeverityKey) => {

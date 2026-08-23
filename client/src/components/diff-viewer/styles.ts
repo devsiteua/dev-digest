@@ -124,15 +124,23 @@ export function severityWordFor(severity: SeverityKey, clickable = false): CSSPr
     // carries, so the element has to be un-styled back to the word the design
     // draws. The underline and the pointer are the whole affordance — a boxed
     // control beside a line of code would read as part of the diff.
+    // Longhands only. `font: "inherit"` would be a shorthand sitting beside the
+    // `fontSize`/`fontWeight` the base object sets above, which is the hazard
+    // `client/INSIGHTS.md` records for `borderColor` vs `borderLeftColor`: it
+    // does not warn while every value is constant, and it warns and cascades
+    // wrongly the moment one of them starts depending on state.
     ...(clickable
       ? {
           background: "none",
           border: "none",
-          padding: 0,
-          paddingRight: 12,
-          font: "inherit",
-          fontSize: 11,
-          fontWeight: 600,
+          // Per-side, and only the three the base object does not set: `padding`
+          // is a shorthand too, and `paddingRight: 12` above is the value this
+          // branch wants to keep.
+          paddingTop: 0,
+          paddingBottom: 0,
+          paddingLeft: 0,
+          fontFamily: "inherit",
+          lineHeight: "inherit",
           cursor: "pointer",
           textDecoration: "underline",
           textUnderlineOffset: 2,

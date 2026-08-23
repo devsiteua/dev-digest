@@ -1,0 +1,5 @@
+{
+  "//": "Build-only config. `tsconfig.json` deliberately includes src/**/*.ts with no exclude, so `pnpm typecheck` covers colocated tests too — src/modules/pulls/classifier.test.ts is the first of them. Emitting one into dist/ is a different matter: nothing loads it (modules/index.ts is a static registry, not autoload), but it drags a .d.ts importing `vitest`, a devDependency, into the artifact `pnpm start` runs. This config is the same compile with the tests dropped.",
+  "extends": "./tsconfig.json",
+  "exclude": ["src/**/*.test.ts"]
+}

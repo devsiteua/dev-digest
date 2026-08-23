@@ -4,8 +4,11 @@ import { NextIntlClientProvider } from "next-intl";
 import type { FindingRecord } from "@devdigest/shared";
 import messages from "../../../../../../../../messages/en/prReview.json";
 
+// Hoisted so the SAME spy survives every render — the panel calls the hook on
+// each one, and a factory returning a fresh `vi.fn()` could never be asserted on.
+const { mutate } = vi.hoisted(() => ({ mutate: vi.fn() }));
 vi.mock("../../../../../../../lib/hooks/reviews", () => ({
-  useFindingAction: () => ({ mutate: vi.fn(), isPending: false }),
+  useFindingAction: () => ({ mutate, isPending: false }),
 }));
 
 import { FindingsPanel } from "./FindingsPanel";
@@ -209,7 +212,10 @@ describe("FindingsPanel — the target of ?findingId=", () => {
 
   it("reveals a target that hide-low-confidence was hiding", () => {
     const { rerender } = render(withTarget(null));
-    fireEvent.click(screen.getByText("Hide low confidence").closest("div")!.querySelector("button")!);
+    // `Toggle` renders `<button role="switch">`, so the control has an accessible
+    // name of its own — walking up to an unnamed <div> would couple the test to
+    // the toolbar's nesting instead.
+    fireEvent.click(screen.getByRole("switch"));
     expect(screen.queryByText("Shaky guess")).not.toBeInTheDocument();
 
     rerender(withTarget("Shaky guess"));
@@ -225,6 +231,32 @@ describe("FindingsPanel — the target of ?findingId=", () => {
     expect(screen.getAllByText("why")).toHaveLength(1);
     const open = screen.getByText("why").closest("[data-finding-id]");
     expect(open).toHaveAttribute("data-finding-id", "N+1 query");
+  });
+
+  it("seats the keyboard cursor once, and does not re-seat it on a refetch", () => {
+    // The regression: `shown` is a fresh array on every recompute, and accepting
+    // a finding invalidates `["reviews", prId]` — so an effect keyed on `shown`
+    // would yank the cursor back to the URL's finding each time the reader acted
+    // on the list they had walked down.
+    mutate.mockClear();
+    const panel = (findings: FindingRecord[]) => (
+      <NextIntlClientProvider locale="en" messages={{ prReview: messages }}>
+        <FindingsPanel findings={findings} prId="pr1" focusFindingId="Hardcoded secret" />
+      </NextIntlClientProvider>
+    );
+    const { rerender } = render(panel(FINDINGS));
+
+    fireEvent.keyDown(window, { key: "j" });
+    fireEvent.keyDown(window, { key: "j" });
+    // …the reader is now two cards below the one the badge brought them to.
+    rerender(panel([...FINDINGS])); // a refetch: same findings, new identity
+    fireEvent.keyDown(window, { key: "a" });
+
+    expect(mutate).toHaveBeenCalledWith({
+      findingId: "N+1 query",
+      action: "accept",
+      prId: "pr1",
+    });
   });
 
   it("leaves the panel alone when no finding matches the id", () => {
