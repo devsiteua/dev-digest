@@ -60,10 +60,13 @@ export const SYSTEM_USER_EMAIL = 'you@local';
  *    "Mechanical changes — diff collapsed by default", and 92 lines of resolved
  *    dependency ranges would teach a reader of the demo nothing.
  *
- * The Stripe key on `config.ts:12` is written as an obvious non-key. The design
- * mock uses a realistic-looking `sk_live_…`, and a realistic-looking one in a
- * committed file is what secret scanners exist to reject — the finding above it
- * reads exactly the same either way.
+ * The Stripe key on `config.ts:12` is a REDACTED placeholder, not a key-shaped
+ * string. The design mock uses a realistic-looking live-key literal, and this
+ * repository's own pre-PR gate (`scripts/pr-self-review-checks.sh`,
+ * `check:secret-literal`) rejects that prefix wherever it appears — demo data
+ * and comments included, which is the correct behaviour and not something to
+ * sneak past with a lookalike. The finding above the line reads the same either
+ * way: what makes it a defect is that the value is IN the file.
  */
 const PR_482_FILES: Array<{
   path: string;
@@ -254,7 +257,7 @@ const PR_482_FILES: Array<{
     patch: `@@ -10,4 +10,8 @@ import { z } from 'zod';
  export const config = {
    port: Number(process.env.PORT ?? 3000),
-+  stripeKey: "sk_live_EXAMPLE_NOT_A_REAL_KEY",
++  stripeKey: "REDACTED_LIVE_SECRET",
    redisUrl: process.env.REDIS_URL,
 +  rateLimit: { windowSeconds: 3600, max: 100 },
 +  rateLimitPrefix: 'rl:',

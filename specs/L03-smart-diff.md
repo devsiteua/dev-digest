@@ -235,9 +235,12 @@ Written after the fact. Each is a place the code says something the plan above d
    no migration.
 4. **`package-lock.json` is seeded with no patch at all** — that is the state the design
    draws as "Mechanical changes — diff collapsed by default".
-5. **The seeded Stripe key is written `sk_live_EXAMPLE_NOT_A_REAL_KEY`**, not the mock's
-   realistic-looking string: a committed file matching a secret scanner's pattern is a
-   support ticket, and the finding above it reads the same either way.
+5. **The seeded Stripe key is a `REDACTED_LIVE_SECRET` placeholder**, not the mock's
+   realistic-looking live-key literal. This repository's own pre-PR gate
+   (`check:secret-literal`) matches that prefix in any added line — demo data and comments
+   included — and it caught the first attempt at this, which used a lookalike. The right
+   answer is not a cleverer lookalike: the finding above the line says the value is in the
+   file, and a placeholder says that just as well.
 6. **`FileCard` gained a sixth optional prop, `onFocusLine`.** The plan named five and also
    said `SmartDiffViewer` owns `focus: {path, line, token}`; a badge inside the card has to
    be able to ask for that focus without holding it.
