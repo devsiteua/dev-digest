@@ -7,6 +7,7 @@ import {
   DOC_DIR_SEGMENTS,
   DOC_EXTENSIONS,
   LOCK_FILE_BASENAMES,
+  MIGRATION_FILE_PATTERN,
   ROLE_ORDER,
   SPLIT_AREA_DEPTH,
   SPLIT_MAX_PROPOSALS,
@@ -69,6 +70,7 @@ function isDoc(path: string, name: string): boolean {
 
 function isGenerated(path: string, name: string): boolean {
   if (BOILERPLATE_SUFFIXES.some((suffix) => name.endsWith(suffix))) return true;
+  if (MIGRATION_FILE_PATTERN.test(name)) return true;
   return segments(path).slice(0, -1).some((seg) => BOILERPLATE_DIR_SEGMENTS.includes(seg));
 }
 

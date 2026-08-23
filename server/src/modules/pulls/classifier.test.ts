@@ -39,6 +39,8 @@ describe('classifyFile', () => {
     ['a minified bundle', 'public/app.min.js', 'boilerplate'],
     ['a declaration file', 'types/global.d.ts', 'boilerplate'],
     ['a generated migration', 'server/src/db/migrations/0011_violet.sql', 'boilerplate'],
+    ['a migration beside its schema', '0001_migration.sql', 'boilerplate'],
+    ['a timestamped migration', 'db/20240101120000_init.sql', 'boilerplate'],
     ['a unit test', 'src/lib/rate.test.ts', 'boilerplate'],
     ['a test directory', 'test/ratelimit.ts', 'boilerplate'],
     ['documentation', 'docs/architecture.md', 'boilerplate'],
@@ -76,5 +78,36 @@ describe('classifyFile', () => {
   it('does not read a config-shaped name into a real module', () => {
     expect(classifyFile('src/config-loader.ts')).toBe('core');
     expect(classifyFile('src/indexer.ts')).toBe('core');
+  });
+
+  // The migration rule is the widest thing in the ladder that is not a whole
+  // directory, so its NEGATIVES are the part worth pinning: a `.sql` file is
+  // only mechanical when it carries the numeric prefix every migration tool
+  // gives it. Hand-written SQL is business logic and a reviewer must see it.
+  it('reads a migration by its numeric prefix, not by its extension', () => {
+    expect(classifyFile('0001_migration.sql')).toBe('boilerplate');
+    expect(classifyFile('20240101120000_init.sql')).toBe('boilerplate');
+    expect(classifyFile('0003-add-index.sql')).toBe('boilerplate');
+    expect(classifyFile('schema.sql')).toBe('core');
+    expect(classifyFile('src/queries/monthly-report.sql')).toBe('core');
+    expect(classifyFile('src/db/seed.sql')).toBe('core');
+  });
+});
+
+/**
+ * The four examples the L03 checklist states verbatim.
+ *
+ * Redundant with the table above, and kept anyway: this is the block a reviewer
+ * checking the assignment reads, and it should be checkable without first
+ * working out which table row corresponds to which requirement.
+ */
+describe('classifyFile — the checklist examples', () => {
+  it.each([
+    ['pnpm-lock.yaml', 'boilerplate'],
+    ['0001_migration.sql', 'boilerplate'],
+    ['src/modules/reviews/service.ts', 'core'],
+    ['src/index.ts', 'wiring'],
+  ] as const)('classifyFile("%s") → %s', (path, role) => {
+    expect(classifyFile(path)).toBe(role);
   });
 });

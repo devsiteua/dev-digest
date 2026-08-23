@@ -103,6 +103,22 @@ export const DOC_DIR_SEGMENTS: readonly string[] = ['docs', 'doc', '.changeset']
 export const DOC_EXTENSIONS: readonly string[] = ['.md', '.mdx', '.rst', '.adoc', '.txt'];
 
 /**
+ * A migration, by its FILENAME, wherever it sits.
+ *
+ * `BOILERPLATE_DIR_SEGMENTS` already carries `migrations`, which covers this
+ * repository's own `db/migrations/**`. It does not cover a migration checked in
+ * beside the schema it changes — `0001_migration.sql` at the root reads as
+ * business logic, and that is the mentor's own example of a file the classifier
+ * must not miss.
+ *
+ * The numeric prefix is what makes the rule safe to widen this far: it is the
+ * shared convention of drizzle-kit, Flyway and golang-migrate, and it is exactly
+ * what a hand-written `.sql` file does not have. `schema.sql` and
+ * `src/queries/monthly-report.sql` stay `core`, where a reviewer can see them.
+ */
+export const MIGRATION_FILE_PATTERN = /^\d+[_-].*\.sql$/;
+
+/**
  * Filename SUFFIXES that are mechanical output.
  *
  * `.d.ts` is here rather than in the wiring ladder because a declaration file is
