@@ -33,6 +33,11 @@ interface SmartDiffViewerProps {
    */
   findings?: FindingRecord[] | null;
   commenting?: DiffCommentApi;
+  /**
+   * Opens a finding in the Findings tab. Supplied by the page, which owns the
+   * URL; nothing below this component knows there is a router.
+   */
+  onOpenFinding?: (findingId: string) => void;
 }
 
 /** Which line a click on a file's badge jumps to, and a counter to re-fire it. */
@@ -48,6 +53,7 @@ export function SmartDiffViewer({
   files,
   findings,
   commenting,
+  onOpenFinding,
 }: SmartDiffViewerProps) {
   const t = useTranslations("prReview");
   // Uncontrolled on purpose. The Files tab is unmounted while another tab is
@@ -88,6 +94,11 @@ export function SmartDiffViewer({
         commenting={commenting}
         findingLines={lines}
         severityByLine={overlay?.severity[row.file.path]}
+        // Both come from the overlay, so both are absent together: before the
+        // reviews load the badges still render from the server's
+        // `finding_lines`, and the severity words stay plain text.
+        findingIdByLine={overlay?.findingId[row.file.path]}
+        onOpenFinding={onOpenFinding}
         // Boilerplate is collapsed unconditionally — that is what "the lock file
         // starts collapsed" means, and leaving it to the 200-line heuristic
         // would open a 3-line generated file while hiding a 300-line one.

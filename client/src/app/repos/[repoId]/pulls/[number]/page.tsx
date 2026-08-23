@@ -205,6 +205,7 @@ export default function PRDetailPage() {
             files={pr.files}
             canComment={pr.status === "open"}
             findings={latestFindings}
+            onOpenFinding={openFinding}
           />
         )}
       </div>

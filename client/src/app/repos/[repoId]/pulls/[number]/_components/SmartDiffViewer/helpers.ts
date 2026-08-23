@@ -102,6 +102,15 @@ export interface FindingOverlay {
   lines: Record<string, number[]>;
   /** Severity per flagged line, per path. */
   severity: Record<string, Record<number, SeverityKey>>;
+  /**
+   * WHICH finding a flagged line carries, per path — the id a badge navigates to.
+   *
+   * It can only come from here. The contract's `finding_lines` is a list of
+   * numbers (Round 1, Decision 8), so before the reviews load the client knows
+   * that a line is flagged but not what flagged it — and the badge stays inert
+   * rather than becoming a control with nowhere to go.
+   */
+  findingId: Record<string, Record<number, string>>;
 }
 
 /**
@@ -114,21 +123,25 @@ export interface FindingOverlay {
  * appear without a reload — and it is also the only source of SEVERITY, which
  * the contract's `finding_lines` has no room for.
  *
- * A line flagged by two findings keeps the WORST severity, in the same order the
- * rest of the app ranks them.
+ * A line flagged by two findings keeps the WORST severity, and the id of THAT
+ * finding — one tie-break, applied once, so the word a reader sees and the card
+ * the word opens can never describe two different findings.
  */
 export function buildFindingOverlay(findings: FindingRecord[]): FindingOverlay {
   const lines: Record<string, Set<number>> = {};
   const severity: Record<string, Record<number, SeverityKey>> = {};
+  const findingId: Record<string, Record<number, string>> = {};
 
   for (const f of findings) {
     const key = f.severity as SeverityKey;
     if (!SEVERITY_KEYS.includes(key)) continue;
     (lines[f.file] ??= new Set()).add(f.start_line);
     const perLine = (severity[f.file] ??= {});
+    const perLineId = (findingId[f.file] ??= {});
     const current = perLine[f.start_line];
     if (!current || SEVERITY_KEYS.indexOf(key) < SEVERITY_KEYS.indexOf(current)) {
       perLine[f.start_line] = key;
+      perLineId[f.start_line] = f.id;
     }
   }
 
@@ -137,6 +150,7 @@ export function buildFindingOverlay(findings: FindingRecord[]): FindingOverlay {
       Object.entries(lines).map(([path, set]) => [path, [...set].sort((a, b) => a - b)]),
     ),
     severity,
+    findingId,
   };
 }
 

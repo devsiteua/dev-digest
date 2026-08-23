@@ -255,3 +255,73 @@ describe("SmartDiffViewer", () => {
     expect(within(banner).getByText("src/jobs")).toBeInTheDocument();
   });
 });
+
+/**
+ * The other half of a badge: not "where in this file", which the header badge
+ * answers, but "what did the reviewer actually say", which only the Findings
+ * tab can. The viewer's whole job here is to hand the page the right id — the
+ * navigation itself is the page's, and is tested where it lives.
+ */
+describe("SmartDiffViewer — the badge on a line opens its finding", () => {
+  const FINDINGS = [
+    finding("src/middleware/ratelimit.ts", 28, "CRITICAL"),
+    finding("src/config.ts", 12, "WARNING"),
+  ];
+
+  it("asks the page to open the finding the clicked line carries", () => {
+    const onOpenFinding = vi.fn();
+    renderViewer({ findings: FINDINGS, onOpenFinding });
+    fireEvent.click(screen.getByText("blocker"));
+    expect(onOpenFinding).toHaveBeenCalledWith("src/middleware/ratelimit.ts:28");
+  });
+
+  it("names the finding on the line clicked, not the first one on the PR", () => {
+    const onOpenFinding = vi.fn();
+    renderViewer({ findings: FINDINGS, onOpenFinding });
+    fireEvent.click(screen.getByText("warning"));
+    expect(onOpenFinding).toHaveBeenCalledWith("src/config.ts:12");
+  });
+
+  it("carries the id of the WORST finding when two share a line", () => {
+    // The word says "blocker", so the card it opens must be the CRITICAL one —
+    // the severity and the id come from the same tie-break for exactly this.
+    const onOpenFinding = vi.fn();
+    const sameLine = [
+      finding("src/config.ts", 12, "WARNING"),
+      finding("src/config.ts", 12, "CRITICAL"),
+    ];
+    // Two findings with one id each: `finding()` keys the id off file:line, so
+    // give the critical one its own to tell them apart.
+    sameLine[1]!.id = "the-critical-one";
+    renderViewer({ findings: sameLine, onOpenFinding });
+    fireEvent.click(screen.getByText("blocker"));
+    expect(onOpenFinding).toHaveBeenCalledWith("the-critical-one");
+  });
+
+  it("badges the file but not the line while the reviews have not loaded", () => {
+    // `findings={null}` is the pre-load state. Severity and finding id both come
+    // from the overlay, so neither exists yet: the file still carries its header
+    // badge from the server's `finding_lines`, and the LINE carries nothing —
+    // not the severity word, and so not a control with nowhere to go either.
+    const onOpenFinding = vi.fn();
+    renderViewer({ findings: null, onOpenFinding });
+    expect(screen.getAllByLabelText("1 flagged line(s) — jump to the first")).toHaveLength(2);
+    expect(screen.queryByText("blocker")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Open this finding in the Findings tab" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("drops the way in when the latest review no longer reports the line", () => {
+    // The inverse, and the one that can regress: findings ARE loaded, so the
+    // overlay exists — it just holds nothing for this file. The badge, the word
+    // and the button all have to go together.
+    const onOpenFinding = vi.fn();
+    renderViewer({ findings: [], onOpenFinding });
+    expect(screen.queryByText("blocker")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Open this finding in the Findings tab" }),
+    ).not.toBeInTheDocument();
+  });
+});
+

@@ -18,6 +18,8 @@ export function CodeLine({
   commenting,
   severity,
   focused,
+  findingId,
+  onOpenFinding,
 }: {
   ln: Line;
   path: string;
@@ -30,6 +32,16 @@ export function CodeLine({
   severity?: SeverityKey;
   /** True while this line is the target of a just-clicked findings badge. */
   focused?: boolean;
+  /**
+   * WHICH finding this line carries, when the caller knows.
+   *
+   * It is what turns the severity word into a way into that finding. Absent —
+   * on a PR whose reviews have not loaded, where the server tells us the line is
+   * flagged but not by what — the word renders exactly as it did before.
+   */
+  findingId?: string;
+  /** Asks the page to open a finding. The router stays out of this component. */
+  onOpenFinding?: (findingId: string) => void;
 }) {
   const t = useTranslations("shell");
   const [hover, setHover] = React.useState(false);
@@ -79,12 +91,30 @@ export function CodeLine({
         <span className="mono" style={s.lineText}>
           {ln.text || " "}
         </span>
-        {severity && (
+        {severity &&
           // The design writes CRITICAL as "blocker" beside a line of code, and
           // the other two as their own name — so the word is copy, not a derived
           // string, and it lives in the message catalogue like the rest of it.
-          <span style={severityWordFor(severity)}>{t(`diffViewer.severityWord.${severity}`)}</span>
-        )}
+          //
+          // With a finding id it is also the way INTO that finding: the reader
+          // clicks the word on the line and lands on its card in the Findings
+          // tab. Without one it stays the plain word it has always been, rather
+          // than a control that would have to do nothing.
+          (findingId && onOpenFinding ? (
+            <button
+              type="button"
+              title={t("diffViewer.openFinding")}
+              aria-label={t("diffViewer.openFinding")}
+              style={severityWordFor(severity, true)}
+              onClick={() => onOpenFinding(findingId)}
+            >
+              {t(`diffViewer.severityWord.${severity}`)}
+            </button>
+          ) : (
+            <span style={severityWordFor(severity)}>
+              {t(`diffViewer.severityWord.${severity}`)}
+            </span>
+          ))}
       </div>
 
       {commenting &&

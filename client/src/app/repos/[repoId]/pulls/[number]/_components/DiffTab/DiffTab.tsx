@@ -24,9 +24,18 @@ interface DiffTabProps {
    * keep saying there is nothing to flag.
    */
   findings?: FindingRecord[] | null;
+  /** Opens a finding in the Findings tab — see `page.tsx` `openFinding`. */
+  onOpenFinding?: (findingId: string) => void;
 }
 
-export function DiffTab({ prId, filesCount, files, canComment, findings }: DiffTabProps) {
+export function DiffTab({
+  prId,
+  filesCount,
+  files,
+  canComment,
+  findings,
+  onOpenFinding,
+}: DiffTabProps) {
   const { data: comments } = usePrComments(prId);
   // Asked for only once the detail has resolved — `GET /pulls/:id` rewrites
   // `pr_files` as it loads, and a smart diff read mid-write would describe the
@@ -81,6 +90,7 @@ export function DiffTab({ prId, filesCount, files, canComment, findings }: DiffT
           files={files}
           findings={findings}
           commenting={commenting}
+          onOpenFinding={onOpenFinding}
         />
       ) : (
         // Nothing classified yet (a PR imported but never opened, or the request

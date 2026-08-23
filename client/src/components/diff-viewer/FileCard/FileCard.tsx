@@ -39,6 +39,16 @@ export interface FileCardProps {
   /** Severity per flagged line, when the caller knows it. */
   severityByLine?: Record<number, SeverityKey>;
   /**
+   * The finding id per flagged line, when the caller knows it.
+   *
+   * Separate from `severityByLine` rather than merged into one record, because
+   * they answer different questions and the second one is optional in a way the
+   * first is not: severity paints the line, the id makes the word a link.
+   */
+  findingIdByLine?: Record<number, string>;
+  /** Passed to every flagged line — asks the page to open that finding. */
+  onOpenFinding?: (findingId: string) => void;
+  /**
    * Seeds the expanded state instead of the 200-line heuristic. Read ONCE, at
    * mount: `open` stays uncontrolled, so every current caller keeps the exact
    * behaviour it has today.
@@ -61,6 +71,8 @@ export function FileCard({
   commenting,
   findingLines,
   severityByLine,
+  findingIdByLine,
+  onOpenFinding,
   defaultOpen,
   focusLine,
   focusToken,
@@ -194,6 +206,8 @@ export function FileCard({
                 threads={threadsForLine(ln, matched)}
                 commenting={commenting}
                 severity={ln.newNo != null ? severityByLine?.[ln.newNo] : undefined}
+                findingId={ln.newNo != null ? findingIdByLine?.[ln.newNo] : undefined}
+                onOpenFinding={onOpenFinding}
                 focused={ln.newNo != null && focused === ln.newNo}
               />
             ))

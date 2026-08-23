@@ -111,7 +111,7 @@ export function severityBarFor(severity: SeverityKey): CSSProperties {
 }
 
 /** The right-hand severity word on a flagged line ("blocker" for CRITICAL). */
-export function severityWordFor(severity: SeverityKey): CSSProperties {
+export function severityWordFor(severity: SeverityKey, clickable = false): CSSProperties {
   return {
     display: "inline-flex",
     alignItems: "center",
@@ -120,6 +120,25 @@ export function severityWordFor(severity: SeverityKey): CSSProperties {
     fontWeight: 600,
     color: SEV[severity].c,
     flexShrink: 0,
+    // Rendered as a <button> when the client knows WHICH finding the line
+    // carries, so the element has to be un-styled back to the word the design
+    // draws. The underline and the pointer are the whole affordance — a boxed
+    // control beside a line of code would read as part of the diff.
+    ...(clickable
+      ? {
+          background: "none",
+          border: "none",
+          padding: 0,
+          paddingRight: 12,
+          font: "inherit",
+          fontSize: 11,
+          fontWeight: 600,
+          cursor: "pointer",
+          textDecoration: "underline",
+          textUnderlineOffset: 2,
+          textDecorationStyle: "dotted" as const,
+        }
+      : {}),
   };
 }
 
