@@ -95,7 +95,7 @@ function isWiring(path: string, name: string): boolean {
  * Lowercasing is what makes `Dockerfile`, `Makefile` and `Cargo.lock` match
  * one-cased constants; it costs nothing, since no rule here depends on case.
  */
-export function classifyPath(path: string): SmartDiffRole {
+export function classifyFile(path: string): SmartDiffRole {
   const lower = path.toLowerCase();
   const name = basename(lower);
 
@@ -128,7 +128,7 @@ export function buildGroups(
   const byRole = new Map<SmartDiffRole, SmartDiffGroup['files']>();
 
   for (const file of files) {
-    const role = classifyPath(file.path);
+    const role = classifyFile(file.path);
     const bucket = byRole.get(role) ?? [];
     bucket.push({
       path: file.path,
@@ -185,7 +185,7 @@ export function buildSplitSuggestion(
 
   const byArea = new Map<string, { files: string[]; lines: number }>();
   for (const file of files) {
-    if (classifyPath(file.path) === 'boilerplate') continue;
+    if (classifyFile(file.path) === 'boilerplate') continue;
     const area = areaOf(file.path);
     const entry = byArea.get(area) ?? { files: [], lines: 0 };
     entry.files.push(file.path);

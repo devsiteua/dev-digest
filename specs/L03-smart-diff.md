@@ -60,7 +60,7 @@ What the design specifies, and this spec adopts:
 **server** — a new module `server/src/modules/smart-diff/`
 
 - `constants.ts` — every pattern and every threshold. Nothing classifying lives outside it.
-- `helpers.ts` — pure: `classifyPath(path) → SmartDiffRole`, group assembly + ordering,
+- `helpers.ts` — pure: `classifyFile(path) → SmartDiffRole`, group assembly + ordering,
   `buildSplitSuggestion(files)`.
 - `repository.ts` — the only SQL: `pr_files` for a PR; the **latest** `kind:'review'` row
   and its findings.
@@ -154,7 +154,7 @@ read — never against the intention to satisfy it.
       `Cargo.lock`, `poetry.lock`, `go.sum`, `Gemfile.lock`, `composer.lock`) is
       classified `boilerplate` **regardless of directory**, and its card starts collapsed.
       → `LOCK_FILE_BASENAMES` (`server/src/modules/smart-diff/constants.ts`), checked
-      before every other rule in `classifyPath`; tests "puts a lock file in boilerplate
+      before every other rule in `classifyFile`; tests "puts a lock file in boilerplate
       wherever it lives" and "is case-insensitive". Collapsed:
       `SmartDiffViewer.tsx` passes `defaultOpen={false}` for the whole boilerplate group,
       asserted by "opens a flagged file and leaves the lock file collapsed".
@@ -333,7 +333,7 @@ Do:       `constants.ts` holds `ROLE_ORDER`, the lock-file basenames, the boiler
           `Makefile`) and patterns (`.config.`, `.env`, `.github/`), plus
           `SPLIT_MIN_TOTAL_LINES`, `SPLIT_MIN_PROPOSALS`, `SPLIT_MAX_PROPOSALS`,
           `SPLIT_AREA_DEPTH`, `SPLIT_MIN_AREA_FILES`. `helpers.ts` exports
-          `classifyPath`, `buildGroups`, `buildSplitSuggestion` — no imports outside
+          `classifyFile`, `buildGroups`, `buildSplitSuggestion` — no imports outside
           `constants.ts`, `@devdigest/shared` types and `src/db/rows.ts`.
           `.dependency-cruiser-onion.cjs` rule `db-schema-only-in-data-layer` is an
           **error** for any `src/modules/**` file whose path does not contain
@@ -681,7 +681,8 @@ that PR #482 already has.
       categories, including the mentor's four examples verbatim.
 - [ ] `classifyFile("0001_migration.sql") === 'boilerplate'`, while
       `classifyFile("schema.sql") === 'core'`.
-- [ ] `grep -rn "classifyPath" server/src server/test specs` finds nothing.
+- [ ] `grep -rn "classifyPath" server/ client/ e2e/` finds nothing — the old name
+      survives only in this round's § Context, where it is history.
 - [ ] Clicking a severity badge on a diff line navigates to `?tab=findings` with
       `findingId` set, with no page reload, and that finding's card is expanded
       and scrolled to.
