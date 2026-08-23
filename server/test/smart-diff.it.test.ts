@@ -180,6 +180,40 @@ d('L03 smart diff (Testcontainers pg)', () => {
     await pg.handle.db.delete(t.reviews).where(eq(t.reviews.id, older!.id));
   });
 
+  it('groups and orders a PR nobody has reviewed, with every finding_lines empty', async () => {
+    // The degraded path is the NORMAL path on a fresh PR: files but no review.
+    const [repo] = await pg.handle.db
+      .select()
+      .from(t.repos)
+      .where(eq(t.repos.fullName, 'acme/payments-api'));
+    const [ws] = await pg.handle.db.select().from(t.workspaces).limit(1);
+    const [fresh] = await pg.handle.db
+      .insert(t.pullRequests)
+      .values({
+        workspaceId: ws!.id,
+        repoId: repo!.id,
+        number: 998,
+        title: 'Never reviewed',
+        author: 'nobody',
+        branch: 'feat/fresh',
+        base: 'main',
+        headSha: 'cafebabe',
+      })
+      .returning();
+    await pg.handle.db.insert(t.prFiles).values([
+      { prId: fresh!.id, path: 'src/pay/charge.ts', additions: 40, deletions: 2, patch: null },
+      { prId: fresh!.id, path: 'pnpm-lock.yaml', additions: 300, deletions: 12, patch: null },
+    ]);
+
+    const body = SmartDiff.parse((await get(fresh!.id)).json());
+    expect(body.groups.map((g) => g.role)).toEqual(['core', 'boilerplate']);
+    expect(body.groups.flatMap((g) => g.files).every((f) => f.finding_lines.length === 0)).toBe(
+      true,
+    );
+
+    await pg.handle.db.delete(t.pullRequests).where(eq(t.pullRequests.id, fresh!.id));
+  });
+
   it('answers 404 for a PR that does not exist', async () => {
     const res = await get('00000000-0000-0000-0000-000000000000');
     expect(res.statusCode).toBe(404);

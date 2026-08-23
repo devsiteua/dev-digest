@@ -11,6 +11,25 @@ _None yet._
 
 ## What Doesn't Work
 
+### 2026-08-23 · A path-keyed seed backfill that only INSERTS converges on the row count and not on the columns
+
+Trigger:  bringing seeded PR #482 from four `pr_files` rows to nine. The plan said: select
+          the existing paths, insert the missing ones — which is the right shape for a
+          table with no unique index, and it makes `pnpm db:seed` idempotent.
+Cause:    the four rows that already existed were seeded before L03 and carry
+          `patch = NULL`. Insert-only leaves them exactly as they are, so a machine that
+          had ever run the old seed ends up with nine rows of which the four most
+          interesting — every file the demo's findings point at — have no diff text to
+          scroll to. The row count is right, `select count(*)` says converged, and the
+          feature is broken on precisely the files it exists to demonstrate.
+Takeaway: for seed data, "converged" means the COLUMNS match the fixture, not the count.
+          Write the backfill as select → update-or-insert per key, and verify it on a
+          database in the OLD state (here: the dev DB, 4 rows / 0 patches → 9 rows / 8
+          patches), never only on a fresh container where every row is an insert.
+Evidence: server/src/db/seed.ts (the PR #482 backfill, outside the `if (!pr)` branch);
+          server/test/smart-diff.it.test.ts ("is idempotent with the seed")
+Status:   resolved
+
 ### 2026-08-22 · "No line in the prompt begins with `+` or `-`" is a weaker claim wearing a stronger one's clothes
 
 Trigger:  the assertion that proves the intent classifier is sent hunk HEADERS and never change

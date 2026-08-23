@@ -1,6 +1,6 @@
 # L03 — Smart Diff (reviewer-ordered diff)
 
-Status: draft
+Status: done
 Owner: devsiteua
 Packages touched: server · client · e2e
 
@@ -143,34 +143,111 @@ What the design specifies, and this spec adopts:
 
 ## Acceptance criteria
 
-- [ ] `GET /pulls/:id/smart-diff` returns a body that `SmartDiff.parse` accepts.
-- [ ] A lock file (`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `bun.lockb`,
+Every box below was ticked against a command that was run, or a `file:line` that was
+read — never against the intention to satisfy it.
+
+- [x] `GET /pulls/:id/smart-diff` returns a body that `SmartDiff.parse` accepts.
+      → `server/test/smart-diff.it.test.ts` "serves a body the contract accepts, with no
+      model reachable"; the pure assembly is parsed again in
+      `server/test/smart-diff-helpers.test.ts` § "the assembled response".
+- [x] A lock file (`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `bun.lockb`,
       `Cargo.lock`, `poetry.lock`, `go.sum`, `Gemfile.lock`, `composer.lock`) is
       classified `boilerplate` **regardless of directory**, and its card starts collapsed.
-- [ ] Groups come back in the order `core`, `wiring`, `boilerplate`; empty groups absent.
-- [ ] Before any review exists, every `finding_lines` is `[]` and the viewer still
+      → `LOCK_FILE_BASENAMES` (`server/src/modules/smart-diff/constants.ts`), checked
+      before every other rule in `classifyPath`; tests "puts a lock file in boilerplate
+      wherever it lives" and "is case-insensitive". Collapsed:
+      `SmartDiffViewer.tsx` passes `defaultOpen={false}` for the whole boilerplate group,
+      asserted by "opens a flagged file and leaves the lock file collapsed".
+- [x] Groups come back in the order `core`, `wiring`, `boilerplate`; empty groups absent.
+      → `buildGroups` iterates `ROLE_ORDER` and skips empty buckets; unit test "returns
+      core, wiring, boilerplate in that order and omits the empty ones", and over real
+      rows in the integration suite.
+- [x] Before any review exists, every `finding_lines` is `[]` and the viewer still
       groups and orders — the degraded path is the normal path on a fresh PR.
-- [ ] After a review, a file with findings shows a badge with the count, starts expanded,
+      → integration test "groups and orders a PR nobody has reviewed, with every
+      finding_lines empty" (PR #998, two files, no review row).
+- [x] After a review, a file with findings shows a badge with the count, starts expanded,
       and clicking the badge scrolls the diff to that line and highlights it.
-- [ ] The badges appear after a Run Review **without a page reload** — the reviewer
+      → `SmartDiffViewer.test.tsx` "badges each file the server flagged…" and "scrolls the
+      diff to the flagged line, and highlights it", which reads the scrolled element off
+      `scrollIntoView.mock.instances` and the outline off the style attribute.
+- [x] The badges appear after a Run Review **without a page reload** — the reviewer
       returns to the Files tab and sees them, with no 30-second staleness window.
-- [ ] A finding whose line is not inside any hunk of the file's patch does not break the
+      → not the smart-diff query: badges are overlaid from `usePrReviews`, which
+      `page.tsx` `onRunDone` already refetches, and are passed down as `findings`
+      (`page.tsx` `latestFindings` → `DiffTab` → `SmartDiffViewer`). The overlay itself is
+      asserted by "takes badges and severity from the client's findings once they load"
+      and by its inverse, "drops a badge the latest review no longer reports". The page
+      wiring is read, not tested — that route has no page test.
+- [x] A finding whose line is not inside any hunk of the file's patch does not break the
       click: the file opens and scrolls to its card header instead.
-- [ ] Serving `/smart-diff` makes no LLM call: an integration test that overrides all
+      → `SmartDiffViewer.test.tsx` "falls back to the card header when the flagged line is
+      in no hunk" (a finding on line 900 of a three-line patch).
+- [x] Serving `/smart-diff` makes no LLM call: an integration test that overrides all
       three provider ids with stubs throwing on every method still gets 200.
-- [ ] Every threshold and pattern lives in `server/src/modules/smart-diff/constants.ts`;
+      → `throwingLLM()` in `smart-diff.it.test.ts` throws on all five verbs of the port,
+      installed for `openai`, `anthropic` and `openrouter`; every case in that file runs
+      against it.
+- [x] Every threshold and pattern lives in `server/src/modules/smart-diff/constants.ts`;
       `grep -nE "package-lock|dist/|\.snap" server/src/modules/smart-diff/{helpers,service,routes}.ts`
       finds nothing.
-- [ ] `split_suggestion.too_big` is `false` with `proposed_splits: []` for a small PR,
+      → run, exit 1, no output. It is strict enough that the ladder's own doc comment had
+      to be reworded to say "a lock file" instead of naming one.
+- [x] `split_suggestion.too_big` is `false` with `proposed_splits: []` for a small PR,
       and the banner is absent.
-- [ ] **No file disappears.** Every `path` in `PrDetail.files` renders in exactly one
+      → integration test "reports the PR size without proposing a split for it" (283
+      lines); component test "shows the split banner only when the server says the PR is
+      too big"; unit tests for both halves of the threshold, including "stays quiet when
+      one area carries the whole diff".
+- [x] **No file disappears.** Every `path` in `PrDetail.files` renders in exactly one
       group. A path the server did not classify (a race with the detail refresh, a file
       added between the two reads) is appended to `core` rather than dropped.
-- [ ] Unchanged: the Files-changed tab still renders inline GitHub comments, the
+      → `buildGroupRows` (`SmartDiffViewer/helpers.ts`) both ways: an unclassified
+      `PrFile` is appended to `core`, a classified path with no `PrFile` renders without
+      patch text. Tests "renders a changed file the server never classified…" and "renders
+      a classified file the detail has no patch for"; server side, "loses no file: every
+      input path appears in exactly one group" and the nine-path count in the integration
+      suite.
+- [x] Unchanged: the Files-changed tab still renders inline GitHub comments, the
       hover-`+` composer, and the outdated-comment list. `client/src/test/smoke.test.tsx`
       — the only test that renders `DiffViewer` today — passes untouched.
-- [ ] Unchanged: `e2e/specs/05-pr-diff.flow.json` still passes (it asserts
+      → `git diff --stat` carries no change to that file; `commenting` is passed through
+      `SmartDiffViewer` to the same `FileCard`; `pnpm test` green at 247.
+- [x] Unchanged: `e2e/specs/05-pr-diff.flow.json` still passes (it asserts
       `src/config.ts` renders in the Files tab).
+      → `pnpm e2e:hermetic`, 9/9 flows, flow 05 among them.
+
+## Deviations from this plan, and why
+
+Written after the fact. Each is a place the code says something the plan above does not.
+
+1. **The wiring rules match config STEMS and config EXTENSIONS**, not only the basenames
+   this plan enumerated: `config.*`, `index.*`, `server.*`, `app.*`, `main.*`, plus
+   `.yml` / `.yaml` / `.toml` / `.ini` / `.cfg` / `.conf`. Without the `config` stem the
+   design's own `src/config.ts` lands in `core`, which contradicts the artboard the rest
+   of the classifier was written from.
+2. **`SPLIT_MIN_TOTAL_LINES` is 400.** The plan fixed no number. 400 rather than a rounder
+   300 because the design's demo PR is 285 lines with the banner hidden — a lower
+   threshold would make the mock contradict itself.
+3. **The seed UPDATES existing `pr_files` rows** rather than inserting only the missing
+   ones. The four rows seeded before L03 carry no `patch`, and nine rows of which four
+   cannot be jumped into is the bug the seed exists to prevent. Still keyed by path, still
+   no migration.
+4. **`package-lock.json` is seeded with no patch at all** — that is the state the design
+   draws as "Mechanical changes — diff collapsed by default".
+5. **The seeded Stripe key is written `sk_live_EXAMPLE_NOT_A_REAL_KEY`**, not the mock's
+   realistic-looking string: a committed file matching a secret scanner's pattern is a
+   support ticket, and the finding above it reads the same either way.
+6. **`FileCard` gained a sixth optional prop, `onFocusLine`.** The plan named five and also
+   said `SmartDiffViewer` owns `focus: {path, line, token}`; a badge inside the card has to
+   be able to ask for that focus without holding it.
+7. **`defaultOpen` is three-way, not two.** Boilerplate is closed unconditionally, a
+   flagged file opens, and everything else is left to the card's existing 200-line
+   heuristic. The design opens a file if and only if it has findings, which on an
+   unreviewed PR would collapse the entire diff — a regression against today's tab.
+8. **Two scaffold message keys were removed, not filled.** `smartDiff.findingLines` and
+   `smartDiff.groupedByRole` describe a counter and a caption the `pr-files` artboard does
+   not have; leaving them is a false trail for the next grep-before-building.
 
 ## Test plan
 

@@ -131,11 +131,35 @@ describe("SmartDiffViewer", () => {
     expect(badges[0]).toHaveTextContent("1");
   });
 
-  it("scrolls the diff to the flagged line when the badge is clicked", async () => {
+  it("scrolls the diff to the flagged line, and highlights it", async () => {
     renderViewer();
     const badges = screen.getAllByLabelText("1 flagged line(s) — jump to the first");
     fireEvent.click(badges[0]!);
+
     await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+    // The scrolled element is the LINE, not the card: `mock.instances` records
+    // the receiver, which is the only way to tell the two jumps apart.
+    const target = scrollIntoView.mock.instances[0] as HTMLElement;
+    expect(target.getAttribute("data-line")).toBe("28");
+    // jsdom drops any declaration containing `var()`, so the highlight is read
+    // off the style ATTRIBUTE (client/INSIGHTS.md, 2026-08-02).
+    await waitFor(() =>
+      expect(
+        target.querySelector("div")?.getAttribute("style") ?? "",
+      ).toContain("outline: 2px solid var(--accent)"),
+    );
+  });
+
+  it("falls back to the card header when the flagged line is in no hunk", async () => {
+    // A finding on line 900 of a patch that only carries lines 11-13: the click
+    // must still take the reader to the right file rather than nowhere.
+    renderViewer({ findings: [finding("src/config.ts", 900, "CRITICAL")] });
+    fireEvent.click(screen.getByLabelText("1 flagged line(s) — jump to the first"));
+
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+    const target = scrollIntoView.mock.instances[0] as HTMLElement;
+    expect(target.getAttribute("data-line")).toBeNull();
+    expect(target.textContent).toContain("src/config.ts");
   });
 
   it("takes badges and severity from the client's findings once they load", () => {

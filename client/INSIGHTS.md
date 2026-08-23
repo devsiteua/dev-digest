@@ -7,6 +7,30 @@ see the root [`../INSIGHTS.md`](../INSIGHTS.md).
 
 ## What Works
 
+### 2026-08-23 · Overlay the fresh client data on a derived-on-read endpoint instead of trying to invalidate it
+
+Trigger:  the Smart Diff's findings badges. `GET /pulls/:id/smart-diff` computes
+          `finding_lines` from the latest review, so after a Run Review it is stale by
+          construction — and the obvious fix, invalidating `["smart-diff", prId]` when the
+          run finishes, does not exist to be written: a review is fire-and-forget
+          (`runReview()` returns `reviews: []`), and what reacts to the run SETTLING is
+          `onRunDone` in `page.tsx`, which calls `refetchReviews()` — a refetch, not an
+          invalidate that other keys could ride along with.
+Cause:    two clocks. The endpoint answers from what the database held when it was asked;
+          the screen learns about the new review through a different query entirely.
+Takeaway: let the query own the part that is expensive to derive (here: the ORDER, which
+          costs a classification pass) and overlay the part that changes underneath it from
+          the query the screen already refreshes (`usePrReviews`). The overlay is also
+          where a field the contract has no room for can live — severity per line, in this
+          case. Keep the two distinguishable: `null` means "not loaded, trust the server's
+          value", `[]` means "loaded, and there are none" — collapsing them into a falsy
+          check makes a clean review look like a loading one. Invalidate the query only for
+          the events that change what IT computes (`useDeleteRun`, `useDeleteReview`), not
+          for every event that touches findings — `useFindingAction` changes no line.
+Evidence: src/app/repos/[repoId]/pulls/[number]/_components/SmartDiffViewer/helpers.ts
+          (buildFindingOverlay, findingLinesFor); src/lib/hooks/reviews.ts (smartDiffKey)
+Status:   resolved
+
 ### 2026-08-06 · Seed an edit draft from the EVENT that opens the editor, never from an effect
 
 Trigger:  adding in-card rewording to `ConventionCard` and the merge modal's body editor —
@@ -239,6 +263,26 @@ Evidence: client/src/app/repos/[repoId]/pulls/styles.ts (tableCard);
 Status:   resolved
 
 ## Tool & Library Notes
+
+### 2026-08-23 · jsdom has no `scrollIntoView` — stub it on `Element.prototype`, and read `mock.instances` to learn WHICH element scrolled
+
+Trigger:  proving that a findings badge scrolls the diff to the flagged line, and that a
+          finding outside every hunk scrolls to the card header instead
+Cause:    jsdom implements no scrolling API at all, so the component throws unless
+          `Element.prototype.scrollIntoView = vi.fn()` is set first. And once it is stubbed,
+          `expect(spy).toHaveBeenCalled()` passes for BOTH behaviours — the assertion cannot
+          tell the line jump from the header fallback, which is the only thing worth
+          testing about them.
+Takeaway: `vi.fn()` records the receiver of every call in `mock.instances`, so the target is
+          `scrollIntoView.mock.instances[0] as HTMLElement` — then assert something that
+          identifies it (`getAttribute("data-line")`, or its `textContent`). Give the
+          scrollable rows a `data-*` anchor for exactly this reason; it is also what the
+          component uses to find them (`querySelector('[data-line="45"]')`), so the test and
+          the implementation agree by construction. The highlight that follows is read off
+          the style ATTRIBUTE, per the 2026-08-02 `var()` entry below.
+Evidence: src/app/repos/[repoId]/pulls/[number]/_components/SmartDiffViewer/SmartDiffViewer.test.tsx
+          ("scrolls the diff to the flagged line, and highlights it")
+Status:   resolved
 
 ### 2026-08-22 · `@testing-library/user-event` is not installed — every RTL guide you will read assumes it is
 

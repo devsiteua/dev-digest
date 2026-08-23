@@ -73,6 +73,27 @@ Status:   resolved — the recipe generalises to experiment 1 and to any future 
 
 ## What Doesn't Work
 
+### 2026-08-23 · An acceptance criterion written as a grep over source also polices the COMMENTS
+
+Trigger:  L03 Smart Diff's criterion "every pattern lives in `constants.ts`;
+          `grep -nE "package-lock|dist/|\.snap" .../{helpers,service,routes}.ts` finds
+          nothing". The module was correct — no pattern outside `constants.ts` — and the
+          grep still hit, on the line of `helpers.ts` that EXPLAINS why the lock check runs
+          before the wiring rules.
+Cause:    the criterion means "no classifying literal in code" but is written as a text
+          search over the whole file, and prose is text. Rewording the comment to say "a
+          lock file" and "its manifest" satisfied it, at the cost of a doc comment that can
+          no longer name the case it is about — a real, if small, loss.
+Takeaway: when a criterion is a grep, decide deliberately whether it should read code only
+          (`grep -v '^\s*[*/]'` first, or restrict to the assignment lines) and say so in
+          the spec. Otherwise expect it to bind on comments, and write the comment
+          accordingly rather than "fixing" the grep after the fact. Same family as
+          `server/INSIGHTS.md` (2026-08-22): a negative stated over a whole file proves less
+          and breaks more than one scoped to the thing that could carry the violation.
+Evidence: specs/L03-smart-diff.md § Acceptance criteria (the grep criterion);
+          server/src/modules/smart-diff/helpers.ts (`classifyPath` doc comment)
+Status:   resolved — the grep is clean and the criterion is ticked, with this cost recorded
+
 ### 2026-08-22 · A plan's § Out of scope is a decision about EFFORT, never about the brief
 
 Trigger:  L03 Round 1 shipped, every one of its own acceptance criteria green. Auditing it
@@ -150,6 +171,29 @@ Status:   open — fix opportunistically when touching those files
 > resolved with L01's cost column) → [`docs/insights-archive.md`](docs/insights-archive.md).
 
 ## Codebase Patterns
+
+### 2026-08-23 · Seeded `patch` text is a contract with the CLIENT's parser — and nothing checks it
+
+Trigger:  seeding PR #482's nine files so a findings badge could scroll the diff to
+          `config.ts:12`, `webhooks.ts:61`, `users.ts:45`, `ratelimit.ts:28`
+Cause:    which line a patch renders is decided by `client/src/components/diff-viewer/
+          helpers.ts` `parsePatch`: it takes the NEW-side start from each `@@ -a,b +c,d @@`
+          and increments once per `+`/context line, never on a `-`. So a finding's
+          `start_line` is only reachable if the hunk header and the lines above it add up
+          to that number. Nothing on either side asserts this — the server does not read
+          patches, and the client has no fixture tying a seeded finding to a seeded hunk.
+          Two of the four headers were off by exactly the net size of an earlier hunk.
+Takeaway: when seeding or editing `patch` text that a feature jumps into, replay the
+          parser's numbering over it before committing (a dozen lines of script: reset the
+          counter at `@@`, skip `-` lines, record the number of every rendered line, assert
+          each finding's `start_line` is in the map). Treat the hunk header as data under
+          test, not as decoration. The degraded path — scroll to the card header when no
+          rendered line matches — is what saves the reader when this is wrong, so build it
+          in the same change.
+Evidence: server/src/db/seed.ts (PR_482_FILES);
+          client/src/components/diff-viewer/FileCard/FileCard.tsx (the focus effect);
+          client/.../SmartDiffViewer.test.tsx ("falls back to the card header")
+Status:   resolved
 
 ### 2026-08-22 · The onion skill's own review checklist ends on a question `arch:check` cannot answer
 
