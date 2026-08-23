@@ -30,7 +30,7 @@ function fileFromMeta(meta: SmartDiffFile): PrFile {
 }
 
 /** A file the detail has but the smart diff never classified. */
-function metaFromFile(file: PrFile): SmartDiffFile {
+export function metaFromFile(file: PrFile): SmartDiffFile {
   return {
     path: file.path,
     pseudocode_summary: null,
@@ -76,6 +76,25 @@ export function buildGroupRows(
 
   // A group invented here has to land in the right place, not at the end.
   return [...out].sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role));
+}
+
+/**
+ * Every row, once, in the PR's own file order.
+ *
+ * The flat view has the same "nothing disappears" duty as the grouped one, and
+ * it cannot get there by iterating the detail's `files`: a path the smart diff
+ * classified but the detail has no `PrFile` for would vanish the moment the
+ * reader clicks "Original order" — a file visible one click ago, gone with no
+ * indication. So the flat list is the JOINED rows, ordered by where the detail
+ * put them, with the recovered ones appended.
+ */
+export function flattenRows(groups: SmartDiffGroupRows[], files: PrFile[]): SmartDiffRow[] {
+  const order = new Map(files.map((f, i) => [f.path, i]));
+  return [...groups.flatMap((g) => g.rows)].sort(
+    (a, b) =>
+      (order.get(a.file.path) ?? Number.MAX_SAFE_INTEGER) -
+      (order.get(b.file.path) ?? Number.MAX_SAFE_INTEGER),
+  );
 }
 
 export interface FindingOverlay {
@@ -136,10 +155,24 @@ export function findingLinesFor(
   return overlay.lines[meta.path] ?? [];
 }
 
-/** Total additions/deletions across the files the detail actually has. */
-export function totalStat(files: PrFile[]): { additions: number; deletions: number } {
-  return files.reduce(
-    (acc, f) => ({ additions: acc.additions + f.additions, deletions: acc.deletions + f.deletions }),
-    { additions: 0, deletions: 0 },
+/**
+ * Totals over the rows actually rendered.
+ *
+ * Taken from the joined rows rather than the detail's `files`, so the
+ * "N files · +X −Y" line above the groups always describes the cards below it —
+ * including a file only the smart diff knew about.
+ */
+export function totalStat(rows: readonly SmartDiffRow[]): {
+  files: number;
+  additions: number;
+  deletions: number;
+} {
+  return rows.reduce(
+    (acc, r) => ({
+      files: acc.files + 1,
+      additions: acc.additions + r.file.additions,
+      deletions: acc.deletions + r.file.deletions,
+    }),
+    { files: 0, additions: 0, deletions: 0 },
   );
 }

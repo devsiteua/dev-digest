@@ -362,10 +362,17 @@ describe('hunkHeadersFromPatch', () => {
   ].join('\n');
 
   it('keeps the headers and nothing that carries content', () => {
-    expect(hunkHeadersFromPatch(PATCH)).toEqual([
-      '@@ -1,3 +1,4 @@',
-      '@@ -20,2 +21,2 @@ function thing() {',
-    ]);
+    expect(hunkHeadersFromPatch(PATCH)).toEqual(['@@ -1,3 +1,4 @@', '@@ -20,2 +21,2 @@']);
+  });
+
+  // The section heading git appends after the closing `@@` is a line of source
+  // code — `constants.ts` says a header is the four numbers "and nothing else",
+  // and the sibling path `changedFilesFromDiff` synthesises exactly that. This
+  // is the assertion that keeps the two paths, and the rule, in agreement.
+  it('drops the section heading git appends after the closing @@', () => {
+    expect(
+      hunkHeadersFromPatch("@@ -46,9 +60,17 @@ import { db } from '../../lib/db';"),
+    ).toEqual(['@@ -46,9 +60,17 @@']);
   });
 
   it('treats a null patch as a file with no headers, not as a missing file', () => {

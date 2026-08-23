@@ -14,6 +14,7 @@ import {
   buildFindingOverlay,
   buildGroupRows,
   findingLinesFor,
+  flattenRows,
   totalStat,
   type SmartDiffRow,
 } from "./helpers";
@@ -61,7 +62,8 @@ export function SmartDiffViewer({
     [findings],
   );
   const groupRows = React.useMemo(() => buildGroupRows(groups, files), [groups, files]);
-  const stat = React.useMemo(() => totalStat(files), [files]);
+  const flatRows = React.useMemo(() => flattenRows(groupRows, files), [groupRows, files]);
+  const stat = React.useMemo(() => totalStat(flatRows), [flatRows]);
 
   const label: Record<SmartDiffRole, string> = {
     core: t("smartDiff.coreLabel"),
@@ -103,7 +105,7 @@ export function SmartDiffViewer({
     <div>
       <div style={s.header}>
         <div style={s.headerStat}>
-          {t("smartDiff.filesCount", { count: files.length })}{" "}
+          {t("smartDiff.filesCount", { count: stat.files })}{" "}
           <span className="mono" style={s.addText}>
             +{stat.additions}
           </span>{" "}
@@ -162,30 +164,10 @@ export function SmartDiffViewer({
       ) : (
         // "Original order" is the order GitHub returned the files in, not an
         // alphabetical sort: that order is information, `localeCompare` is not.
-        <div style={s.cards}>
-          {files.map((file) =>
-            card({ file, meta: rowMetaFor(file, groupRows) }, null),
-          )}
-        </div>
+        // The rows are the JOINED ones, so switching views can never drop a
+        // file the grouped view was showing.
+        <div style={s.cards}>{flatRows.map((row) => card(row, null))}</div>
       )}
     </div>
   );
-}
-
-/** The server's classification for a file, when the flat list needs its badges. */
-function rowMetaFor(
-  file: PrFile,
-  groupRows: ReturnType<typeof buildGroupRows>,
-): SmartDiffRow["meta"] {
-  for (const group of groupRows) {
-    const row = group.rows.find((r) => r.file.path === file.path);
-    if (row) return row.meta;
-  }
-  return {
-    path: file.path,
-    pseudocode_summary: null,
-    additions: file.additions,
-    deletions: file.deletions,
-    finding_lines: [],
-  };
 }

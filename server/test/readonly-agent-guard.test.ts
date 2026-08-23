@@ -10,6 +10,11 @@
  * The tests shell out to the script with a real hook payload, because that is
  * the only interface it has. Exit 2 = denied, exit 0 = allowed; the contract is
  * Claude Code's, not ours.
+ *
+ * The subject lives at the repo root, outside this package. That makes the
+ * `paths:` filter of `.github/workflows/server-unit.yml` part of this suite's
+ * contract: `scripts/readonly-agent-guard.sh` is listed there so a pull request
+ * that only edits the guard still runs the tests written to protect it.
  */
 import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';

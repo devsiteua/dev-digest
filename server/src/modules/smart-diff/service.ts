@@ -19,8 +19,6 @@ import { buildGroups, buildSplitSuggestion, groupFindingLines } from './helpers.
  * through `container.reviewRepo` so tenancy is checked by the one query in this
  * codebase that is workspace-scoped for PRs.
  */
-export type SmartDiffApi = Pick<SmartDiffService, 'forPull'>;
-
 export class SmartDiffService {
   private repo: SmartDiffRepository;
 

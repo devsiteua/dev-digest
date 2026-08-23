@@ -9,7 +9,7 @@ import type { Finding } from '@devdigest/shared';
  * every file it happened to read is a review nobody finishes; a review that can
  * be talked into silence about a critical defect is worse than none.
  *
- * Three properties make this safe to run on every review, each one testable:
+ * Four properties make this safe to run on every review, each one testable:
  *
  *   1. It acts on `Finding.scope`, which the REVIEWING MODEL sets. The author's
  *      `out_of_scope` list is information in the prompt and suppresses nothing —
@@ -18,7 +18,10 @@ import type { Finding } from '@devdigest/shared';
  *   2. Unlabelled is `in`. A model that ignores the field, an older run, a
  *      provider that dropped it from the structured reply — all produce exactly
  *      the finding set they produced before this file existed.
- *   3. It never removes every CRITICAL. Of the out-of-scope CRITICALs the single
+ *   3. It is inert unless the caller activates it — a review whose prompt
+ *      carried no derived intent keeps exactly the finding set it produced
+ *      before this file existed, because the caller passes `active: false`.
+ *   4. It never removes every CRITICAL. Of the out-of-scope CRITICALs the single
  *      most confident one survives, which is the brief's "one signal".
  *
  * Nothing here is silent: every drop is returned with a reason, and the caller
@@ -38,7 +41,23 @@ export interface ScopeGateResult {
  * they arrived, so a caller diffing against the pre-gate list sees deletions and
  * never a reshuffle.
  */
-export function applyScopeGate(findings: Finding[]): ScopeGateResult {
+export function applyScopeGate(
+  findings: Finding[],
+  opts: { active?: boolean } = {},
+): ScopeGateResult {
+  // Inert unless the CALLER says the prompt carried a derived intent.
+  //
+  // This used to be implied — "the model is only asked for the label when the
+  // prompt has an intent" — and that was false. `Finding.scope` is part of the
+  // `Review` schema, so its description travels in the JSON Schema of EVERY
+  // structured call, strict mode marks it required-but-nullable, and a model
+  // will happily label `out` on a run whose prompt never mentioned an intent.
+  // Dropping those findings would make an intent-less review quieter than the
+  // identical pre-L03 one, which is a behaviour change nobody asked for.
+  if (opts.active === false) {
+    return { kept: findings, dropped: [] };
+  }
+
   const outCriticals = findings.filter((f) => f.scope === 'out' && f.severity === 'CRITICAL');
 
   // The signal: the most confident out-of-scope CRITICAL. Ties go to the first,

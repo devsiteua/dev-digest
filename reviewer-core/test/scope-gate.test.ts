@@ -2,8 +2,9 @@
  * The scope gate — the only post-step in this engine that can REMOVE something a
  * user would otherwise have seen.
  *
- * Three properties earn it that right, and each has a test here: it is inert
- * without labels, it never removes every CRITICAL, and it never drops silently.
+ * Four properties earn it that right, and each has a test here: it is inert
+ * without labels, it is inert when the caller did not activate it, it never
+ * removes every CRITICAL, and it never drops silently.
  */
 import { describe, it, expect } from 'vitest';
 import type { Finding } from '@devdigest/shared';
@@ -24,6 +25,22 @@ const finding = (over: Partial<Finding> = {}): Finding => ({
 });
 
 describe('applyScopeGate', () => {
+  it('is inert when the caller says the prompt carried no intent', () => {
+    // The regression this guards: `Finding.scope` rides on the `Review` schema,
+    // so its description reaches EVERY structured call and a model can label
+    // `out` on a review that was never told what the change is for. An
+    // intent-less run must keep exactly the findings it produced before this
+    // file existed.
+    const findings = [
+      finding({ scope: 'out', severity: 'CRITICAL', title: 'out crit' }),
+      finding({ scope: 'out', severity: 'WARNING', title: 'out warn' }),
+      finding({ scope: 'in', severity: 'WARNING', title: 'in warn' }),
+    ];
+    const result = applyScopeGate(findings, { active: false });
+    expect(result.kept).toEqual(findings);
+    expect(result.dropped).toEqual([]);
+  });
+
   it('drops out-of-scope noise and keeps exactly one serious signal', () => {
     // The brief's own shape: comments outside the scope are filtered out, but a
     // serious problem outside the PR's bounds keeps one signal.

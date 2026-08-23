@@ -183,6 +183,24 @@ describe("SmartDiffViewer", () => {
     expect(screen.queryByLabelText(/flagged line/)).not.toBeInTheDocument();
   });
 
+  it("clears the highlight on the file it left when the reader jumps to another", async () => {
+    // One focus, two cards: the card jumped to FIRST must not keep its outline,
+    // or two lines claim to be the one the reader asked for.
+    renderViewer();
+    const badges = screen.getAllByLabelText("1 flagged line(s) — jump to the first");
+    fireEvent.click(badges[0]!);
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+    const first = scrollIntoView.mock.instances[0] as HTMLElement;
+    await waitFor(() =>
+      expect(first.querySelector("div")?.getAttribute("style") ?? "").toContain("outline:"),
+    );
+
+    fireEvent.click(badges[1]!);
+    await waitFor(() =>
+      expect(first.querySelector("div")?.getAttribute("style") ?? "").not.toContain("outline:"),
+    );
+  });
+
   it("switches to the PR's own file order, keeping every file", () => {
     renderViewer();
     fireEvent.click(screen.getByText("Original order"));
@@ -205,6 +223,16 @@ describe("SmartDiffViewer", () => {
     renderViewer({ files: [FILES[0]!] });
     expect(screen.getByText("src/config.ts")).toBeInTheDocument();
     expect(screen.getByText("package-lock.json")).toBeInTheDocument();
+  });
+
+  it("keeps a recovered file when the reader switches to the flat order", () => {
+    // The detail knows one file; the smart diff knows three. Switching views is
+    // not allowed to drop the two only the server told us about.
+    renderViewer({ files: [FILES[0]!] });
+    fireEvent.click(screen.getByText("Original order"));
+    expect(screen.getByText("src/config.ts")).toBeInTheDocument();
+    expect(screen.getByText("package-lock.json")).toBeInTheDocument();
+    expect(screen.getByText("src/middleware/ratelimit.ts")).toBeInTheDocument();
   });
 
   it("shows the split banner only when the server says the PR is too big", () => {

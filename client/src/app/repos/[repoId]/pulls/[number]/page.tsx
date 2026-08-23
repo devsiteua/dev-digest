@@ -23,6 +23,7 @@ import { ApiError } from "../../../../../lib/api";
 import { githubPrUrl } from "../../../../../lib/github-urls";
 import { severityCounts } from "@/lib/severity";
 import { latestReviewFindings } from "@/lib/findings";
+import { smartDiffKey } from "@/lib/hooks/smart-diff";
 import type { FindingRecord } from "@devdigest/shared";
 
 export default function PRDetailPage() {
@@ -173,7 +174,7 @@ export default function PRDetailPage() {
               // The smart diff orders files by how many findings they carry, so
               // a finished run changes the ORDER as well as the badges. The
               // badges themselves come from the reviews refetched above.
-              if (prId) qc.invalidateQueries({ queryKey: ["smart-diff", prId] });
+              if (prId) qc.invalidateQueries({ queryKey: smartDiffKey(prId) });
             }}
           />
         )}

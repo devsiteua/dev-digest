@@ -20,11 +20,21 @@ on:
     paths:
       - 'server/**'
       - 'reviewer-core/**'
+      # `server/test/readonly-agent-guard.test.ts` runs the repo-root guard
+      # script. Without this path the suite written to protect it never runs on
+      # a PR that only edits it — TESTING.md § Conventions: a cross-package
+      # dependency has to be encoded in the workflow's own filter.
+      - 'scripts/readonly-agent-guard.sh'
       - '.github/workflows/server-unit.yml'
   pull_request:
     paths:
       - 'server/**'
       - 'reviewer-core/**'
+      # `server/test/readonly-agent-guard.test.ts` runs the repo-root guard
+      # script. Without this path the suite written to protect it never runs on
+      # a PR that only edits it — TESTING.md § Conventions: a cross-package
+      # dependency has to be encoded in the workflow's own filter.
+      - 'scripts/readonly-agent-guard.sh'
       - '.github/workflows/server-unit.yml'
 
 permissions:

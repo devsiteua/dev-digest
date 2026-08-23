@@ -377,7 +377,11 @@ d('L03 intent layer (Testcontainers pg)', () => {
 
     expect(user).toContain('src/middleware/limit.ts (+2/-1)');
     expect(user).toContain('@@ -1,3 +1,4 @@');
-    expect(user).toContain('@@ -40,2 +41,2 @@ export function limit() {');
+    // The header WITHOUT git's section heading: `export function limit() {` is a
+    // line of source code, and this block is documented to carry the four
+    // numbers and nothing else.
+    expect(user).toContain('@@ -40,2 +41,2 @@');
+    expect(user).not.toContain('export function limit() {');
     expect(user).toContain('docs/rate-limits.md (+0/-0)');
 
     // The mechanical form of "change bodies are not sent", scoped to the block

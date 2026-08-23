@@ -37,6 +37,16 @@ const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash';
  * once their features are built — they start empty here.
  */
 
+/**
+ * The demo PR's derived-intent sentence.
+ *
+ * Named because two places must agree on it — the seed's insert and its
+ * on-conflict update — and because `e2e/specs/02-repo-pulls-detail.flow.json`
+ * waits for this exact string.
+ */
+const DEMO_INTENT_SENTENCE =
+  'Throttle the public, unauthenticated API surface so one client cannot exhaust it.';
+
 export const DEFAULT_WORKSPACE_NAME = 'default';
 export const SYSTEM_USER_EMAIL = 'you@local';
 
@@ -848,71 +858,82 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
   // here would make the first Re-derive add a warning row out of nowhere.
   //
   // Tier `low` is not a placeholder — it is what the ladder actually returns for
-  // this PR. Its body is 95 characters, under `MIN_SUBSTANTIVE_BODY_CHARS`, it
+  // this PR. Its body is well under `MIN_SUBSTANTIVE_BODY_CHARS` (200), it
   // links no issue and names no plan file, so the evidence is title + commits +
   // branch + changed paths, which `tierFromSources` calls `low`
   // (0.4 = `TIER_SCORE.low`). Seeding `high` would demo a number the code cannot
   // reproduce, and the first Re-derive would visibly downgrade it on screen.
   //
-  // Guarded on the intent row's OWN absence rather than inside the `if (!pr)`
-  // block above, so an already-seeded dev database picks it up without dropping
-  // the volume (server `INSIGHTS.md`, 2026-08-02).
+  // Outside the `if (!pr)` block above, so an already-seeded dev database picks
+  // it up without dropping the volume (server `INSIGHTS.md`, 2026-08-02) — and
+  // an UPSERT rather than an insert-if-absent, for the reason the `pr_files`
+  // backfill above is one: this is fixture data, and a row that exists with
+  // different contents has not converged. It matters here in particular because
+  // `POST /pulls/:id/intent` writes a real row for this PR the moment anyone
+  // clicks Re-derive, while `e2e/specs/02-repo-pulls-detail.flow.json` asserts
+  // the seeded sentence — after one local derivation, an insert-only seed could
+  // never make that flow pass again. Unlike `pr_files`, this table has a primary
+  // key on `pr_id`, so the upsert needs no migration.
   if (demoPr) {
-    const existingIntent = await db
-      .select({ prId: t.prIntent.prId })
-      .from(t.prIntent)
-      .where(eq(t.prIntent.prId, demoPr.id));
-    if (existingIntent.length === 0) {
-      await db.insert(t.prIntent).values({
-        prId: demoPr.id,
-        intent:
-          'Throttle the public, unauthenticated API surface so one client cannot exhaust it.',
-        inScope: [
-          'A token-bucket limiter in front of the public endpoints',
-          'Per-endpoint budgets read from src/config.ts',
-          'Rate-limit headers on throttled responses',
-        ],
-        outOfScope: [
-          'Authenticated internal endpoints',
-          'The webhook signature check the limiter sits next to',
-        ],
-        kind: 'feature',
-        // Never chosen independently of the tier: this is `TIER_SCORE.low`.
-        confidence: 0.4,
-        confidenceTier: 'low',
-        sources: ['pr_title', 'commits', 'branch', 'file_paths'],
-        missingContext: [
-          'the description is too short to state an intent (a template’s boilerplate does not count)',
-        ],
-        evidence: [
-          {
-            source: 'pr_title',
-            ref: 'PR #482',
-            quote: 'Add rate limiting to public API endpoints',
-          },
-          {
-            source: 'commits',
-            ref: 'a1b2c3d4e5f6',
-            quote: 'Add token-bucket rate limiter',
-          },
-          {
-            source: 'file_paths',
-            ref: 'src/middleware/ratelimit.ts',
-            quote: 'new middleware, +84 lines',
-          },
-        ],
-        // Equal to `DEFAULT_INTENT_MODEL` today. Kept as the seed's own literals
-        // rather than imported: `src/db/` sits below `src/modules/`, and a seed
-        // reaching up into a module inverts that direction for two strings.
-        provider: DEFAULT_PROVIDER,
-        model: DEFAULT_MODEL,
-        tokensIn: 1_840,
-        tokensOut: 214,
-        costUsd: 0.0002,
-        durationMs: 2_310,
-        headSha: demoPr.headSha,
+    // ONE literal, used by both halves of the upsert: an insert and an update
+    // that describe different rows is how fixture data quietly diverges from
+    // itself. Typed as the table's insert shape so `kind` and `confidenceTier`
+    // stay their enums rather than widening to `string`.
+    const demoIntent: typeof t.prIntent.$inferInsert = {
+      prId: demoPr.id,
+      intent: DEMO_INTENT_SENTENCE,
+      inScope: [
+        'A token-bucket limiter in front of the public endpoints',
+        'Per-endpoint budgets read from src/config.ts',
+        'Rate-limit headers on throttled responses',
+      ],
+      outOfScope: [
+        'Authenticated internal endpoints',
+        'The webhook signature check the limiter sits next to',
+      ],
+      kind: 'feature',
+      // Never chosen independently of the tier: this is `TIER_SCORE.low`.
+      confidence: 0.4,
+      confidenceTier: 'low',
+      sources: ['pr_title', 'commits', 'branch', 'file_paths'],
+      missingContext: [
+        'the description is too short to state an intent (a template’s boilerplate does not count)',
+      ],
+      evidence: [
+        {
+          source: 'pr_title',
+          ref: 'PR #482',
+          quote: 'Add rate limiting to public API endpoints',
+        },
+        {
+          source: 'commits',
+          ref: 'a1b2c3d4e5f6',
+          quote: 'Add token-bucket rate limiter',
+        },
+        {
+          source: 'file_paths',
+          ref: 'src/middleware/ratelimit.ts',
+          quote: 'new middleware, +84 lines',
+        },
+      ],
+      // Equal to `DEFAULT_INTENT_MODEL` today. Kept as the seed's own literals
+      // rather than imported: `src/db/` sits below `src/modules/`, and a seed
+      // reaching up into a module inverts that direction for two strings.
+      provider: DEFAULT_PROVIDER,
+      model: DEFAULT_MODEL,
+      tokensIn: 1_840,
+      tokensOut: 214,
+      costUsd: 0.0002,
+      durationMs: 2_310,
+      headSha: demoPr.headSha,
+    };
+    await db
+      .insert(t.prIntent)
+      .values(demoIntent)
+      .onConflictDoUpdate({
+        target: t.prIntent.prId,
+        set: { ...demoIntent, generatedAt: new Date() },
       });
-    }
   }
 
   // NOTE: deliberately no `lastReviewedSha` on the demo PR. Setting it would flip

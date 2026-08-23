@@ -31,7 +31,10 @@ export const s = {
     // leave the reader wondering which group they are in.
     position: "sticky",
     top: 0,
-    background: "var(--bg-base)",
+    // `--bg-primary` is the page ground the diff is drawn on. A token that does
+    // not exist resolves to nothing, which leaves a STICKY header transparent —
+    // the one thing it must not be.
+    background: "var(--bg-primary)",
     zIndex: 1,
   } satisfies CSSProperties,
   groupLabel: { fontSize: 12.5, fontWeight: 700, color: "var(--text-primary)" } satisfies CSSProperties,

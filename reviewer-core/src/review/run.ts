@@ -220,9 +220,19 @@ export async function reviewPullRequest(input: ReviewInput): Promise<ReviewOutco
 
   // The scope gate, immediately after grounding and for the same reason it sits
   // here rather than in a caller: it is a property of the review, not of who
-  // asked for one. Inert unless the reviewing model labelled something `out`,
-  // which it is only asked to do when the prompt carried a derived intent.
-  const scoped = applyScopeGate(ground.kept);
+  // asked for one.
+  //
+  // Activated EXPLICITLY, by the one fact that decides it: did this prompt carry
+  // a derived intent? It cannot be left implicit. `Finding.scope` lives on the
+  // `Review` schema, so every structured call ships its description and strict
+  // mode asks for a value — a model can label `out` on a run that was never told
+  // what the change is for, and dropping those findings would make an
+  // intent-less review quieter than the identical pre-L03 one.
+  // `input.intent` is what `assemblePrompt` renders into the `## PR intent
+  // (derived)` block, so a non-empty value here is exactly "the prompt carried
+  // one" — the same condition, read at the one place that knows it.
+  const scopeActive = !!input.intent?.trim();
+  const scoped = applyScopeGate(ground.kept, { active: scopeActive });
   const scopeGate = scopeGateSummary(scoped);
   for (const d of scoped.dropped) {
     emit('info', `scope gate dropped "${d.finding.title}": ${d.reason}`);

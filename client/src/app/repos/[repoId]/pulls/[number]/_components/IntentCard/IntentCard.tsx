@@ -159,4 +159,3 @@ export function IntentCard({ prId }: IntentCardProps) {
   );
 }
 
-export type { PrIntentRecord };

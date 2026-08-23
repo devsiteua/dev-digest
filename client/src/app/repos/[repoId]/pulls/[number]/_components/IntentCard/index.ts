@@ -1,1 +1,1 @@
-export { IntentCard } from "./IntentCard";
+export { IntentCard, IntentCard as default } from "./IntentCard";

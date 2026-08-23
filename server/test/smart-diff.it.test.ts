@@ -9,7 +9,7 @@
  * provider throw and asking for a 200 anyway.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, notInArray } from 'drizzle-orm';
 import type { LLMProvider } from '@devdigest/shared';
 import { SmartDiff } from '@devdigest/shared';
 import { startPg, dockerAvailable, type PgFixture } from './helpers/pg.js';
@@ -257,17 +257,42 @@ d('L03 smart diff (Testcontainers pg)', () => {
     await pg.handle.db.delete(t.pullRequests).where(eq(t.pullRequests.id, bare!.id));
   });
 
-  it('is idempotent with the seed: re-seeding leaves nine files, not eighteen', async () => {
-    await seed(pg.handle.db);
-    const rows = await pg.handle.db
-      .select()
-      .from(t.prFiles)
+  it('converges a database still in the PRE-L03 state, columns included', async () => {
+    // Re-seeding a database this same test just seeded proves almost nothing:
+    // every row is already correct, so an insert-only backfill — or one that
+    // forgets `patch` — passes. The state the backfill exists for is the old
+    // one, so the test builds it: the four files the seed shipped before L03,
+    // with no patch, and the PR row carrying the design's original numbers.
+    const keep = [
+      'src/middleware/ratelimit.ts',
+      'src/api/public/webhooks.ts',
+      'src/config.ts',
+      'src/api/users.ts',
+    ];
+    await pg.handle.db
+      .delete(t.prFiles)
+      .where(and(eq(t.prFiles.prId, prId), notInArray(t.prFiles.path, keep)));
+    await pg.handle.db
+      .update(t.prFiles)
+      .set({ patch: null })
       .where(eq(t.prFiles.prId, prId));
-    expect(rows).toHaveLength(9);
+    await pg.handle.db
+      .update(t.pullRequests)
+      .set({ additions: 247, deletions: 38, filesCount: 9 })
+      .where(eq(t.pullRequests.id, prId));
 
-    // And the patches survive, which is what the findings badges jump into.
+    await seed(pg.handle.db);
+
+    const rows = await pg.handle.db.select().from(t.prFiles).where(eq(t.prFiles.prId, prId));
+    // Nine rows, not four and not eighteen: the five missing ones were inserted
+    // and the four that were already there were not duplicated.
+    expect(rows).toHaveLength(9);
+    // And the COLUMNS converged, which the row count cannot tell you: the four
+    // pre-L03 rows had no patch, and a findings badge with nothing to scroll to
+    // is the bug this backfill exists to prevent.
     const config = rows.find((r) => r.path === 'src/config.ts')!;
     expect(config.patch).toContain('@@ -10,4 +10,8 @@');
+    expect(rows.filter((r) => r.patch !== null)).toHaveLength(8);
 
     const [pr] = await pg.handle.db
       .select()
@@ -275,6 +300,8 @@ d('L03 smart diff (Testcontainers pg)', () => {
       .where(and(eq(t.pullRequests.id, prId)));
     expect(pr!.filesCount).toBe(9);
     expect(pr!.additions).toBe(247);
+    // 38 was the design header's number and 36 is what its file list sums to;
+    // this assertion is the one that fails if the recompute stops running.
     expect(pr!.deletions).toBe(36);
   });
 });

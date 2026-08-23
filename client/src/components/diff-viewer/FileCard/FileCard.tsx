@@ -6,7 +6,7 @@ import React from "react";
 import { useTranslations } from "next-intl";
 import { Icon } from "@devdigest/ui";
 import type { PrFile } from "@/lib/types";
-import type { SeverityKey } from "@/lib/severity";
+import { SEVERITY_KEYS, type SeverityKey } from "@/lib/severity";
 import { AUTO_EXPAND_MAX_LINES, FOCUS_HIGHLIGHT_MS } from "../constants";
 import { parsePatch, type Line } from "../helpers";
 import {
@@ -105,6 +105,12 @@ export function FileCard({
     return () => {
       cancelAnimationFrame(raf);
       if (cleared) clearTimeout(cleared);
+      // Clear the highlight, not just its timer. The parent holds ONE focus, so
+      // jumping into another file re-runs this cleanup with `focusToken`
+      // undefined — and without this line the card that was jumped to first
+      // keeps its outline for as long as it is mounted, leaving two lines
+      // claiming to be the one the reader asked for.
+      setFocused(null);
     };
   }, [focusToken, focusLine]);
 
@@ -114,8 +120,10 @@ export function FileCard({
   // leave it neutral rather than guessing.
   const worstSeverity = React.useMemo<SeverityKey | undefined>(() => {
     if (!findingLines || !severityByLine) return undefined;
-    const order: SeverityKey[] = ["CRITICAL", "WARNING", "SUGGESTION"];
-    return order.find((sev) => findingLines.some((line) => severityByLine[line] === sev));
+    // `SEVERITY_KEYS` is the canonical order (`@/lib/severity`), and it is also
+    // what the overlay ranks with — a local copy here would let the badge's
+    // colour and the line's stripe disagree after one of them is edited.
+    return SEVERITY_KEYS.find((sev) => findingLines.some((line) => severityByLine[line] === sev));
   }, [findingLines, severityByLine]);
 
   // Group this file's comments into threads, then split into ones we can anchor

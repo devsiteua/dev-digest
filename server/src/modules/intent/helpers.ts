@@ -283,7 +283,19 @@ export function changedFilesFromDiff(files: UnifiedDiff['files']): IntentChanged
  */
 export function hunkHeadersFromPatch(patch?: string | null): string[] {
   if (!patch) return [];
-  return patch.split('\n').filter((line) => line.startsWith('@@ '));
+  return patch
+    .split('\n')
+    .filter((line) => line.startsWith('@@ '))
+    // Truncated at the CLOSING `@@`. A unified-diff header carries an optional
+    // section heading after it — `@@ -57,8 +60,17 @@ function assertSignature(req: Req) {` —
+    // and that heading is a line of source code, which `constants.ts` says this
+    // block never sends and `changedFilesFromDiff` (the other way into the same
+    // block) never produces. Keeping it would make the two paths disagree about
+    // what a derivation costs and about what the model is shown.
+    .map((line) => {
+      const close = line.indexOf('@@', 2);
+      return close === -1 ? line : line.slice(0, close + 2);
+    });
 }
 
 /**
