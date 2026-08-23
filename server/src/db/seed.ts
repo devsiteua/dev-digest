@@ -26,6 +26,9 @@ const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash';
  * review, and the three built-in agents (General + Security + Performance), all
  * on the default openrouter/deepseek-v4-flash provider+model.
  *
+ * L03 adds: PR #482's full nine-file diff with real `patch` text, so the Smart
+ * Diff has a PR whose files can be grouped and whose findings can be jumped to.
+ *
  * L02 adds: four built-in skills, the two agents that use them (Test Quality and
  * API Contract, seeded DISABLED — see below), and PRs #483/#484 as the fixtures
  * for the with-skills / without-skills comparison.
@@ -36,6 +39,280 @@ const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash';
 
 export const DEFAULT_WORKSPACE_NAME = 'default';
 export const SYSTEM_USER_EMAIL = 'you@local';
+
+/**
+ * The nine changed files of demo PR #482 — the `pr-files` artboard of the
+ * product design, seeded so the Smart Diff (L03) has a PR worth ordering: three
+ * files of real logic, four of wiring, two a reviewer should skim.
+ *
+ * The `patch` text is what makes the demo more than a file list. Its hunk
+ * headers are chosen so that every seeded finding line — `src/config.ts:12`,
+ * `webhooks.ts:61`, `users.ts:45`, `ratelimit.ts:28` — falls inside a RENDERED
+ * line, which is what lets a findings badge scroll the reader to the offending
+ * code. Move a hunk header and the badge silently lands on the file header
+ * instead.
+ *
+ * Two things are deliberate rather than sloppy:
+ *  - `additions`/`deletions` are the design's numbers and are NOT recomputed
+ *    from the patch; a real GitHub patch is often an excerpt of a larger change
+ *    and nothing in this codebase derives one from the other.
+ *  - the lock file carries no patch at all. That is the case the design draws as
+ *    "Mechanical changes — diff collapsed by default", and 92 lines of resolved
+ *    dependency ranges would teach a reader of the demo nothing.
+ *
+ * The Stripe key on `config.ts:12` is written as an obvious non-key. The design
+ * mock uses a realistic-looking `sk_live_…`, and a realistic-looking one in a
+ * committed file is what secret scanners exist to reject — the finding above it
+ * reads exactly the same either way.
+ */
+const PR_482_FILES: Array<{
+  path: string;
+  additions: number;
+  deletions: number;
+  patch: string | null;
+}> = [
+  {
+    path: 'src/middleware/ratelimit.ts',
+    additions: 84,
+    deletions: 0,
+    patch: `@@ -0,0 +1,84 @@
++import type { Request, Response, NextFunction } from 'express';
++import { redis } from '../lib/redis';
++import { logger } from '../lib/logger';
++import { metrics } from '../lib/metrics';
++
++/**
++ * Token-bucket rate limiter for the public API.
++ * Anonymous callers are bucketed by IP and authenticated ones by account id,
++ * so one office behind a NAT cannot exhaust a customer's whole budget.
++ */
++
++type Req = Request & { accountId?: string };
++type Res = Response;
++type Next = NextFunction;
++
++const ANON_LIMIT = 60;
++const ACCOUNT_LIMIT = 600;
++
++function bucketKey(req: Req): string {
++  const who = req.accountId ?? req.ip;
++  const window = Math.floor(Date.now() / 1000 / 3600);
++  return \`rl:\${who}:\${window}\`;
++}
++
++export async function rateLimit(req: Req, res: Res, next: Next) {
++  const key = bucketKey(req);
++  const count = await redis.incr(key);
++  if (count === 1) await redis.expire(key, 3600);
++
++  if (count > limitFor(req)) {
++    const retryAfter = await redis.ttl(key);
++    res.setHeader('Retry-After', String(Math.max(retryAfter, 1)));
++    res.setHeader('X-RateLimit-Limit', String(limitFor(req)));
++    res.setHeader('X-RateLimit-Remaining', '0');
++
++    // A blocked request is still a request the operator wants to see:
++    // without this line the only symptom of a limit set too low is a
++    // support ticket three days later.
++    logger.warn(
++      {
++        key,
++        count,
++        limit: limitFor(req),
++        accountId: req.accountId ?? null,
++        path: req.path,
++      },
++      'rate limit exceeded',
++    );
++    if (req.accountId) {
++      await metrics.increment('ratelimit.blocked', { account: req.accountId });
++    }
++    return res.status(429).end();
++  }
++  return next();
++}
++
++/**
++ * How many requests this caller gets in the current window.
++ *
++ * An authenticated account is trusted ten times as far as an anonymous
++ * caller; per-plan limits land here once billing exposes them.
++ */
++function limitFor(req: Req): number {
++  return req.accountId ? ACCOUNT_LIMIT : ANON_LIMIT;
++}
++
++/**
++ * Clear a caller's bucket — support tooling uses it after a false positive,
++ * and the tests use it between cases.
++ */
++export async function resetBucket(who: string): Promise<void> {
++  const window = Math.floor(Date.now() / 1000 / 3600);
++  await redis.del(\`rl:\${who}:\${window}\`);
++}
++
++/** Current usage without incrementing it, for the account dashboard. */
++export async function usage(req: Req): Promise<{ count: number; limit: number }> {
++  const raw = await redis.get(bucketKey(req));
++  return {
++    count: raw ? Number(raw) : 0,
++    limit: limitFor(req),
++  };
++}
++`,
+  },
+  {
+    path: 'src/api/public/webhooks.ts',
+    additions: 31,
+    deletions: 6,
+    patch: `@@ -46,9 +46,12 @@ import { db } from '../../lib/db';
+ 
+ const MAX_BODY_BYTES = 64 * 1024;
+ 
+-function assertSignature(req: Req) {
+-  if (!verify(req.rawBody, req.header('x-signature'))) {
+-    throw new Unauthorized('bad signature');
++function assertSignature(req: Req): void {
++  const signature = req.header('x-signature');
++  if (!signature) throw new Unauthorized('missing signature');
++  if (!verify(req.rawBody, signature)) {
++    throw new Unauthorized('bad signature');
+   }
+ }
+@@ -57,8 +60,17 @@ function assertSignature(req: Req) {
+ export async function webhookHandler(req: Req, res: Res) {
++  const target = req.body.callback_url;
+   const account = await db.accounts.find(req.accountId);
+   if (!account) return res.status(404).end();
+ 
+   const payload = { id: req.body.id, type: req.body.type, data: req.body.data };
+ 
++  // Forward with the account's own token, so the customer's endpoint can tell
++  // the call came from us and not from whoever POSTed the webhook.
++  const token = account.apiToken;
++
++  // 5 s covers the p99 of the fastest 90 % of customer endpoints; anything
++  // slower is left to the retry queue rather than held open here.
++  const timeout = AbortSignal.timeout(5_000);
++  await fetch(target, { headers: { Authorization: token }, signal: timeout });
+   return res.status(202).end();
+ }`,
+  },
+  {
+    path: 'src/api/public/index.ts',
+    additions: 12,
+    deletions: 2,
+    patch: `@@ -1,14 +1,24 @@
+ import { Router } from 'express';
++import { rateLimit } from '../../middleware/ratelimit';
+ import { webhookHandler } from './webhooks';
+ import { listPayments } from './payments';
+ 
+ export const publicRouter = Router();
+ 
++// Every route below this line is rate limited. Mounting the limiter on the
++// router rather than on each route is what makes "public" mean one thing.
++publicRouter.use(rateLimit);
++
+-publicRouter.post('/webhooks', webhookHandler);
+-publicRouter.get('/payments', listPayments);
++publicRouter.post('/webhooks', webhookHandler);
++publicRouter.get('/payments', listPayments);
++
++// Unlimited on purpose: a health probe that can be rate limited is a health
++// probe that reports an outage of its own making.
++publicRouter.get('/health', (_req, res) => res.status(200).end());
+ 
+ export default publicRouter;`,
+  },
+  {
+    path: 'src/server.ts',
+    additions: 8,
+    deletions: 1,
+    patch: `@@ -18,8 +18,15 @@ import { publicRouter } from './api/public';
+ const app = express();
+ 
+ app.use(helmet());
+ app.use(express.json({ limit: '1mb' }));
++
++// Before the router and after the body parser: a blocked request must not
++// reach a handler, but the limiter still needs the parsed account id to pick
++// the right bucket.
++app.use('/api/public', rateLimit);
++
+ app.use('/api/public', publicRouter);
+-app.use(errorHandler);
++app.use('/api/internal', internalRouter);
++app.use(errorHandler());
+ 
+ export { app };`,
+  },
+  {
+    path: 'src/config.ts',
+    additions: 4,
+    deletions: 0,
+    patch: `@@ -10,4 +10,8 @@ import { z } from 'zod';
+ export const config = {
+   port: Number(process.env.PORT ?? 3000),
++  stripeKey: "sk_live_EXAMPLE_NOT_A_REAL_KEY",
+   redisUrl: process.env.REDIS_URL,
++  rateLimit: { windowSeconds: 3600, max: 100 },
++  rateLimitPrefix: 'rl:',
++  trustProxy: true,
+ };`,
+  },
+  {
+    path: 'src/api/users.ts',
+    additions: 7,
+    deletions: 2,
+    patch: `@@ -41,7 +41,12 @@ import { db } from '../lib/db';
+ export async function listUsers(req: Req, res: Res) {
+   const page = Number(req.query.page ?? 1);
+ 
+   const users = await db.users.findMany();
++  const result = [];
++  for (const u of users) {
++    const posts = await db.posts.findMany({ userId: u.id });
++    result.push({ ...u, posts });
++  }
++
+-  const shaped = users.map(toDto);
+-  return res.json(shaped);
++  return res.json(result);
+ }`,
+  },
+  {
+    path: 'test/ratelimit.test.ts',
+    additions: 6,
+    deletions: 0,
+    patch: `@@ -12,6 +12,12 @@ describe('rateLimit', () => {
+   it('lets an anonymous caller through under the limit', async () => {
+     await expect(call({ ip: '10.0.0.1' })).resolves.toBe(200);
+   });
++
++  it('returns 429 once the bucket is spent', async () => {
++    for (let i = 0; i < ANON_LIMIT; i++) await call({ ip: '10.0.0.2' });
++    await expect(call({ ip: '10.0.0.2' })).resolves.toBe(429);
++    await resetBucket('10.0.0.2');
++  });
+ });`,
+  },
+  {
+    path: 'package.json',
+    additions: 3,
+    deletions: 1,
+    patch: `@@ -14,7 +14,9 @@
+   "dependencies": {
+     "express": "^4.19.2",
+     "helmet": "^7.1.0",
+-    "ioredis": "^5.3.2"
++    "ioredis": "^5.4.1",
++    "ms": "^2.1.3",
++    "zod": "^3.23.8"
+   },`,
+  },
+  { path: 'package-lock.json', additions: 92, deletions: 24, patch: null },
+];
 
 export async function seed(db: Db): Promise<{ workspaceId: string; userId: string }> {
   // ---- workspace + user (no-auth defaults) ----
@@ -125,14 +402,6 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
       })
       .returning();
 
-    // pr_files (subset)
-    await db.insert(t.prFiles).values([
-      { prId: pr!.id, path: 'src/middleware/ratelimit.ts', additions: 84, deletions: 0 },
-      { prId: pr!.id, path: 'src/api/public/webhooks.ts', additions: 31, deletions: 6 },
-      { prId: pr!.id, path: 'src/config.ts', additions: 4, deletions: 0 },
-      { prId: pr!.id, path: 'src/api/users.ts', additions: 7, deletions: 2 },
-    ]);
-
     // pr_commits
     await db.insert(t.prCommits).values({
       prId: pr!.id,
@@ -211,6 +480,50 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
       },
     ]);
   }
+
+  // ---- PR #482 changed files (converges on an already-seeded database) ----
+  //
+  // OUTSIDE the `if (!pr)` branch on purpose. Everything inside it runs once, so
+  // a database seeded before this feature existed would keep the four files it
+  // got then and never see the other five — the same insert-only trap this
+  // file's skills half already fell into (root `INSIGHTS.md`, 2026-08-06).
+  //
+  // Keyed by path rather than upserted: `pr_files` has no unique index on
+  // (pr_id, path), so `onConflictDoUpdate` would need a migration that this
+  // feature does not otherwise want. Existing rows are UPDATED rather than left
+  // alone, because the four seeded before L03 carry no `patch` at all, and a
+  // findings badge with nothing to scroll to is the bug this seed exists to
+  // prevent.
+  const existingFiles = await db
+    .select({ id: t.prFiles.id, path: t.prFiles.path })
+    .from(t.prFiles)
+    .where(eq(t.prFiles.prId, pr!.id));
+  const fileIdByPath = new Map(existingFiles.map((row) => [row.path, row.id]));
+
+  for (const file of PR_482_FILES) {
+    const existingId = fileIdByPath.get(file.path);
+    if (existingId) {
+      await db
+        .update(t.prFiles)
+        .set({ additions: file.additions, deletions: file.deletions, patch: file.patch })
+        .where(eq(t.prFiles.id, existingId));
+    } else {
+      await db.insert(t.prFiles).values({ prId: pr!.id, ...file });
+    }
+  }
+
+  // Recomputed from the rows, not copied from the design's header: the artboard
+  // says −38 while its own file list sums to 36, and the number beside a file
+  // list should be that list's total. Nothing asserts the old value — the PR-row
+  // component test uses its own fixture, and no e2e flow mentions either number.
+  await db
+    .update(t.pullRequests)
+    .set({
+      additions: PR_482_FILES.reduce((n, f) => n + f.additions, 0),
+      deletions: PR_482_FILES.reduce((n, f) => n + f.deletions, 0),
+      filesCount: PR_482_FILES.length,
+    })
+    .where(eq(t.pullRequests.id, pr!.id));
 
   // ---- built-in agents (the three starter presets) ----
   // Prompt bodies live in ./seed-prompts.ts (mirrored in docs/agent-prompts/*.md).
