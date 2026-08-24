@@ -13,7 +13,13 @@ vi.mock("../../../../../../../lib/hooks/reviews", () => ({
 
 import { FindingsPanel } from "./FindingsPanel";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  // The spy is module-scoped, so it has to be reset by the harness. Leaving the
+  // reset inside the one test that currently needs it means the next test to
+  // assert on `mutate` silently inherits whatever the tests before it dispatched.
+  mutate.mockClear();
+});
 
 function finding(o: Partial<FindingRecord> & { id: string }): FindingRecord {
   return {
@@ -212,9 +218,13 @@ describe("FindingsPanel — the target of ?findingId=", () => {
 
   it("reveals a target that hide-low-confidence was hiding", () => {
     const { rerender } = render(withTarget(null));
-    // `Toggle` renders `<button role="switch">`, so the control has an accessible
-    // name of its own — walking up to an unnamed <div> would couple the test to
-    // the toolbar's nesting instead.
+    // Found by ROLE rather than by the toolbar's DOM nesting; unambiguous because
+    // this panel renders exactly one Toggle. Deliberately no `{ name }`: the
+    // vendored `Toggle` takes only `on`/`onChange`/`size` and wraps a decorative
+    // <span>, so its accessible name is EMPTY — "Hide low confidence" is a
+    // sibling text node that is never associated with the control. That is a real
+    // a11y gap, and it can only be closed in `vendor/ui` (do-not-touch) or at the
+    // call site, neither of which this diff touches.
     fireEvent.click(screen.getByRole("switch"));
     expect(screen.queryByText("Shaky guess")).not.toBeInTheDocument();
 
@@ -238,17 +248,20 @@ describe("FindingsPanel — the target of ?findingId=", () => {
     // a finding invalidates `["reviews", prId]` — so an effect keyed on `shown`
     // would yank the cursor back to the URL's finding each time the reader acted
     // on the list they had walked down.
-    mutate.mockClear();
+    // The target is index 1, NOT 0. At index 0 the seat would coincide with
+    // `focusIdx`'s initial state and half this test would be vacuous: seating
+    // could be deleted outright and it would still pass. Checked by mutation —
+    // `const i = -1` in the effect must fail this too, not only removing the ref
+    // guard.
     const panel = (findings: FindingRecord[]) => (
       <NextIntlClientProvider locale="en" messages={{ prReview: messages }}>
-        <FindingsPanel findings={findings} prId="pr1" focusFindingId="Hardcoded secret" />
+        <FindingsPanel findings={findings} prId="pr1" focusFindingId="Unauthenticated webhook" />
       </NextIntlClientProvider>
     );
     const { rerender } = render(panel(FINDINGS));
 
     fireEvent.keyDown(window, { key: "j" });
-    fireEvent.keyDown(window, { key: "j" });
-    // …the reader is now two cards below the one the badge brought them to.
+    // …the reader is now one card below the one the badge brought them to.
     rerender(panel([...FINDINGS])); // a refetch: same findings, new identity
     fireEvent.keyDown(window, { key: "a" });
 

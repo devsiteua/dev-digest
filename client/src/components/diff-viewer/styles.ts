@@ -124,11 +124,15 @@ export function severityWordFor(severity: SeverityKey, clickable = false): CSSPr
     // carries, so the element has to be un-styled back to the word the design
     // draws. The underline and the pointer are the whole affordance — a boxed
     // control beside a line of code would read as part of the diff.
-    // Longhands only. `font: "inherit"` would be a shorthand sitting beside the
-    // `fontSize`/`fontWeight` the base object sets above, which is the hazard
-    // `client/INSIGHTS.md` records for `borderColor` vs `borderLeftColor`: it
-    // does not warn while every value is constant, and it warns and cascades
-    // wrongly the moment one of them starts depending on state.
+    // No shorthand here overlaps a longhand the base object sets — KEEP IT THAT
+    // WAY when adding a state-dependent value. `font: "inherit"` used to sit
+    // beside the `fontSize`/`fontWeight` above, and `padding: 0` beside its
+    // `paddingRight`, which is the hazard `client/INSIGHTS.md` records for
+    // `borderColor` vs `borderLeftColor`: silent while every value is constant,
+    // and a React warning plus a wrong cascade the moment one depends on state.
+    // `background` and `border` below are still shorthands and are safe only
+    // because nothing sets a `background-*` or `border-*` longhand; a hover
+    // border colour added here would have to spell out all four sides.
     ...(clickable
       ? {
           background: "none",
