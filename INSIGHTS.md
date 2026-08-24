@@ -73,6 +73,42 @@ Status:   resolved — the recipe generalises to experiment 1 and to any future 
 
 ## What Doesn't Work
 
+### 2026-08-24 · The pre-PR gate's own test harness is the fastest way to tell a false blocker from a real one
+
+Trigger:  `/pr-self-review` on the finished L03 branch returned two CRITICALs — a
+          "hand-edited migration" (`meta/_journal.json`) and a "contract changed without
+          its mirror" (`brief.ts`) — and both were argued to be false positives. Arguing
+          about a blocker is the state the gate exists to prevent.
+Cause:    `scripts/test-pr-self-review.sh` settles it in one run, and it was already
+          red: its FIRST case, "clean worktree produces no findings", was failing on
+          exactly those two sources. A check that fires on a branch doing nothing wrong
+          is a defect in the check, and the harness says so without anyone reasoning
+          about the diff. Both were structural, not incidental:
+            · drizzle-kit APPENDS to `meta/_journal.json` for every migration it
+              generates, so a legitimate new migration cannot exist without an M there —
+              the check fired on every PR that added one;
+            · `check:contract-mirror` compared the SETS of touched lines on the two
+              `vendor/shared` copies, which is a proxy for "do they agree afterwards".
+              The proxy is wrong for a change that RECONCILES drift: the side that was
+              behind touches more lines. Root `CLAUDE.md` records that drift as the
+              standing state, so this was going to recur for the rest of the course.
+Takeaway: before overriding a scripted CRITICAL, run the harness. A red baseline turns
+          "I believe this is a false positive" into "the check is broken, here is the
+          case that proves it" — and the fix is then bounded by a test rather than by an
+          override that has to be re-argued next lesson. Corollary when relaxing a check:
+          write BOTH sides of the new boundary. The journal exception got case 2b (a
+          journal edit with no new migration STILL fires) as well as 2c (one beside a new
+          migration does not), because a relaxation with only its negative tested is
+          indistinguishable from deleting the check.
+          Second corollary, learned the same run: do NOT compare the two `vendor/shared`
+          trees wholesale. `adapters.ts`, `contracts/eval-ci.ts` and
+          `contracts/productionize.ts` are drifted right now, and reconciling files a PR
+          never touched is nobody's errand — compare only the files the diff touches.
+Evidence: scripts/pr-self-review-checks.sh (checks 2 and 3);
+          scripts/test-pr-self-review.sh (cases 2b, 2c, and the drift-reconciliation
+          negative); 45 passed, 0 failed
+Status:   resolved
+
 ### 2026-08-23 · An acceptance criterion written as a grep over source also polices the COMMENTS
 
 Trigger:  L03 Smart Diff's criterion "every pattern lives in `constants.ts`;

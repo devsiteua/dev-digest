@@ -66,6 +66,14 @@ append() {
   printf '%s\n' "$@" >> "$p"
 }
 
+# replace <dst> <src>         — overwrites a tracked file, git-restored on cleanup.
+# Used to stage the one case the mirror check kept getting wrong: a diff that
+# RECONCILES existing drift touches more lines on the side that was behind.
+replace() {
+  TOUCHED_FILES+=("$1")
+  cp "$2" "$1"
+}
+
 # A file created on this branch reads as `A` against the merge-base, not `M`,
 # so a check that only fires on a modification cannot be exercised against the
 # default base. BASE_OVERRIDE re-bases a single case onto the commit that
@@ -114,9 +122,26 @@ expect fires check:vendor-ui "1  vendored design system touched"
 append server/src/db/migrations/0000_init.sql "-- probe"
 expect fires check:migration-edit "2  generated migration edited by hand"
 
+# 2b/2c bound the meta/_journal.json exception from both sides. Both re-base onto
+# HEAD, so the branch's OWN migrations are out of the diff and the planted files
+# are the whole of it — otherwise 2c would see 0012/0013 and pass for the wrong
+# reason.
+BASE_OVERRIDE=HEAD
+append server/src/db/migrations/meta/_journal.json ""
+expect fires check:migration-edit "2b a journal edit with NO new migration still fires"
+
+BASE_OVERRIDE=HEAD
+plant server/src/db/migrations/9999_probe.sql "-- probe"
+append server/src/db/migrations/meta/_journal.json ""
+expect silent check:migration-edit "2c a journal entry beside a new migration is not a hand edit"
+
 append server/src/vendor/shared/contracts/findings.ts "export const Probe = z.string();"
 expect fires check:contract-mirror "3  contract changed on one side only"
 
+# Re-based onto HEAD: this branch ADDS migrations, so against the merge-base the
+# check correctly finds one and the case could never fire. Every later PR that
+# changes a schema without generating a migration sees exactly this state.
+BASE_OVERRIDE=HEAD
 append server/src/db/schema/agents.ts "// probe"
 expect fires check:schema-migration "4  schema changed with no new migration"
 
@@ -188,6 +213,18 @@ expect silent check:prompt-mirror "the prompt-authoring README is not a prompt"
 append server/src/vendor/shared/contracts/findings.ts "// probe mirror"
 append client/src/vendor/shared/contracts/findings.ts "// probe mirror"
 expect silent check:contract-mirror "identical edits on both mirrors are fine"
+
+# The case the line-set comparison alone gets wrong, and the reason this check
+# blocked a PR whose mirrors were in perfect agreement: the client copy of
+# productionize.ts is drifted, so bringing it into line touches more lines there
+# than on the server. Different diffs, identical result — which is the property
+# that actually matters.
+BASE_OVERRIDE=HEAD
+replace client/src/vendor/shared/contracts/productionize.ts \
+        server/src/vendor/shared/contracts/productionize.ts
+append server/src/vendor/shared/contracts/productionize.ts "// probe mirror"
+append client/src/vendor/shared/contracts/productionize.ts "// probe mirror"
+expect silent check:contract-mirror "a change that reconciles drift, ending identical, is fine"
 
 echo
 echo "the gate — exit 0 allows, exit 2 denies"
