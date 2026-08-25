@@ -178,6 +178,51 @@ Status:   → promoted to `CLAUDE.md` (Gotchas)
 
 ## Codebase Patterns
 
+### 2026-08-25 · `RunLogger` reaches exactly one module, so every service it calls is invisible in the Live Log
+
+Trigger:  a review said the Live Log emits no amber events during the intent derivation. Two
+          amber lines DO exist — `run-executor.ts` wraps the call in
+          `runLog.step('Deriving PR intent', …, { kind: 'tool' })` — and the observation was
+          still right about everything between them.
+Cause:    `grep -rn RunLogger server/src` returns `platform/run-logger.ts` and
+          `modules/reviews/run-executor.ts`, and nothing else. The executor is the only module
+          holding a logger, so a service it calls has no way to say anything. `IntentService`
+          spends its time in three external calls — a clone read per plan file, the linked-issue
+          fetch, the model call — and emitted nothing for any of them, so the log went amber
+          once and then silent for up to `INTENT_TIMEOUT_MS` (60 s; the default provider caps at
+          90 s regardless). `step()` gives you a TIMING, not visibility: it says the work
+          started and how long it took, which is exactly what you already knew.
+Takeaway: `tool` is painted `var(--warn)` in `LiveLogStream.tsx` and means EXTERNAL I/O — so
+          only the module doing the I/O can emit it honestly. To give one a voice, declare a
+          two-method structural port (`tool` / `info`) in that module and pass `runLog` in;
+          `RunLogger` satisfies it as it stands, so nothing adapts and nothing imports
+          `platform/`. Keep the split: a conclusion drawn without leaving the process stays
+          `info`, or the colour stops carrying information. When wrapping any multi-second
+          service call in `step()`, ask what the user sees for the seconds in the middle.
+Evidence: server/src/modules/intent/service.ts (`IntentProgress`, and the emits in `gather`
+          and `deriveFor`); server/src/modules/reviews/run-executor.ts:381;
+          server/test/intent.it.test.ts § "paints the derivation's external calls amber"
+Status:   resolved
+
+### 2026-08-25 · An "answer in English" rule will translate the one field that must stay verbatim
+
+Trigger:  `INTENT_SYSTEM_PROMPT` had no constraint on output language, while its reply reaches
+          two English-only surfaces — the Intent card (rendered from `messages/en/`) and
+          `## PR intent (derived)` in every reviewing agent's prompt.
+Cause:    the obvious fix ("write your reply in English") is wrong for one field.
+          `IntentReplySchema.evidence[].quote` is the author's own words, kept so a reader can
+          open `ref` and find them; a translated quote is no longer checkable, and the field
+          silently stops doing its job. Nothing in the schema or the card would show it — the
+          quote still renders, it just no longer matches its source.
+Takeaway: before adding an output-language rule to any prompt, list the reply's fields and ask
+          which are OUR prose and which are quoted from a source. Name the exception in the
+          prompt explicitly; a model told "answer in English" translates everything, including
+          what it was asked to copy. Same question applies to any future field holding a path,
+          an identifier or a code fragment.
+Evidence: server/src/modules/intent/constants.ts (`INTENT_SYSTEM_PROMPT`, the `LANGUAGE` block
+          and the doc comment above it); server/src/modules/intent/helpers.ts:388-395
+Status:   resolved
+
 ### 2026-08-23 · A test file may sit in any module — the onion cruise never sees it
 
 Trigger:  the L03 checklist mandates `server/src/modules/pulls/classifier.test.ts` for a

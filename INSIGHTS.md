@@ -73,6 +73,32 @@ Status:   resolved — the recipe generalises to experiment 1 and to any future 
 
 ## What Doesn't Work
 
+### 2026-08-25 · A gap held open on purpose gets cited as if it were closed — four files routed to an agent that did not exist
+
+Trigger:  a review noted `.claude/agents/security-reviewer.md` was missing. It had been left
+          out deliberately: `.claude/agents/README.md` § "What is deliberately not here" said
+          so, and `specs/four-new-subagents.md` § Out of scope deferred it to "a separate
+          decision, not за компанію".
+Cause:    the decision to leave a hole was recorded in two places, and then four other files
+          wrote as though it had been filled. `implementer.md` § "Not checked here" routed to
+          "the security review agent"; `planner.md` and `test-writer.md` both dropped the
+          `security` skill from their delta lists because it was "a separate agent's job";
+          `architecture-reviewer.md` § "Not checked" excluded security pointing at a README
+          bullet rather than at a destination. Every one of those sentences is written from
+          the point of view of the agent that must NOT do the work, so each is true about the
+          exclusion and silently wrong about where the work goes. Nothing greps for that:
+          `grep -rn security .claude/agents` shows four confident routing lines and one
+          bullet saying the target does not exist.
+Takeaway: when a README declares a deliberate gap, grep for the DESTINATION NAME across every
+          file that could route to it, and make each of those files say "nobody" in the same
+          words. A document that routes to a non-existent agent is worse than one that says
+          the work is unowned — the first reads as a plan, the second reads as a decision. And
+          when the gap is finally closed, the same grep is the checklist: this round changed
+          four files that had nothing to do with the new file itself.
+Evidence: .claude/agents/security-reviewer.md; .claude/agents/README.md § "What is deliberately
+          not here"; specs/L03-intent-layer.md § Round 3 (the audit row)
+Status:   resolved
+
 ### 2026-08-24 · The pre-PR gate's own test harness is the fastest way to tell a false blocker from a real one
 
 Trigger:  `/pr-self-review` on the finished L03 branch returned two CRITICALs — a
@@ -431,6 +457,29 @@ Status:   → promoted to `CLAUDE.md` (Gotchas) on 2026-08-06, after the L02 con
 > Every rule they produced is live in `CLAUDE.md` (Gotchas).
 
 ## Tool & Library Notes
+
+### 2026-08-25 · A vendored skill can be written for a stack this repo does not have — correct it in a delta table, never by forking
+
+Trigger:  writing `security-reviewer` on top of `.claude/skills/security/`, which is vendored
+          and locked by hash in `skills-lock.json`.
+Cause:    the skill is "OWASP Top 10:2025 for React + Express + MongoDB + JWT". This repo is
+          Fastify 5 + Postgres/Drizzle and has NO user auth at all — `LocalNoAuthProvider`
+          returns the default workspace and system user. Applied literally, three of its ten
+          categories aim at code that does not exist: A05 operator injection (Drizzle
+          parameterises), A07 token verification (there are no tokens), and its secrets advice
+          points at `process.env` while this repo's rule is one chokepoint at
+          `adapters/secrets/local.ts`. It also has no category at all for the surface that
+          matters most here — untrusted text reaching a prompt.
+Takeaway: check a vendored skill's assumed stack before routing work to it, and record the
+          mismatch as a delta table inside the CONSUMER (the agent, the routing rule), not by
+          editing the skill: a locked skill is re-pulled by hash and a fork puts a second copy
+          under maintenance. Keep the skill's own confidence ladder — HIGH reports, MEDIUM
+          notes, LOW is not reported — because that part is stack-independent. The same check
+          is owed to any other vendored skill whose frontmatter names a framework.
+Evidence: .claude/agents/security-reviewer.md § "Step 1 — load the skill, then correct it for
+          this repository"; .claude/skills/security/SKILL.md (frontmatter + § OWASP Top 10);
+          server/src/modules/_shared/context.ts:10-12
+Status:   resolved
 
 ### 2026-08-22 · Subagent frontmatter has no `hooks:` — but every hook payload carries `agent_type`
 

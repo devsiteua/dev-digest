@@ -1,15 +1,18 @@
 # L03 — Intent layer
 
-Status: Round 1 implemented · Round 2 implemented · Smart Diff unspecced
+Status: Round 1 implemented · Round 2 implemented · Round 3 implemented · Smart Diff specced separately
 Owner: —
 Packages touched: server, client, reviewer-core, e2e
 
-> **Round 1 shipped, then was reopened.** Everything above the horizontal rule near the
-> end of this file is the original plan, kept verbatim — it still describes accurately what
-> Round 1 built, and its Decisions D1–D12 remain in force except where a Round 2 decision
-> says otherwise. **Round 2 is appended at the end**: it audits the shipped feature against
-> the course brief for L03 (quoted there in full) and pays off the four requirements the two
-> disagree about. Start there if you are picking this lesson up.
+> **Round 1 shipped, then was reopened twice.** Everything above the first horizontal rule
+> near the end of this file is the original plan, kept verbatim — it still describes
+> accurately what Round 1 built, and its Decisions D1–D12 remain in force except where a
+> later decision says otherwise. **Round 2** audits the shipped feature against the course
+> brief for L03 (quoted there in full) and pays off the four requirements the two disagree
+> about. **Round 3** is the mentor's review of the submitted lesson: an English rule in the
+> classifier's system prompt, amber Live Log events for the derivation's own external calls,
+> and the `security-reviewer` subagent four other files were already citing. Start at the
+> last round if you are picking this lesson up.
 
 ## Goal
 
@@ -1323,5 +1326,151 @@ Verification:   `cd server && pnpm typecheck && pnpm exec vitest run --exclude '
                 `cd e2e && pnpm e2e:hermetic`
                 per-file `diff -q` on every `vendor/shared` file this round touched
                 (`review-api.ts`, `findings.ts`, `trace.ts`) — must print nothing
+Deviation policy: stop at the step, report the divergence, finish the independent steps.
+                  Do not re-plan.
+
+---
+
+# Round 3 — the mentor's review of L03
+
+Status: implemented · opened 2026-08-25 · closed 2026-08-25
+Packages touched: server, `.claude/agents`, repo tooling
+
+## Context
+
+The lesson was submitted after Round 2 and reviewed. The verdict was that the bulk of the
+assignment is done and done well — `classifyFile` pure and LLM-free, the patterns in their own
+module, the Smart Diff badge clickable through to the finding, `verify:l03` present, `intent`
+in `PromptParts` and a section in `assemblePrompt`, `IntentCard` rendering two columns,
+`run-executor` deriving once before the agent loop, `INSIGHTS.md` entries tied to real places
+in the code. Three things were named as worth fixing:
+
+> - Live Log does not emit amber-coloured events during the derivation.
+> - `INTENT_SYSTEM_PROMPT` has no constraint on English output.
+> - `.claude/agents/` has no `security-reviewer.md`.
+
+Two of the three are exactly true. The first is true in substance and inexact as written, and
+the difference is worth recording rather than quietly widening — the audit table below states
+what was actually there before deciding what to build.
+
+### Audit — the three items against what Round 2 had shipped
+
+| Item | Verdict | Evidence |
+|---|---|---|
+| Amber events during derivation | ⚠️ **partly** — two exist, and everything they wrap is silent | `run-executor.ts:373-378` wrapped the whole derivation in `runLog.step(…, { kind: 'tool' })`, so `Deriving PR intent…` and `… done (Nms)` were amber (`tool` → `var(--warn)`, `LiveLogStream.tsx:12-17`). But `IntentService` had **no logging surface at all** — `grep -rn RunLogger server/src` found `run-executor.ts` and nothing else — so the three external calls inside it emitted nothing: a clone read per plan file (`service.ts:392`), the linked-issue fetch (`service.ts:302`), and the model call (`service.ts:205-215`). One amber line, then up to `INTENT_TIMEOUT_MS` of silence |
+| No amber on the Re-derive path | ⚠️ true, and out of scope — see below | `POST /pulls/:id/intent` is synchronous and belongs to no run (`intent/routes.ts:38-73`); it logs to pino and there is no Live Log to reach |
+| English constraint in `INTENT_SYSTEM_PROMPT` | ❌ **missing** | `constants.ts:255-271`. It carried an injection guard and "describe, never direct" and said nothing about the language of the reply — while its output reaches two English-only surfaces: the Intent card (`messages/en/`) and `## PR intent (derived)` in every reviewing agent's prompt |
+| `.claude/agents/security-reviewer.md` | ❌ **missing**, and already cited as present | `implementer.md:140` routed to "the security review agent"; `planner.md:114` and `test-writer.md:99` both dropped the `security` skill as "a separate agent's job"; `architecture-reviewer.md:174` excluded security pointing at nothing. `.claude/agents/README.md:114` held the gap open on purpose, and `specs/four-new-subagents.md:48` deferred it to "a separate decision" — the mentor's review is that decision |
+
+## In scope
+
+- **The language rule.** A `LANGUAGE` block in `INTENT_SYSTEM_PROMPT`, with `evidence[].quote`
+  carved out: a quote exists so a reader can open `ref` and find those words, and a translated
+  quote can no longer be checked.
+- **Amber inside the derivation.** `IntentProgress` — a two-method structural port declared in
+  the intent module — threaded `forReview` → `deriveFor` → `gather`, optional at every call
+  site. `tool` for each external call, `info` for the conclusions drawn without leaving the
+  process. `RunLogger` satisfies the shape, so `run-executor.ts` passes `runLog` unchanged.
+- **`security-reviewer`**, read-only in the same three ways the other reviewers are, including
+  by name in `scripts/readonly-agent-guard.sh`, plus the four files that already cited it and
+  the three README tables that did not.
+
+## Out of scope
+
+- **Amber on the Re-derive path.** `POST /pulls/:id/intent` has no run, so it has no Live Log.
+  Minting a synthetic run for one synchronous call would put a row in `agent_runs` that no
+  agent produced, and a trace in `run_traces` for a review that never happened, so that the UI
+  could stream two seconds of events at a button the user is already watching a spinner on.
+  The pino line added in R2-4 already answers what it cost and what it was built from. If this
+  is reopened, the shape is a progress channel of its own, not a fake run.
+- **A `RunLogger` import in the intent module.** The logger is built around a `RunBus`, a
+  fan-out list and a pino mirror; the intent layer should not depend on the streaming
+  machinery in order to say "I am fetching an issue".
+- **Translating anything ourselves.** The author's text reaches the classifier whole; turning
+  it into English is the model's job. Pre-translating would leave `evidence[].quote` nothing
+  verbatim to quote.
+- **Re-opening `specs/four-new-subagents.md`'s acceptance criteria.** That spec is closed and
+  its criteria describe what was true when it closed. Its § Out of scope bullet gets a pointer
+  here; its checklist is not rewritten.
+- **Smart Diff.** Untouched this round — the mentor's three items are all on the other half.
+
+## Acceptance criteria
+
+- [x] `INTENT_SYSTEM_PROMPT` states the English rule and the `quote` exception; an integration
+      test drives a Ukrainian body through `POST /pulls/:id/intent` and asserts both that the
+      rule is in the system message and that the author's words arrive whole in the user
+      message. — `intent.it.test.ts` § "tells the classifier to answer in English"
+- [x] The persisted run trace of a review whose PR names a plan file and closes an issue
+      carries three `tool` lines between `Deriving PR intent…` and `… done`: the clone read,
+      the issue fetch, and the classifier call naming provider and model. —
+      `intent.it.test.ts` § "paints the derivation's external calls amber"
+- [x] `Evidence gathered — …` is `info`, not `tool`. The colour is the whole signal, so a
+      derivation that reported everything as amber would say as little as one that reported
+      nothing.
+- [x] Both new tests were verified failing first, each for its own reason: without the
+      `runLog` argument the amber array is empty.
+- [x] `ls .claude/agents/` shows `README.md` + 8 agent files; § Catalog, § Permissions and
+      § Artifacts each carry 8 agent rows; the ASCII flow no longer says security review is
+      nobody's job.
+- [x] `sed -n '2,5p' .claude/agents/security-reviewer.md | grep -o '^[a-z-]*:'` gives exactly
+      `name: description: tools: model:`, one `Trigger terms:` line, ≥3 English and ≥3
+      Ukrainian terms.
+- [x] Its `tools:` list contains neither `Write` nor `Edit`, checked as a **list** and not as
+      a substring (root `INSIGHTS.md`, 2026-08-22 — `TodoWrite` contains `Write`).
+- [x] `scripts/readonly-agent-guard.sh` refuses a mutating command from `security-reviewer`,
+      and `readonly-agent-guard.test.ts` covers it — verified failing first by removing the
+      name from the `case`.
+- [x] Every backticked path in `security-reviewer.md` exists on disk, and every skill it names
+      is in `ls -d .claude/skills/*/`.
+- [x] It carries no copy of the path→skills table or the severity table; both are cited in
+      `.claude/skills/pr-self-review/SKILL.md`.
+- [x] No file outside `server/src/modules/intent/`, `server/src/modules/reviews/`,
+      `server/test/`, `.claude/agents/`, `scripts/` and `specs/` is changed.
+
+## Decisions
+
+**D22 — the classifier answers in English; its quotes do not.** Every field is our prose about
+the pull request except `evidence[].quote`, which is the author's. English costs nothing on the
+first set and destroys the second: a quote is checkable only while it still says what the
+source says. The rule therefore names the exception explicitly rather than leaving the model to
+infer it, because a model told "answer in English" will translate a quote.
+
+**D23 — the intent module declares its own progress port.** Not an import of `RunLogger`, and
+not a new shared interface in `platform/`. A two-method structural type in `service.ts` that
+`RunLogger` happens to satisfy keeps the dependency at zero and the call site at
+`forReview(…, runLog)`. Optional everywhere, because the `POST` route has nothing to pass.
+
+**D24 — `tool` means external I/O and nothing else.** `Evidence gathered` and each
+`Missing context` line are conclusions, and they stay `info`. This is the only reason the
+colour carries information: an implementation that painted the whole derivation amber would
+have satisfied the letter of the mentor's item and delivered nothing.
+
+**D25 — `security-reviewer` corrects the `security` skill in its own § Step 1 rather than
+replacing it.** The skill is vendored (Express / MongoDB / JWT); this stack is Fastify /
+Postgres / Drizzle with no user auth. Forking it would put a second copy under maintenance,
+and ignoring the mismatch produces findings about `jwt.decode` in a codebase that has no
+tokens. A delta table is the only form that stays true when the vendored skill is re-pulled.
+
+## Status
+
+**Round 3 is complete.** Four commits, each on a green lane:
+
+| Commit | Item |
+|---|---|
+| `da0f261` | the English rule in `INTENT_SYSTEM_PROMPT` |
+| `4c2f6e9` | amber events for the derivation's external calls |
+| `d4be25a` | `security-reviewer`, its guard entry, and the four files that cited it |
+| _this one_ | this section, the pointers, and the insights |
+
+**L03 is finished as far as the brief and the review go.** Both halves — Intent layer and
+Smart Diff — are specced, implemented and reviewed.
+
+## Handoff
+
+Plan file:      `specs/L03-intent-layer.md` (this Round 3 section)
+Entry point:    the audit table above
+Verification:   `cd server && pnpm typecheck && pnpm exec vitest run --exclude '**/*.it.test.ts' && pnpm exec vitest run .it.test && pnpm arch:check`
+                `ls .claude/agents/` → `README.md` + 8 agent files
+                `cd server && pnpm exec vitest run readonly-agent-guard`
 Deviation policy: stop at the step, report the divergence, finish the independent steps.
                   Do not re-plan.
