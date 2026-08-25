@@ -46,6 +46,33 @@ import type { IntentChangedFile, IntentPromptInput } from './helpers.js';
  */
 export type IntentApi = Pick<IntentService, 'derive' | 'get' | 'forReview'>;
 
+/**
+ * Where this service narrates itself, for a caller that has somewhere to put it.
+ *
+ * Deliberately a two-method structural type and not `RunLogger`. The logger
+ * lives in `platform/` and is built around a `RunBus`, a fan-out list and a pino
+ * mirror; none of that is this module's business, and importing it would make
+ * the intent layer depend on the streaming machinery in order to say "I am
+ * fetching an issue". `RunLogger` satisfies this shape as it stands, so
+ * `run-executor.ts` passes `runLog` straight in and a test passes an array
+ * collector.
+ *
+ * The split between the two methods is the Live Log's own: `tool` is painted
+ * amber and means EXTERNAL I/O — a clone read, a GitHub call, the model — while
+ * `info` is a conclusion we drew without leaving the process. A derivation that
+ * reported everything as `tool` would be as useless as one that reported
+ * nothing, because the colour is the whole signal.
+ *
+ * Optional at every call site: the `POST /pulls/:id/intent` route has no run to
+ * stream into and passes nothing, which is why every emit below is guarded.
+ */
+export type IntentProgress = {
+  /** External I/O — amber in the Live Log. */
+  tool(msg: string, data?: unknown): void;
+  /** A decision taken locally. */
+  info(msg: string, data?: unknown): void;
+};
+
 /** What the review path needs: the record plus the two prompt strings. */
 export interface IntentForReview {
   record: PrIntentRecord;
@@ -114,6 +141,7 @@ export class IntentService {
     workspaceId: string,
     pull: PullRow,
     diffFiles: UnifiedDiff['files'],
+    progress?: IntentProgress,
   ): Promise<IntentForReview> {
     const existing = await this.repo.get(pull.id);
     if (existing && existing.headSha === pull.headSha) {
@@ -129,6 +157,7 @@ export class IntentService {
       workspaceId,
       pull,
       changedFilesFromDiff(diffFiles),
+      progress,
     );
     return { ...this.render(record), record, cached: false, logLine };
   }
@@ -185,6 +214,7 @@ export class IntentService {
     workspaceId: string,
     pull: PullRow,
     changedFiles: IntentChangedFile[],
+    progress?: IntentProgress,
   ): Promise<{ record: PrIntentRecord; logLine: string; blocks: string }> {
     const started = Date.now();
     const repo = await this.container.reviewRepo.getRepo(pull.repoId);
@@ -196,6 +226,7 @@ export class IntentService {
       repo.fullName,
       ref,
       changedFiles,
+      progress,
     );
 
     // The tier the EVIDENCE supports, decided before the model is asked anything.
@@ -205,6 +236,12 @@ export class IntentService {
       (await this.container.featureModelOverride(workspaceId, 'review_intent')) ??
       DEFAULT_INTENT_MODEL;
     const llm = await this.container.llm(choice.provider);
+    // The longest wait in the whole derivation — up to `INTENT_TIMEOUT_MS`, and
+    // the default provider caps itself at 90 s regardless. Naming the model here
+    // is also the cheapest answer to "which model classified this?", live,
+    // before the row exists to be asked.
+    progress?.tool(`Classifying the intent with ${choice.provider}/${choice.model}`);
+    const modelStarted = Date.now();
     const reply = await llm.completeStructured({
       model: choice.model,
       schema: IntentReplySchema,
@@ -216,6 +253,10 @@ export class IntentService {
       temperature: 0,
       timeoutMs: INTENT_TIMEOUT_MS,
     });
+
+    progress?.tool(
+      `Classified — ${reply.tokensIn}→${reply.tokensOut} tokens (${Date.now() - modelStarted}ms)`,
+    );
 
     const tier = settleTier(evidenceTier, reply.data.suggested_confidence);
     const row = await this.repo.upsert({
@@ -273,6 +314,7 @@ export class IntentService {
     repoFullName: string,
     ref: RepoRef,
     changedFiles: IntentChangedFile[],
+    progress?: IntentProgress,
   ): Promise<{
     input: IntentPromptInput;
     sources: PrIntentRecord['sources'];
@@ -287,6 +329,10 @@ export class IntentService {
 
     const planFiles: { path: string; text: string }[] = [];
     for (const path of extractPlanPaths(pull.body, repoFullName)) {
+      // One event per path, before the read, because a clone read is the step
+      // that can hang on a repository nobody has fetched yet — and a log line
+      // that only appears on success cannot show you where it stopped.
+      progress?.tool(`Reading plan file ${path} from the clone`);
       const text = await this.readOrSkip(ref, path);
       if (text) planFiles.push({ path, text: text.slice(0, MAX_PLAN_FILE_CHARS) });
       else {
@@ -298,6 +344,7 @@ export class IntentService {
     let issue: IntentPromptInput['issue'];
     const issueNumber = extractLinkedIssue(pull.body, repoFullName);
     if (issueNumber !== undefined) {
+      progress?.tool(`Fetching linked issue #${issueNumber} from GitHub`);
       try {
         const gh = await this.container.github();
         const meta = await withDeadline(INTENT_ISSUE_TIMEOUT_MS, () => gh.getIssue(ref, issueNumber));
@@ -337,6 +384,12 @@ export class IntentService {
     if (commitMessages.length > 0) sources.push('commits');
     if (pull.branch) sources.push('branch');
     if (changedFiles.length > 0) sources.push('file_paths');
+
+    // Not amber: nothing here left the process. This is the conclusion the reads
+    // above add up to, and it is what decides the tier — so a reader watching
+    // the log can see the tier coming before the model is even asked.
+    progress?.info(`Evidence gathered — ${sources.join(', ')}`);
+    for (const missing of missingContext) progress?.info(`Missing context — ${missing}`);
 
     return {
       input: {

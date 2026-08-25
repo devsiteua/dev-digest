@@ -373,7 +373,12 @@ export class ReviewRunExecutor {
       const result = await runLog.step(
         'Deriving PR intent',
         () =>
-          this.container.intent.forReview(workspaceId, pull, diff.files),
+          // `runLog` IS the progress port — `RunLogger` satisfies the two-method
+          // structural type the intent module declares, so nothing adapts here.
+          // Without it this step is a single amber line followed by up to a
+          // minute of silence; the calls inside it are the ones that take the
+          // time, and amber is the Live Log's word for exactly those.
+          this.container.intent.forReview(workspaceId, pull, diff.files, runLog),
         { kind: 'tool' },
       );
       // Always says how this intent came to exist — derived now (with its

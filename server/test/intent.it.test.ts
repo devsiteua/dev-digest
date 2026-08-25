@@ -522,6 +522,55 @@ d('L03 intent layer (Testcontainers pg)', () => {
     expect(row!.headSha).toBe('head-2');
   });
 
+  it('paints the derivation’s external calls amber in the Live Log', async () => {
+    const llm = new MockLLMProvider('openai', {
+      structuredBySchema: { PrIntent: INTENT_FIXTURE, Review: REVIEW_FIXTURE },
+    });
+    const app = await makeApp({ llm });
+    // Both outward reads in one derivation: a plan file out of the clone and an
+    // issue out of GitHub. Between them and the model call they are everything
+    // that can make this step take a minute.
+    const prId = await makePr(await makeRepo(), {
+      body: 'Implements the plan in specs/rate-limit.md. Closes #471',
+    });
+
+    await app.inject({ method: 'POST', url: `/pulls/${prId}/review`, payload: { all: true } });
+    const runs = await waitForPrRuns(pg.handle.db, prId);
+
+    const [trace] = await pg.handle.db
+      .select()
+      .from(t.runTraces)
+      .where(eq(t.runTraces.runId, runs[0]!.id));
+    const log = (trace!.trace as { log: { kind: string; msg: string }[] }).log;
+
+    // Everything the derivation emitted, bounded by the step that wraps it —
+    // asserting on the whole run's log would also catch the reviewing agent's
+    // own amber lines and prove nothing about this step.
+    const start = log.findIndex((l) => l.msg === 'Deriving PR intent…');
+    const end = log.findIndex((l) => l.msg.startsWith('Deriving PR intent done'));
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const during = log.slice(start + 1, end);
+
+    const amber = during.filter((l) => l.kind === 'tool').map((l) => l.msg);
+    expect(amber).toEqual(
+      expect.arrayContaining([
+        'Reading plan file specs/rate-limit.md from the clone',
+        'Fetching linked issue #471 from GitHub',
+        'Classifying the intent with openrouter/deepseek/deepseek-v4-flash',
+      ]),
+    );
+    expect(amber.some((m) => /^Classified — \d+→\d+ tokens \(\d+ms\)$/.test(m))).toBe(true);
+
+    // The colour is the whole signal, so the line that left no process must NOT
+    // be amber: a derivation that reported everything as `tool` would say as
+    // little as one that reported nothing.
+    const evidence = during.find((l) => l.msg.startsWith('Evidence gathered'));
+    expect(evidence).toBeDefined();
+    expect(evidence!.kind).toBe('info');
+    expect(evidence!.msg).toContain('plan_file');
+  });
+
   it('completes every agent run even when the derivation throws', async () => {
     // No PrIntent fixture: the mock rejects the reply against the schema, which
     // is how a real provider failure reaches the executor.
