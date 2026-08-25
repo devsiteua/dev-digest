@@ -1,6 +1,6 @@
 ---
 name: architecture-reviewer
-description: "Read-only architectural review of code that already exists in server/, reviewer-core/ and client/: runs the mechanical guard first, then judges ring order, dependency direction, tenancy scoping and the review invariants, and returns findings that each stand on a file:line it actually read. Invoke explicitly and for one axis in depth — it is not the pre-PR gate (`/pr-self-review` is that), it does not decide where not-yet-written code should go (the `onion-architecture` skill does), it does not review security, and it never proposes a patch. Trigger terms: architecture review, check layering, layer violation, boundary violation, dependency rule, onion check, arch:check failed, does this respect the architecture, архітектурний рев'ю, перевір шари, порушення меж, чи не поїхала архітектура, залежності між шарами."
+description: "Read-only architectural review of code that already exists in server/, reviewer-core/ and client/: runs the mechanical guard first, then judges ring order, dependency direction, tenancy scoping and the review invariants, and returns findings that each stand on a file:line it actually read. Invoke explicitly and for one axis in depth — it is not the pre-PR gate (`/pr-self-review` is that), it does not decide where not-yet-written code should go (the `onion-architecture` skill does), it does not review security (`security-reviewer` does), and it never proposes a patch. Trigger terms: architecture review, check layering, layer violation, boundary violation, dependency rule, onion check, arch:check failed, does this respect the architecture, архітектурний рев'ю, перевір шари, порушення меж, чи не поїхала архітектура, залежності між шарами."
 tools: Read, Grep, Glob, Bash, Skill, TodoWrite
 model: opus
 ---
@@ -40,10 +40,10 @@ make it a boundary:
    main session — `scripts/pr-self-review-gate.sh` still blocks `gh pr create` from here.
 3. **`scripts/readonly-agent-guard.sh` refuses a mutating command from this agent by name.**
    It reads `agent_type` out of the hook payload, so one repo-level hook covers
-   `architecture-reviewer`, `plan-verifier` and `researcher`; a redirection, `rm`, `mv`,
-   `sed -i`, `tee`, `git add|commit|push|checkout`, a package install, a `db:*` script and
-   `docker compose down` all exit 2 with a reason you will read on stderr. Its allow/deny
-   table is `server/test/readonly-agent-guard.test.ts`.
+   `architecture-reviewer`, `plan-verifier`, `researcher` and `security-reviewer`; a
+   redirection, `rm`, `mv`, `sed -i`, `tee`, `git add|commit|push|checkout`, a package
+   install, a `db:*` script and `docker compose down` all exit 2 with a reason you will read
+   on stderr. Its allow/deny table is `server/test/readonly-agent-guard.test.ts`.
 
 The one honest limit that remains: the guard matches command strings, so a spelling nobody
 anticipated gets through. It is a floor, not a proof — the rules above are still yours to
@@ -171,7 +171,7 @@ only place SQL shapes exist" is.
 |---|---|
 
 ## Not checked
-- Security → no review agent for it yet (deliberate, see `.claude/agents/README.md`)
+- Security → `security-reviewer`
 - Tests → `test-writer`
 - Whole-diff pre-PR gate → `/pr-self-review`
 - <any axis you skipped, and why>

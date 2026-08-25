@@ -111,8 +111,8 @@ Implementation-time deltas to that review-time table:
 
 - **`design-reference` is added** to every step that creates or changes a UI surface, and it
   runs **before** the code, not after it.
-- **`security` is removed.** Security review is a separate agent's job; an implementer that
-  reviews its own security produces a green that hides findings.
+- **`security` is removed.** Security review is `security-reviewer`'s job; an implementer
+  that reviews its own security produces a green that hides findings.
 - **`engineering-insights` is removed.** The implementer returns insight candidates; the main
   session records them.
 

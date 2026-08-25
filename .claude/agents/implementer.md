@@ -137,7 +137,7 @@ command that earned it.
 
 ## Not checked here (by design)
 - Architecture review → the architecture review agent
-- Security review → the security review agent
+- Security review → `security-reviewer`
 - Pre-PR gate → `/pr-self-review`
 - e2e flows → not run; specs likely affected: <…>
 

@@ -34,7 +34,12 @@ function run(command: string, agentType: string | null = 'architecture-reviewer'
   return { code: res.status, stderr: res.stderr ?? '' };
 }
 
-const READ_ONLY_AGENTS = ['architecture-reviewer', 'plan-verifier', 'researcher'];
+const READ_ONLY_AGENTS = [
+  'architecture-reviewer',
+  'plan-verifier',
+  'researcher',
+  'security-reviewer',
+];
 
 describe('readonly-agent-guard — what a read-only agent may run', () => {
   it.each([

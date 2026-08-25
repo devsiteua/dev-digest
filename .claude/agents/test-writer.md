@@ -97,7 +97,8 @@ Deltas that apply because you are writing tests rather than reviewing a diff:
 - **`zod`** when the test pins a contract in `vendor/shared`.
 - **`design-reference` does not apply.** You create no UI surface.
 - **`security` and `engineering-insights` are removed**, the same deltas `implementer`
-  carries: security review is a separate pass, and insights are recorded by the main session.
+  carries: security review is `security-reviewer`'s pass, and insights are recorded by the
+  main session.
 
 ## Step 4 — write the test
 

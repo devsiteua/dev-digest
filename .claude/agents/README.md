@@ -22,12 +22,14 @@ here, and do not let this table become a second source of truth.
 | [`architecture-reviewer`](architecture-reviewer.md) | Judges the design of code that exists, one axis in depth, read-only | `opus` | **explicitly only** |
 | [`plan-verifier`](plan-verifier.md) | Checks finished code against a plan, item by item, with an evidence cell per item | `opus` | **explicitly only** |
 | [`doc-writer`](doc-writer.md) | Turns a shipped feature into permanent documentation, with diagrams | `sonnet` | **explicitly only** |
+| [`security-reviewer`](security-reviewer.md) | Traces attacker-controlled input to a sink, one surface in depth, read-only | `opus` | **explicitly only** |
 
 `model: inherit` means the agent runs on whatever the session runs on, so its output quality
 tracks the model you chose — `implementer` and `test-writer` both write code, so both take it.
 `planner` is pinned to `opus` because planning is where reasoning buys the most;
-`architecture-reviewer` and `plan-verifier` are pinned there too, because neither produces
-code and both fail by being lazy rather than by being uninformed.
+`architecture-reviewer`, `plan-verifier` and `security-reviewer` are pinned there too,
+because none of them produces code and all three fail by being lazy rather than by being
+uninformed.
 
 Only `planner` and `researcher` are invited to run proactively. Everything that writes to the
 tree, and every agent that returns a verdict someone might act on, is invoked by name.
@@ -50,6 +52,8 @@ promise in prose.
 | `plan-verifier` | `Read` `Grep` `Glob` `Bash`* `TodoWrite` | `Write` `Edit` | a verifier that fixes what it finds stops being a verifier |
 | | | **`Skill`** | a loaded quality skill turns item-by-item verification into a general code review — the one failure mode that agent exists to prevent |
 | `doc-writer` | `Read` `Grep` `Glob` `Bash`* `Write` `Edit` `Skill` `TodoWrite` | `WebSearch` `WebFetch` | it documents this repository, not the internet |
+| `security-reviewer` | `Read` `Grep` `Glob` `Bash`* `Skill` `TodoWrite` | `Write` `Edit` | a reviewer that can write becomes the author it is reviewing |
+| | | `WebSearch` `WebFetch` | a CVE or an advisory is `researcher`'s job; this agent reads code |
 
 `Bash`* — read-only. **`tools` says which tools, never with which arguments**, so the tool
 itself cannot be narrowed in the frontmatter. Argument-level control lives in
@@ -59,10 +63,11 @@ apply inside a subagent exactly as they do in the main session — which is why
 ever need to gate *which agents may run at all*, that is a permission rule too:
 `Agent(planner)`, `Agent(implementer)`.
 
-For the three read-only agents the asterisk is now a **boundary, not an instruction**.
+For the four read-only agents the asterisk is now a **boundary, not an instruction**.
 `scripts/readonly-agent-guard.sh` is registered once, on `PreToolUse` / `Bash`, and filters by
 agent itself: the hook payload carries `agent_type` on every event, so the script recognises
-`architecture-reviewer`, `plan-verifier` and `researcher` and exits 2 on a redirection, `rm`,
+`architecture-reviewer`, `plan-verifier`, `researcher` and `security-reviewer` and exits 2 on
+a redirection, `rm`,
 `mv`, `sed -i`, `tee`, a `git` command that changes state, a package install, a `db:*` script
 or `docker compose down`. Its allow/deny table is `server/test/readonly-agent-guard.test.ts`,
 and it fails open with a message on stderr — a guard that silently blocks every shell is worse
@@ -92,6 +97,7 @@ agent file because no tool boundary expresses them.
 | `architecture-reviewer` | **a scope that resolves to a file list** — a diff, paths, or a package | nothing | findings with a severity and a `file:line` each, pre-existing debt kept separate, `Checked and clean`, `Not checked` |
 | `plan-verifier` | **a path to a plan file** + what counts as the finished code | nothing | `Items extracted: N` and a table with exactly N rows, each `MET`/`PARTIAL`/`NOT MET`/`NOT VERIFIED` with evidence, plus scope creep and out-of-scope sweeps |
 | `doc-writer` | the subject, its source material, and who will read it | markdown at the addresses in `docs/README.md`, plus its pointer lines | routing decision, every claim with the `file:line` that verified it, diagrams and why each earned its place, contradictions found |
+| `security-reviewer` | **a scope that resolves to a file list** — a diff, paths, a package, or a named surface | nothing | findings that each name a source, a sink and the `file:line` between them, `Checked and clean` with what made it safe, `Not checked`, assumptions |
 
 ```
 task ─► planner ─► specs/<slug>.md ─► implementer ─► code + report
@@ -101,9 +107,9 @@ task ─► planner ─► specs/<slug>.md ─► implementer ─► code + repo
                          │       ├─► architecture-reviewer ─► findings
                          └───────┼─► plan-verifier         ─► N items, N verdicts
                                  ├─► doc-writer            ─► docs/ + pointers
+                                 ├─► security-reviewer     ─► findings
                                  │
-                                 ├─  security review   ─┐  still nobody's job
-                                 └─  /pr-self-review   ─┘  a skill, not an agent
+                                 └─  /pr-self-review       a skill, not an agent
 ```
 
 `plan-verifier` is drawn from both ends because it takes two inputs: the plan `planner` wrote
@@ -111,16 +117,17 @@ and the code `implementer` produced. Nothing in this picture spawns anything els
 
 ## What is deliberately not here
 
-- **No security review agent yet.** `implementer` names it as out of scope in every report,
-  and `architecture-reviewer` repeats the exclusion, so the gap stays visible rather than
-  being silently filled by the agent that wrote the code.
+- **No agent for a whole-diff pre-PR verdict.** `/pr-self-review` is the gate, and it routes
+  a diff across every lane at once. `architecture-reviewer` and `security-reviewer` exist for
+  the opposite shape: one axis, one surface, in depth, on a scope you name. Neither replaces
+  the gate, and the gate does not replace either.
 - **Review skills are not agents.** `/pr-self-review` (this repo) and `/code-review`
   (built-in) stay skills; `implementer` runs neither, because an implementer that reviews
   itself produces a green that hides findings.
 - **`engineering-insights` is nobody's subagent.** `implementer` returns insight *candidates*;
   the main session records them. Two agents appending to one `INSIGHTS.md` is a conflict
   waiting to happen.
-- **No agent chains further.** None of the seven can spawn another.
+- **No agent chains further.** None of the eight can spawn another.
 
 ## Where these agents' rules come from
 

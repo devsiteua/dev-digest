@@ -2,10 +2,11 @@
 #
 # PreToolUse guard — makes "read-only agent" a boundary instead of a sentence.
 #
-# `architecture-reviewer`, `plan-verifier` and `researcher` have no `Write` and
-# no `Edit`, and each one's prompt lists the shell commands it may run. That list
-# was an INSTRUCTION: `tools` says which tools, never with which arguments, so
-# nothing stopped `sed -i` or `echo … > file` from inside one of them.
+# `architecture-reviewer`, `plan-verifier`, `researcher` and `security-reviewer`
+# have no `Write` and no `Edit`, and each one's prompt lists the shell commands
+# it may run. That list was an INSTRUCTION: `tools` says which tools, never with
+# which arguments, so nothing stopped `sed -i` or `echo … > file` from inside one
+# of them.
 #
 # Why a repo-level hook and not a per-agent one. The subagent frontmatter schema
 # in Claude Code 2.1.240 carries `description`, `tools`, `disallowedTools`,
@@ -35,7 +36,7 @@ command -v jq >/dev/null 2>&1 || exit 0
 
 AGENT="$(printf '%s' "$INPUT" | jq -r '.agent_type // ""' 2>/dev/null)" || exit 0
 case "$AGENT" in
-  architecture-reviewer|plan-verifier|researcher) ;;
+  architecture-reviewer|plan-verifier|researcher|security-reviewer) ;;
   *) exit 0 ;;
 esac
 
