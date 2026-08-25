@@ -1,0 +1,626 @@
+/**
+ * Pure helpers of the intent layer (L03).
+ *
+ * The two that carry real risk are `extractPlanPaths` — the only thing between a
+ * PR body and `git.readFile`, which joins its argument straight onto the clone
+ * path — and `settleTier`, which is what stops a model raising its own
+ * confidence. Both are tested by rule, not by example.
+ */
+import { describe, it, expect } from 'vitest';
+import {
+  buildIntentPrompt,
+  changedFilesFromDiff,
+  clampEvidence,
+  describePromptBlocks,
+  extractForeignRefs,
+  extractLinkedIssue,
+  extractPlanPaths,
+  hunkHeadersFromPatch,
+  isSubstantiveBody,
+  renderChangedFiles,
+  renderIntentForPrompt,
+  scoreForTier,
+  settleTier,
+  substantiveBodyText,
+  tierFromSources,
+} from '../src/modules/intent/helpers.js';
+import {
+  MAX_CHANGED_PATHS,
+  MAX_COMMIT_MESSAGES,
+  MAX_HUNK_HEADERS_PER_FILE,
+  MIN_SUBSTANTIVE_BODY_CHARS,
+} from '../src/modules/intent/constants.js';
+
+describe('extractPlanPaths', () => {
+  it('finds a repo-relative doc path in prose and in backticks', () => {
+    expect(extractPlanPaths('Implements the plan in specs/L03-intent-layer.md.')).toEqual([
+      'specs/L03-intent-layer.md',
+    ]);
+    expect(extractPlanPaths('See `docs/architecture.md` for the flow.')).toEqual([
+      'docs/architecture.md',
+    ]);
+  });
+
+  // Each of these would be a filesystem read outside the clone if it survived.
+  it.each([
+    ['absolute', '/etc/passwd.md'],
+    ['parent traversal', '../secrets.md'],
+    ['traversal mid-path', 'a/../../b.md'],
+    ['home-relative', '~/notes.md'],
+    ['backslash', 'a\\..\\b.md'],
+  ])('rejects a %s path', (_label, path) => {
+    expect(extractPlanPaths(`Plan: ${path}`)).toEqual([]);
+  });
+
+  it('never turns a remote URL into a local file read', () => {
+    // Left unstripped, this yields the token `plan.md` — a valid repo-relative
+    // path pointing at an entirely different file than the link did.
+    expect(extractPlanPaths('Plan: https://evil.example/plan.md')).toEqual([]);
+    expect(extractPlanPaths('Plan: http://evil.example/a/b/spec.md')).toEqual([]);
+  });
+
+  it('ignores paths outside the prose allow-list', () => {
+    expect(extractPlanPaths('Changed src/server.ts and config.yaml and a.exe')).toEqual([]);
+  });
+
+  it('de-duplicates and caps how many documents one derivation may read', () => {
+    const body = 'a.md b.md c.md d.md a.md';
+    const paths = extractPlanPaths(body);
+    expect(paths.length).toBeLessThanOrEqual(2);
+    expect(new Set(paths).size).toBe(paths.length);
+  });
+
+  it('returns the same answer when called twice on the same body', () => {
+    // The module-level regex is global; a shared `lastIndex` would make the
+    // second call start mid-string and find nothing.
+    const body = 'Plan: specs/plan.md';
+    expect(extractPlanPaths(body)).toEqual(extractPlanPaths(body));
+    expect(extractPlanPaths(body)).toEqual(['specs/plan.md']);
+  });
+
+  it('treats an empty body as no paths', () => {
+    expect(extractPlanPaths(undefined)).toEqual([]);
+    expect(extractPlanPaths(null)).toEqual([]);
+    expect(extractPlanPaths('')).toEqual([]);
+  });
+
+  // ---- R2-3: blob URLs into this repo, and D21's boilerplate rule ----------
+
+  const REPO = 'acme/payments-api';
+
+  it('translates a blob URL into this repo into the path it names', () => {
+    expect(
+      extractPlanPaths('Plan: https://github.com/acme/payments-api/blob/main/specs/plan.md', REPO),
+    ).toEqual(['specs/plan.md']);
+    // Markdown link form — the closing paren must not become part of the path.
+    expect(
+      extractPlanPaths('See [the plan](https://github.com/acme/payments-api/blob/abc123/docs/p.md).', REPO),
+    ).toEqual(['docs/p.md']);
+  });
+
+  it('matches the repository case-insensitively, as the issue matcher does', () => {
+    expect(
+      extractPlanPaths('https://github.com/ACME/Payments-API/blob/main/specs/plan.md', REPO),
+    ).toEqual(['specs/plan.md']);
+  });
+
+  it('does not read another repository’s file, and does not fetch it either', () => {
+    expect(
+      extractPlanPaths('Plan: https://github.com/other/repo/blob/main/specs/plan.md', REPO),
+    ).toEqual([]);
+  });
+
+  it('translates nothing when it has not been told which repo is ours', () => {
+    expect(
+      extractPlanPaths('Plan: https://github.com/acme/payments-api/blob/main/specs/plan.md'),
+    ).toEqual([]);
+  });
+
+  it('still refuses a traversal that arrives through a blob URL', () => {
+    expect(
+      extractPlanPaths('https://github.com/acme/payments-api/blob/main/../../etc/passwd.md', REPO),
+    ).toEqual([]);
+  });
+
+  it('refuses a root boilerplate document as a plan, but not one in a folder', () => {
+    expect(extractPlanPaths('Also updated README.md.', REPO)).toEqual([]);
+    expect(extractPlanPaths('Also updated CHANGELOG.md and LICENSE.md.', REPO)).toEqual([]);
+    expect(extractPlanPaths('See docs/README.md for the flow.', REPO)).toEqual([
+      'docs/README.md',
+    ]);
+    expect(extractPlanPaths('The plan is in plan.md.', REPO)).toEqual(['plan.md']);
+  });
+
+  it('spends the cap on what the author linked before what they merely typed', () => {
+    const body =
+      'a.md and b.md, per https://github.com/acme/payments-api/blob/main/specs/real-plan.md';
+    expect(extractPlanPaths(body, REPO)[0]).toBe('specs/real-plan.md');
+  });
+});
+
+describe('extractForeignRefs', () => {
+  const REPO = 'acme/payments-api';
+
+  it('names an issue that belongs to someone else instead of forgetting it', () => {
+    expect(extractForeignRefs('Closes other/repo#12', REPO)).toEqual([
+      'issue other/repo#12 is referenced but belongs to another repository',
+    ]);
+    expect(extractForeignRefs('Refs https://github.com/other/repo/issues/12', REPO)).toEqual([
+      'issue other/repo#12 is referenced but belongs to another repository',
+    ]);
+  });
+
+  it('names a file linked out of another repository', () => {
+    expect(
+      extractForeignRefs('Plan: https://github.com/other/repo/blob/main/specs/plan.md', REPO),
+    ).toEqual(['other/repo/specs/plan.md is linked but belongs to another repository']);
+  });
+
+  it('says nothing about references it can actually follow', () => {
+    expect(extractForeignRefs('Closes #471', REPO)).toEqual([]);
+    expect(
+      extractForeignRefs('https://github.com/acme/payments-api/blob/main/specs/p.md', REPO),
+    ).toEqual([]);
+    expect(extractForeignRefs(null, REPO)).toEqual([]);
+  });
+
+  it('reports one reference once, however many patterns match it', () => {
+    // A cross-repo issue URL is matched by the closing-keyword pattern AND the
+    // bare-URL pattern; the card should not say the same thing twice.
+    expect(
+      extractForeignRefs('Fixes https://github.com/other/repo/issues/12', REPO),
+    ).toHaveLength(1);
+  });
+});
+
+describe('extractLinkedIssue', () => {
+  const REPO = 'acme/payments-api';
+
+  it.each([
+    ['Closes #471', 471],
+    ['closes #471', 471],
+    ['Fixed #12', 12],
+    ['resolves #7', 7],
+    ['Closes acme/payments-api#471', 471],
+    ['Fixes https://github.com/acme/payments-api/issues/99', 99],
+  ])('accepts %s', (body, expected) => {
+    expect(extractLinkedIssue(body, REPO)).toBe(expected);
+  });
+
+  it.each([
+    ['Ticket: #471', 471],
+    ['Refs #471', 471],
+    ['Ref: acme/payments-api#471', 471],
+    ['Related to #471', 471],
+    ['Part of #471', 471],
+    ['Issue: #471', 471],
+    // The one form unambiguous with no keyword at all — nobody pastes a whole
+    // issue URL by accident.
+    ['Background: https://github.com/acme/payments-api/issues/471', 471],
+  ])('accepts the deliberate pointer %s', (body, expected) => {
+    expect(extractLinkedIssue(body, REPO)).toBe(expected);
+  });
+
+  it('requires a deliberate pointer — a bare mention in prose is not one', () => {
+    // D15 reopens D4: what a link has to prove is that the author pointed at it
+    // ON PURPOSE, which `see #5` does not and `Ticket: #471` does. The keyword is
+    // still mandatory; the set of keywords is what widened.
+    expect(extractLinkedIssue('See #5 for background.', REPO)).toBeUndefined();
+    expect(extractLinkedIssue('This is the #5 attempt.', REPO)).toBeUndefined();
+    expect(extractLinkedIssue('GH-471 covers the rest.', REPO)).toBeUndefined();
+  });
+
+  it('prefers the strongest claim when a body makes several', () => {
+    expect(extractLinkedIssue('Refs #12. Closes #471.', REPO)).toBe(471);
+  });
+
+  it('discards a cross-repo reference instead of fetching the wrong issue', () => {
+    // getIssue() takes THIS repo's ref, so honouring this would fetch issue 12
+    // of the wrong project under the right number.
+    expect(extractLinkedIssue('Closes other/repo#12', REPO)).toBeUndefined();
+    expect(
+      extractLinkedIssue('Fixes https://github.com/other/repo/issues/12', REPO),
+    ).toBeUndefined();
+  });
+
+  it('matches the repository case-insensitively', () => {
+    expect(extractLinkedIssue('Closes ACME/Payments-API#471', REPO)).toBe(471);
+  });
+
+  it('returns the same answer when called twice', () => {
+    const body = 'Closes #471';
+    expect(extractLinkedIssue(body, REPO)).toBe(471);
+    expect(extractLinkedIssue(body, REPO)).toBe(471);
+  });
+});
+
+describe('substantiveBodyText / isSubstantiveBody', () => {
+  it('drops HTML comments — a template instructs, it does not describe', () => {
+    expect(substantiveBodyText('<!-- Describe your change -->Real prose.')).toBe('Real prose.');
+  });
+
+  it('drops unticked checklist rows and keeps ticked ones', () => {
+    const body = '- [ ] I added tests\n- [x] I ran the linter\nReal prose.';
+    const out = substantiveBodyText(body);
+    expect(out).not.toContain('I added tests');
+    expect(out).toContain('I ran the linter');
+    expect(out).toContain('Real prose.');
+  });
+
+  it('scores an untouched template as not substantive', () => {
+    const template =
+      '<!-- Explain what and why. Link the issue. Delete this comment. -->\n' +
+      '- [ ] Tests\n- [ ] Docs\n- [ ] Changelog\n';
+    expect(isSubstantiveBody(template)).toBe(false);
+  });
+
+  it('uses the documented threshold', () => {
+    expect(isSubstantiveBody('x'.repeat(MIN_SUBSTANTIVE_BODY_CHARS - 1))).toBe(false);
+    expect(isSubstantiveBody('x'.repeat(MIN_SUBSTANTIVE_BODY_CHARS))).toBe(true);
+  });
+});
+
+describe('tierFromSources', () => {
+  it('rates documentation the author pointed at highest', () => {
+    expect(tierFromSources(['plan_file', 'pr_title'])).toBe('high');
+    expect(tierFromSources(['linked_issue'])).toBe('high');
+  });
+
+  it('rates the author’s own prose in the middle', () => {
+    expect(tierFromSources(['pr_body', 'commits'])).toBe('medium');
+  });
+
+  it('rates signals derived from the change itself lowest', () => {
+    expect(tierFromSources(['pr_title', 'commits', 'branch', 'file_paths'])).toBe('low');
+    expect(tierFromSources([])).toBe('low');
+  });
+});
+
+describe('settleTier', () => {
+  it('lets the model lower the tier', () => {
+    expect(settleTier('high', 'low')).toBe('low');
+    expect(settleTier('medium', 'low')).toBe('low');
+  });
+
+  it('never lets the model raise it', () => {
+    expect(settleTier('low', 'high')).toBe('low');
+    expect(settleTier('medium', 'high')).toBe('medium');
+  });
+
+  it('ignores a suggestion it does not recognise, in either direction', () => {
+    expect(settleTier('medium', 'very-high')).toBe('medium');
+    expect(settleTier('medium', undefined)).toBe('medium');
+    expect(settleTier('medium', null)).toBe('medium');
+  });
+});
+
+describe('scoreForTier', () => {
+  it('lands each tier inside ConfidenceNum’s own colour bands', () => {
+    // ConfidenceNum paints >= 0.85 ok, >= 0.65 warn, else muted. These values are
+    // what let the card render confidence with no conditional of its own.
+    expect(scoreForTier('high')).toBeGreaterThanOrEqual(0.85);
+    expect(scoreForTier('medium')).toBeGreaterThanOrEqual(0.65);
+    expect(scoreForTier('medium')).toBeLessThan(0.85);
+    expect(scoreForTier('low')).toBeLessThan(0.65);
+  });
+});
+
+describe('clampEvidence', () => {
+  it('caps the number of rows and the length of each', () => {
+    const many = Array.from({ length: 20 }, (_, i) => ({
+      source: 'pr_body' as const,
+      ref: `ref-${i}`,
+      quote: 'q'.repeat(1000),
+    }));
+    const out = clampEvidence(many);
+    expect(out.length).toBeLessThanOrEqual(6);
+    expect(out.every((e) => e.quote.length <= 240)).toBe(true);
+  });
+
+  it('treats a missing list as no evidence', () => {
+    expect(clampEvidence(undefined)).toEqual([]);
+  });
+});
+
+describe('changedFilesFromDiff', () => {
+  it('synthesises the header the parser threw away, from its four numbers', () => {
+    const [file] = changedFilesFromDiff([
+      {
+        path: 'src/a.ts',
+        additions: 4,
+        deletions: 1,
+        hunks: [
+          { file: 'src/a.ts', oldStart: 1, oldLines: 10, newStart: 1, newLines: 12, newLineNumbers: [] },
+          { file: 'src/a.ts', oldStart: 90, oldLines: 3, newStart: 92, newLines: 4, newLineNumbers: [] },
+        ],
+      },
+    ]);
+    expect(file).toEqual({
+      path: 'src/a.ts',
+      additions: 4,
+      deletions: 1,
+      hunkHeaders: ['@@ -1,10 +1,12 @@', '@@ -90,3 +92,4 @@'],
+    });
+  });
+
+  it('keeps a file that has no hunks rather than dropping it', () => {
+    expect(
+      changedFilesFromDiff([{ path: 'docs/x.md', additions: 0, deletions: 0, hunks: [] }]),
+    ).toEqual([{ path: 'docs/x.md', additions: 0, deletions: 0, hunkHeaders: [] }]);
+  });
+});
+
+describe('hunkHeadersFromPatch', () => {
+  const PATCH = [
+    '@@ -1,3 +1,4 @@',
+    ' context line',
+    '-removed line',
+    '+added line',
+    '@@ -20,2 +21,2 @@ function thing() {',
+    '-old',
+    '+new',
+  ].join('\n');
+
+  it('keeps the headers and nothing that carries content', () => {
+    expect(hunkHeadersFromPatch(PATCH)).toEqual(['@@ -1,3 +1,4 @@', '@@ -20,2 +21,2 @@']);
+  });
+
+  // The section heading git appends after the closing `@@` is a line of source
+  // code — `constants.ts` says a header is the four numbers "and nothing else",
+  // and the sibling path `changedFilesFromDiff` synthesises exactly that. This
+  // is the assertion that keeps the two paths, and the rule, in agreement.
+  it('drops the section heading git appends after the closing @@', () => {
+    expect(
+      hunkHeadersFromPatch("@@ -46,9 +60,17 @@ import { db } from '../../lib/db';"),
+    ).toEqual(['@@ -46,9 +60,17 @@']);
+  });
+
+  it('treats a null patch as a file with no headers, not as a missing file', () => {
+    expect(hunkHeadersFromPatch(null)).toEqual([]);
+    expect(hunkHeadersFromPatch(undefined)).toEqual([]);
+    expect(hunkHeadersFromPatch('')).toEqual([]);
+  });
+
+  it('does not mistake a diff body line that merely contains @@ for a header', () => {
+    expect(hunkHeadersFromPatch('+const x = "@@ -1,1 +1,1 @@";')).toEqual([]);
+  });
+});
+
+describe('renderChangedFiles', () => {
+  const file = (hunks: number) => ({
+    path: 'src/a.ts',
+    additions: 12,
+    deletions: 3,
+    hunkHeaders: Array.from({ length: hunks }, (_, i) => `@@ -${i + 1},2 +${i + 1},3 @@`),
+  });
+
+  it('prints the path with its counts and its headers underneath', () => {
+    expect(renderChangedFiles([file(2)])).toBe(
+      ['src/a.ts (+12/-3)', '  @@ -1,2 +1,3 @@', '  @@ -2,2 +2,3 @@'].join('\n'),
+    );
+  });
+
+  it('says how many hunks it stopped printing instead of truncating silently', () => {
+    const rendered = renderChangedFiles([file(MAX_HUNK_HEADERS_PER_FILE + 3)]);
+    const headers = rendered.split('\n').filter((l) => l.startsWith('  @@'));
+    expect(headers).toHaveLength(MAX_HUNK_HEADERS_PER_FILE);
+    expect(rendered).toContain('… 3 more hunk(s)');
+  });
+
+  it('sends the geometry of the change and never a line of it', () => {
+    const rendered = renderChangedFiles([
+      { path: 'src/a.ts', additions: 12, deletions: 3, hunkHeaders: ['@@ -1,2 +1,3 @@'] },
+      { path: 'docs/x.md', additions: 0, deletions: 0, hunkHeaders: [] },
+    ]);
+    expect(rendered).toContain('@@');
+    for (const line of rendered.split('\n')) {
+      expect(line.startsWith('+')).toBe(false);
+      expect(line.startsWith('-')).toBe(false);
+    }
+  });
+});
+
+describe('buildIntentPrompt', () => {
+  const BASE = {
+    title: 'Add rate limiting',
+    branch: 'feat/rate-limit',
+    planFiles: [],
+    commitMessages: [],
+    changedFiles: [],
+    missingContext: [],
+  };
+
+  it('wraps every author-controlled block', () => {
+    const prompt = buildIntentPrompt({
+      ...BASE,
+      body: 'BODY',
+      planFiles: [{ path: 'specs/p.md', text: 'PLAN' }],
+      issue: { number: 471, title: 'ISSUE-TITLE', body: 'ISSUE-BODY' },
+      commitMessages: ['COMMIT'],
+      changedFiles: [{ path: 'src/a.ts', additions: 1, deletions: 0, hunkHeaders: [] }],
+    });
+    for (const untrusted of ['PLAN', 'ISSUE-BODY', 'BODY', 'COMMIT', 'src/a.ts']) {
+      const at = prompt.indexOf(untrusted);
+      const openedBefore = prompt.lastIndexOf('<untrusted', at);
+      const closedBefore = prompt.lastIndexOf('</untrusted>', at);
+      expect(openedBefore).toBeGreaterThan(closedBefore);
+    }
+  });
+
+  it('puts the strongest evidence first', () => {
+    const prompt = buildIntentPrompt({
+      ...BASE,
+      body: 'BODY',
+      planFiles: [{ path: 'specs/p.md', text: 'PLAN' }],
+      issue: { number: 471, title: 'T', body: 'ISSUE-BODY' },
+    });
+    expect(prompt.indexOf('PLAN')).toBeLessThan(prompt.indexOf('ISSUE-BODY'));
+    expect(prompt.indexOf('ISSUE-BODY')).toBeLessThan(prompt.indexOf('BODY'));
+  });
+
+  it('carries hunk headers into the prompt with no line of the change itself', () => {
+    const prompt = buildIntentPrompt({
+      ...BASE,
+      changedFiles: [
+        {
+          path: 'src/a.ts',
+          additions: 12,
+          deletions: 3,
+          hunkHeaders: ['@@ -1,10 +1,12 @@', '@@ -90,3 +92,4 @@'],
+        },
+      ],
+    });
+    expect(prompt).toContain('src/a.ts (+12/-3)');
+    expect(prompt).toContain('@@ -1,10 +1,12 @@');
+    // Scoped to the block, not the whole prompt: a markdown PR body opens lines
+    // with `-` all by itself, and so does the missing-context list.
+    const start = prompt.indexOf('## Changed files');
+    const block = prompt.slice(start, prompt.indexOf('</untrusted>', start));
+    for (const line of block.split('\n')) {
+      expect(line.startsWith('+')).toBe(false);
+      expect(line.startsWith('-')).toBe(false);
+    }
+  });
+
+  it('tells the model what it could not read, in OUR voice rather than wrapped', () => {
+    const prompt = buildIntentPrompt({
+      ...BASE,
+      // A wrapped block ahead of it, so "outside a wrap" is an assertion rather
+      // than a property of a prompt that happens to contain no wraps at all.
+      body: 'BODY',
+      missingContext: ['plan file specs/missing.md named in the body but not readable'],
+    });
+    expect(prompt).toContain('## Context that is missing');
+    expect(prompt).toMatch(/do not reconstruct/i);
+    // Unwrapped on purpose: a block the system prompt has declared inert data is
+    // a block the model has been told not to act on.
+    const at = prompt.indexOf('specs/missing.md');
+    expect(prompt.lastIndexOf('<untrusted', at)).toBeLessThan(
+      prompt.lastIndexOf('</untrusted>', at),
+    );
+  });
+
+  it('omits a section it has no input for', () => {
+    const prompt = buildIntentPrompt({ ...BASE });
+    expect(prompt).not.toContain('## PR description');
+    expect(prompt).not.toContain('## Linked issue');
+    expect(prompt).not.toContain('## Changed files');
+    expect(prompt).not.toContain('## Context that is missing');
+  });
+});
+
+describe('describePromptBlocks', () => {
+  const BASE = {
+    title: 'Add rate limiting',
+    branch: 'feat/rate-limit',
+    planFiles: [],
+    commitMessages: [],
+    changedFiles: [],
+    missingContext: [],
+  };
+
+  it('names each kind with its size and nothing of its content', () => {
+    const inventory = describePromptBlocks({
+      ...BASE,
+      planFiles: [{ path: 'specs/p.md', text: 'P'.repeat(3_200) }],
+      issue: { number: 471, title: 'T', body: 'I'.repeat(1_099) },
+      body: 'B'.repeat(840),
+      commitMessages: ['COMMIT-SUBJECT'],
+      changedFiles: [
+        { path: 'src/a.ts', additions: 1, deletions: 0, hunkHeaders: ['@@ -1,1 +1,1 @@'] },
+      ],
+      missingContext: ['a note'],
+    });
+
+    expect(inventory).toBe(
+      'plan_file×1 (3.2k), issue #471 (1.1k), body (840), commits×1, ' +
+        'files×1 (+1 hunks), missing_context×1',
+    );
+    // The whole point: not one character of any source survives into the log.
+    for (const content of ['PPP', 'III', 'BBB', 'COMMIT-SUBJECT', 'src/a.ts', 'a note']) {
+      expect(inventory).not.toContain(content);
+    }
+  });
+
+  it('counts what was SENT, so every cap the prompt applies applies here', () => {
+    const inventory = describePromptBlocks({
+      ...BASE,
+      commitMessages: Array.from({ length: MAX_COMMIT_MESSAGES + 5 }, (_, i) => `c${i}`),
+      changedFiles: Array.from({ length: MAX_CHANGED_PATHS + 5 }, (_, i) => ({
+        path: `f${i}.ts`,
+        additions: 0,
+        deletions: 0,
+        hunkHeaders: Array.from({ length: MAX_HUNK_HEADERS_PER_FILE + 2 }, () => '@@ -1,1 +1,1 @@'),
+      })),
+    });
+    expect(inventory).toContain(`commits×${MAX_COMMIT_MESSAGES}`);
+    expect(inventory).toContain(
+      `files×${MAX_CHANGED_PATHS} (+${MAX_CHANGED_PATHS * MAX_HUNK_HEADERS_PER_FILE} hunks)`,
+    );
+  });
+
+  it('lists nothing for a derivation that was given nothing', () => {
+    expect(describePromptBlocks(BASE)).toBe('');
+  });
+});
+
+describe('renderIntentForPrompt', () => {
+  const RECORD = {
+    intent: 'Rate-limit the public API.',
+    in_scope: ['middleware', '429 + Retry-After'],
+    out_of_scope: ['auth changes'],
+    kind: 'feature' as const,
+    confidence_tier: 'low' as const,
+    sources: ['pr_title', 'commits'] as const,
+    missing_context: [] as string[],
+  };
+
+  it('renders the distillation and nothing else', () => {
+    // The sources are absent by construction: this function is not given the
+    // body, the issue or the plan file, so it cannot leak them into a prompt
+    // that already carries the description in its own section.
+    const { intent } = renderIntentForPrompt({ ...RECORD, sources: [...RECORD.sources] });
+    expect(intent).toContain('Kind: feature');
+    expect(intent).toContain('Intent: Rate-limit the public API.');
+    expect(intent).toContain('- middleware');
+    expect(intent).toContain('- auth changes');
+    expect(intent.length).toBeLessThan(400);
+  });
+
+  it('states the confidence and that the intent is only a claim', () => {
+    const { note } = renderIntentForPrompt({ ...RECORD, sources: [...RECORD.sources] });
+    expect(note).toContain('confidence low');
+    expect(note).toMatch(/claims about itself/i);
+    // D19: the old clause forbade the behaviour the scope gate now depends on.
+    // What it protected is still said — the claim excuses nothing — but the note
+    // no longer tells the model not to distinguish in-scope from out.
+    expect(note).not.toMatch(/never narrows what you review/i);
+    expect(note).toMatch(/never excuses a defect/i);
+    expect(note).toMatch(/inside this change or beside it/i);
+  });
+
+  it('carries the missing context into the block the reviewer actually reads', () => {
+    const { intent, note } = renderIntentForPrompt({
+      ...RECORD,
+      sources: [...RECORD.sources],
+      missing_context: ['issue #471 is linked but could not be read (404)'],
+    });
+    expect(intent).toContain('Missing context:');
+    expect(intent).toContain('- issue #471 is linked but could not be read (404)');
+    // In the untrusted distillation, never the trusted note: each line quotes a
+    // path or a number the PR's author supplied.
+    expect(note).not.toContain('#471');
+  });
+
+  it('omits an empty scope list rather than printing an empty heading', () => {
+    const { intent } = renderIntentForPrompt({
+      ...RECORD,
+      sources: [...RECORD.sources],
+      in_scope: [],
+      out_of_scope: [],
+    });
+    expect(intent).not.toContain('Claimed in scope');
+    expect(intent).not.toContain('Claimed out of scope');
+    expect(intent).not.toContain('Missing context');
+  });
+});

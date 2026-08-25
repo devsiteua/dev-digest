@@ -22,6 +22,15 @@ interface FindingsTabProps {
   /** owner/repo + head sha — used to deep-link a finding's file:line to GitHub. */
   repoFullName?: string | null;
   headSha?: string | null;
+  /**
+   * The finding `?findingId=` names, or null.
+   *
+   * It arrives from a severity badge clicked in the Smart Diff. The tab is
+   * unmounted while another tab is active, so it mounts fresh on every such
+   * navigation — which is what makes clicking the SAME badge twice work without
+   * a nonce anywhere in this chain.
+   */
+  focusFindingId?: string | null;
   onOpenTrace: (id: string) => void;
   onDelete: (id: string) => void;
   onRunDone: () => void;
@@ -38,6 +47,7 @@ export function FindingsTab({
   cancelMutation,
   repoFullName,
   headSha,
+  focusFindingId,
   onOpenTrace,
   onDelete,
   onRunDone,
@@ -173,6 +183,11 @@ export function FindingsTab({
             costUsd={prRuns?.find((r) => r.run_id === review.run_id)?.cost_usd ?? null}
             targetRunId={target?.runId ?? null}
             targetNonce={target?.n ?? 0}
+            // Handed to every accordion; each one decides whether the finding is
+            // its own. An id no run holds — a stale link, a deleted run, a
+            // review not loaded yet — simply matches nowhere, and the tab renders
+            // as it always does.
+            focusFindingId={focusFindingId ?? null}
           />
         ))
       )}

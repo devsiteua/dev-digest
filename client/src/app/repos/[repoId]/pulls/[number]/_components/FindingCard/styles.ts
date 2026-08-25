@@ -19,6 +19,9 @@ export const s = {
     opacity: muted ? 0.6 : 1,
     transition: "opacity .2s, border-color .12s, box-shadow .12s",
     boxShadow: focused ? "0 0 0 1px " + sevColor : "none",
+    // Leaves room above a card scrolled to from `?findingId=`, so the run
+    // accordion's header does not sit on top of the thing being revealed.
+    scrollMarginTop: 16,
   }),
   header: {
     display: "flex",

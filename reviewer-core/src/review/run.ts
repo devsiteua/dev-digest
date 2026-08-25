@@ -9,6 +9,7 @@ import type {
 import { Review as ReviewSchema } from '@devdigest/shared';
 import { assemblePrompt } from '../prompt.js';
 import { groundFindings, groundingSummary } from '../grounding.js';
+import { applyScopeGate, scopeGateSummary } from '../scope-gate.js';
 import { reduceReviews, scoreFromFindings, sliceDiff } from './reduce.js';
 
 /**
@@ -71,6 +72,14 @@ export interface ReviewInput {
   /** PR author's description/body (untrusted; truncated + delimiter-wrapped in
       the prompt). Empty/undefined → section omitted. */
   prDescription?: string;
+  /**
+   * Derived PR intent (L03), already rendered to a string by the caller — the
+   * engine resolves nothing. Untrusted; capped and delimiter-wrapped in the
+   * prompt. Empty/undefined → section omitted.
+   */
+  intent?: string;
+  /** Trusted one-line confidence note rendered above the intent block. */
+  intentNote?: string;
   /** Task framing line, e.g. "Review PR #482 …". */
   task?: string;
   /** Override the structured-output retry budget. */
@@ -99,6 +108,12 @@ export interface ReviewOutcome {
   grounding: string;
   /** Findings dropped by grounding, with reasons (for logs / "never go silent"). */
   dropped: { finding: Finding; reason: string }[];
+  /** Human-readable scope-gate summary, e.g. "2/6 in scope". */
+  scopeGate: string;
+  /** Findings dropped as out of scope, with reasons. Kept apart from grounding's
+   *  so a reader of the trace can tell a hallucinated location from a real
+   *  defect that simply was not this PR's job. */
+  scopeDropped: { finding: Finding; reason: string }[];
   /** Which path ran. */
   mode: ReviewMode;
   /** Prompt assembly (for the run trace). Single-pass: the one call; map-reduce: the whole-diff assembly. */
@@ -135,6 +150,8 @@ export async function reviewPullRequest(input: ReviewInput): Promise<ReviewOutco
     callers: input.callers,
     repoMap: input.repoMap,
     prDescription: input.prDescription,
+    intent: input.intent,
+    intentNote: input.intentNote,
     task: input.task,
   };
 
@@ -201,13 +218,41 @@ export async function reviewPullRequest(input: ReviewInput): Promise<ReviewOutco
   }
   emit('result', `Citation grounding: ${grounding}`);
 
-  // Score is derived from the findings that SURVIVED grounding (not the model's
+  // The scope gate, immediately after grounding and for the same reason it sits
+  // here rather than in a caller: it is a property of the review, not of who
+  // asked for one.
+  //
+  // Activated EXPLICITLY, by the one fact that decides it: did this prompt carry
+  // a derived intent? It cannot be left implicit. `Finding.scope` lives on the
+  // `Review` schema, so every structured call ships its description and strict
+  // mode asks for a value — a model can label `out` on a run that was never told
+  // what the change is for, and dropping those findings would make an
+  // intent-less review quieter than the identical pre-L03 one.
+  // `input.intent` is what `assemblePrompt` renders into the `## PR intent
+  // (derived)` block, so a non-empty value here is exactly "the prompt carried
+  // one" — the same condition, read at the one place that knows it.
+  const scopeActive = !!input.intent?.trim();
+  const scoped = applyScopeGate(ground.kept, { active: scopeActive });
+  const scopeGate = scopeGateSummary(scoped);
+  for (const d of scoped.dropped) {
+    emit('info', `scope gate dropped "${d.finding.title}": ${d.reason}`);
+  }
+  // Announced only when the model actually labelled something out of scope.
+  // The summary is persisted either way; a run whose prompt carried no intent
+  // would otherwise report "8/8 in scope" about a question nobody asked.
+  if (ground.kept.some((f) => f.scope === 'out')) {
+    emit('result', `Scope gate: ${scopeGate}`);
+  }
+
+  // Score is derived from the findings that SURVIVED both gates (not the model's
   // self-reported number, and not the pre-grounding set) so the score, the
   // findings list, and the deterministic event always agree.
   return {
-    review: { ...merged, findings: ground.kept, score: scoreFromFindings(ground.kept) },
+    review: { ...merged, findings: scoped.kept, score: scoreFromFindings(scoped.kept) },
     grounding,
     dropped: ground.dropped,
+    scopeGate,
+    scopeDropped: scoped.dropped,
     mode,
     assembly,
     chunks: chunks.map((c) => ({ label: c.label })),

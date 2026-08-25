@@ -11,6 +11,43 @@ _None yet._
 
 ## What Doesn't Work
 
+### 2026-08-23 · A path-keyed seed backfill that only INSERTS converges on the row count and not on the columns
+
+Trigger:  bringing seeded PR #482 from four `pr_files` rows to nine. The plan said: select
+          the existing paths, insert the missing ones — which is the right shape for a
+          table with no unique index, and it makes `pnpm db:seed` idempotent.
+Cause:    the four rows that already existed were seeded before L03 and carry
+          `patch = NULL`. Insert-only leaves them exactly as they are, so a machine that
+          had ever run the old seed ends up with nine rows of which the four most
+          interesting — every file the demo's findings point at — have no diff text to
+          scroll to. The row count is right, `select count(*)` says converged, and the
+          feature is broken on precisely the files it exists to demonstrate.
+Takeaway: for seed data, "converged" means the COLUMNS match the fixture, not the count.
+          Write the backfill as select → update-or-insert per key, and verify it on a
+          database in the OLD state (here: the dev DB, 4 rows / 0 patches → 9 rows / 8
+          patches), never only on a fresh container where every row is an insert.
+Evidence: server/src/db/seed.ts (the PR #482 backfill, outside the `if (!pr)` branch);
+          server/test/smart-diff.it.test.ts ("is idempotent with the seed")
+Status:   resolved
+
+### 2026-08-22 · "No line in the prompt begins with `+` or `-`" is a weaker claim wearing a stronger one's clothes
+
+Trigger:  the assertion that proves the intent classifier is sent hunk HEADERS and never change
+          bodies. Written over the whole user message, green, and it broke the moment the next
+          step added a `missing_context` list rendered with `- ` bullets.
+Cause:    it was never true of the whole prompt. A PR description written in markdown opens
+          lines with `-` all by itself; the test only passed because every fixture body happened
+          to be prose. The property it was reaching for belongs to one BLOCK — the one that
+          carries the change — and stating it globally made it depend on what every other block
+          happens to contain.
+Takeaway: scope a "this content never appears" assertion to the section that could carry it,
+          by slicing between the heading and its `</untrusted>`. A global negative over a
+          composed prompt breaks on unrelated additions, and until it does it is quietly proving
+          less than it says.
+Evidence: server/test/intent-helpers.test.ts § "carries hunk headers into the prompt" ·
+          server/test/intent.it.test.ts § "shows the classifier each file's hunk headers"
+Status:   resolved
+
 ### 2026-08-12 · Giving a DTO mapper a second optional argument turns every `rows.map(mapper)` into an index injection — and TypeScript agrees to it
 
 Trigger:  adding a derived `skill_count` to `toAgentDto(row, skillCount?: number)`, with
@@ -140,6 +177,71 @@ Evidence: src/modules/reviews/
 Status:   → promoted to `CLAUDE.md` (Gotchas)
 
 ## Codebase Patterns
+
+### 2026-08-25 · `RunLogger` reaches exactly one module, so every service it calls is invisible in the Live Log
+
+Trigger:  a review said the Live Log emits no amber events during the intent derivation. Two
+          amber lines DO exist — `run-executor.ts` wraps the call in
+          `runLog.step('Deriving PR intent', …, { kind: 'tool' })` — and the observation was
+          still right about everything between them.
+Cause:    `grep -rn RunLogger server/src` returns `platform/run-logger.ts` and
+          `modules/reviews/run-executor.ts`, and nothing else. The executor is the only module
+          holding a logger, so a service it calls has no way to say anything. `IntentService`
+          spends its time in three external calls — a clone read per plan file, the linked-issue
+          fetch, the model call — and emitted nothing for any of them, so the log went amber
+          once and then silent for up to `INTENT_TIMEOUT_MS` (60 s; the default provider caps at
+          90 s regardless). `step()` gives you a TIMING, not visibility: it says the work
+          started and how long it took, which is exactly what you already knew.
+Takeaway: `tool` is painted `var(--warn)` in `LiveLogStream.tsx` and means EXTERNAL I/O — so
+          only the module doing the I/O can emit it honestly. To give one a voice, declare a
+          two-method structural port (`tool` / `info`) in that module and pass `runLog` in;
+          `RunLogger` satisfies it as it stands, so nothing adapts and nothing imports
+          `platform/`. Keep the split: a conclusion drawn without leaving the process stays
+          `info`, or the colour stops carrying information. When wrapping any multi-second
+          service call in `step()`, ask what the user sees for the seconds in the middle.
+Evidence: server/src/modules/intent/service.ts (`IntentProgress`, and the emits in `gather`
+          and `deriveFor`); server/src/modules/reviews/run-executor.ts:381;
+          server/test/intent.it.test.ts § "paints the derivation's external calls amber"
+Status:   resolved
+
+### 2026-08-25 · An "answer in English" rule will translate the one field that must stay verbatim
+
+Trigger:  `INTENT_SYSTEM_PROMPT` had no constraint on output language, while its reply reaches
+          two English-only surfaces — the Intent card (rendered from `messages/en/`) and
+          `## PR intent (derived)` in every reviewing agent's prompt.
+Cause:    the obvious fix ("write your reply in English") is wrong for one field.
+          `IntentReplySchema.evidence[].quote` is the author's own words, kept so a reader can
+          open `ref` and find them; a translated quote is no longer checkable, and the field
+          silently stops doing its job. Nothing in the schema or the card would show it — the
+          quote still renders, it just no longer matches its source.
+Takeaway: before adding an output-language rule to any prompt, list the reply's fields and ask
+          which are OUR prose and which are quoted from a source. Name the exception in the
+          prompt explicitly; a model told "answer in English" translates everything, including
+          what it was asked to copy. Same question applies to any future field holding a path,
+          an identifier or a code fragment.
+Evidence: server/src/modules/intent/constants.ts (`INTENT_SYSTEM_PROMPT`, the `LANGUAGE` block
+          and the doc comment above it); server/src/modules/intent/helpers.ts:388-395
+Status:   resolved
+
+### 2026-08-23 · A test file may sit in any module — the onion cruise never sees it
+
+Trigger:  the L03 checklist mandates `server/src/modules/pulls/classifier.test.ts` for a
+          function that lives in `modules/smart-diff/`, which reads like a forced
+          cross-module import
+Cause:    `.dependency-cruiser-onion.cjs` sets `options.exclude: { path: '\\.test\\.ts$' }`,
+          so `depcruise src` never walks a test file and never scores its imports. Checked
+          both directions with planted files: a PRODUCTION `modules/pulls/_probe.ts`
+          re-exporting from `../smart-diff/helpers.js` printed
+          `warn no-cross-module-import`, and the same import from a `.test.ts` at the same
+          path printed "✔ no dependency violations found".
+Takeaway: a test may live wherever it is most findable and import across module lines
+          freely — the architecture is not an argument against a test's location. It is an
+          argument against a PRODUCTION re-export file placed only to make an import look
+          local, which is what was almost written here. See the warn-severity entry below
+          for why that warning still has to be read by a human.
+Evidence: server/.dependency-cruiser-onion.cjs (options.exclude);
+          server/src/modules/pulls/classifier.test.ts
+Status:   resolved
 
 ### 2026-08-06 · `no-cross-module-import` is a WARNING, so the onion guard exits 0 on the violation it is named for
 

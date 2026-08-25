@@ -31,9 +31,10 @@ npm run typecheck # this IS the build; the package never emits JS
 - All external text goes through `wrapUntrusted()`. An exception is a security bug.
 - Injection defense is the single trusted `INJECTION_GUARD`, not keyword scanning. Do not add
   a denylist: it catches one phrasing in one language and creates false confidence.
-- An empty prompt slot (`skills`, `memory`, `specs`, `callers`, `repoMap`, `prDescription`)
-  must produce a byte-identical prompt to the one before that slot existed. Section order in
-  `assemblePrompt` is part of the contract — changing it changes every agent's behaviour.
+- An empty prompt slot (`skills`, `memory`, `specs`, `callers`, `repoMap`, `prDescription`,
+  `intent`) must produce a byte-identical prompt to the one before that slot existed.
+  Section order in `assemblePrompt` is part of the contract — changing it changes every
+  agent's behaviour.
 - Cancellation is caller-owned: the engine only calls `checkCancelled()`, which throws an
   error type the engine never names.
 

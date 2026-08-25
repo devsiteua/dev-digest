@@ -48,6 +48,13 @@ export const PromptAssembly = z.object({
   repo_map: z.string().nullish(),
   /** PR author's description/body (truncated); null when absent. */
   pr_description: z.string().nullish(),
+  /**
+   * The derived PR intent as it was rendered into the prompt (L03) — the tier
+   * sentence plus the intent and scope lists, NOT the sources it was distilled
+   * from. Null when no intent was available, which is also when the prompt has no
+   * `## PR intent (derived)` section at all.
+   */
+  intent: z.string().nullish(),
   user: z.string(),
 });
 export type PromptAssembly = z.infer<typeof PromptAssembly>;
@@ -68,6 +75,15 @@ export const RunStats = z.object({
   cost_usd: z.number().nullish(),
   findings: z.number().int(),
   grounding: z.string(),
+  /**
+   * What the scope gate did, e.g. `2/6 in scope; 1 out-of-scope CRITICAL kept as
+   * the signal`.
+   *
+   * Nullish for the same reason `cost_usd` is: every trace written before the
+   * gate existed has no such key, and requiring it would make the trace drawer
+   * 500 on every historical run.
+   */
+  scope_gate: z.string().nullish(),
 });
 export type RunStats = z.infer<typeof RunStats>;
 

@@ -73,6 +73,126 @@ Status:   resolved — the recipe generalises to experiment 1 and to any future 
 
 ## What Doesn't Work
 
+### 2026-08-25 · A gap held open on purpose gets cited as if it were closed — four files routed to an agent that did not exist
+
+Trigger:  a review noted `.claude/agents/security-reviewer.md` was missing. It had been left
+          out deliberately: `.claude/agents/README.md` § "What is deliberately not here" said
+          so, and `specs/four-new-subagents.md` § Out of scope deferred it to "a separate
+          decision, not за компанію".
+Cause:    the decision to leave a hole was recorded in two places, and then four other files
+          wrote as though it had been filled. `implementer.md` § "Not checked here" routed to
+          "the security review agent"; `planner.md` and `test-writer.md` both dropped the
+          `security` skill from their delta lists because it was "a separate agent's job";
+          `architecture-reviewer.md` § "Not checked" excluded security pointing at a README
+          bullet rather than at a destination. Every one of those sentences is written from
+          the point of view of the agent that must NOT do the work, so each is true about the
+          exclusion and silently wrong about where the work goes. Nothing greps for that:
+          `grep -rn security .claude/agents` shows four confident routing lines and one
+          bullet saying the target does not exist.
+Takeaway: when a README declares a deliberate gap, grep for the DESTINATION NAME across every
+          file that could route to it, and make each of those files say "nobody" in the same
+          words. A document that routes to a non-existent agent is worse than one that says
+          the work is unowned — the first reads as a plan, the second reads as a decision. And
+          when the gap is finally closed, the same grep is the checklist: this round changed
+          four files that had nothing to do with the new file itself.
+Evidence: .claude/agents/security-reviewer.md; .claude/agents/README.md § "What is deliberately
+          not here"; specs/L03-intent-layer.md § Round 3 (the audit row)
+Status:   resolved
+
+### 2026-08-24 · The pre-PR gate's own test harness is the fastest way to tell a false blocker from a real one
+
+Trigger:  `/pr-self-review` on the finished L03 branch returned two CRITICALs — a
+          "hand-edited migration" (`meta/_journal.json`) and a "contract changed without
+          its mirror" (`brief.ts`) — and both were argued to be false positives. Arguing
+          about a blocker is the state the gate exists to prevent.
+Cause:    `scripts/test-pr-self-review.sh` settles it in one run, and it was already
+          red: its FIRST case, "clean worktree produces no findings", was failing on
+          exactly those two sources. A check that fires on a branch doing nothing wrong
+          is a defect in the check, and the harness says so without anyone reasoning
+          about the diff. Both were structural, not incidental:
+            · drizzle-kit APPENDS to `meta/_journal.json` for every migration it
+              generates, so a legitimate new migration cannot exist without an M there —
+              the check fired on every PR that added one;
+            · `check:contract-mirror` compared the SETS of touched lines on the two
+              `vendor/shared` copies, which is a proxy for "do they agree afterwards".
+              The proxy is wrong for a change that RECONCILES drift: the side that was
+              behind touches more lines. Root `CLAUDE.md` records that drift as the
+              standing state, so this was going to recur for the rest of the course.
+Takeaway: before overriding a scripted CRITICAL, run the harness. A red baseline turns
+          "I believe this is a false positive" into "the check is broken, here is the
+          case that proves it" — and the fix is then bounded by a test rather than by an
+          override that has to be re-argued next lesson. Corollary when relaxing a check:
+          write BOTH sides of the new boundary. The journal exception got case 2b (a
+          journal edit with no new migration STILL fires) as well as 2c (one beside a new
+          migration does not), because a relaxation with only its negative tested is
+          indistinguishable from deleting the check.
+          Second corollary, learned the same run: do NOT compare the two `vendor/shared`
+          trees wholesale. `adapters.ts`, `contracts/eval-ci.ts` and
+          `contracts/productionize.ts` are drifted right now, and reconciling files a PR
+          never touched is nobody's errand — compare only the files the diff touches.
+Evidence: scripts/pr-self-review-checks.sh (checks 2 and 3);
+          scripts/test-pr-self-review.sh (cases 2b, 2c, and the drift-reconciliation
+          negative); 45 passed, 0 failed
+Status:   resolved
+
+### 2026-08-23 · An acceptance criterion written as a grep over source also polices the COMMENTS
+
+Trigger:  L03 Smart Diff's criterion "every pattern lives in `constants.ts`;
+          `grep -nE "package-lock|dist/|\.snap" .../{helpers,service,routes}.ts` finds
+          nothing". The module was correct — no pattern outside `constants.ts` — and the
+          grep still hit, on the line of `helpers.ts` that EXPLAINS why the lock check runs
+          before the wiring rules.
+Cause:    the criterion means "no classifying literal in code" but is written as a text
+          search over the whole file, and prose is text. Rewording the comment to say "a
+          lock file" and "its manifest" satisfied it, at the cost of a doc comment that can
+          no longer name the case it is about — a real, if small, loss.
+Takeaway: when a criterion is a grep, decide deliberately whether it should read code only
+          (`grep -v '^\s*[*/]'` first, or restrict to the assignment lines) and say so in
+          the spec. Otherwise expect it to bind on comments, and write the comment
+          accordingly rather than "fixing" the grep after the fact. Same family as
+          `server/INSIGHTS.md` (2026-08-22): a negative stated over a whole file proves less
+          and breaks more than one scoped to the thing that could carry the violation.
+Evidence: specs/L03-smart-diff.md § Acceptance criteria (the grep criterion);
+          server/src/modules/smart-diff/helpers.ts (`classifyPath` doc comment)
+Status:   resolved — the grep is clean and the criterion is ticked, with this cost recorded
+
+### 2026-08-22 · A plan's § Out of scope is a decision about EFFORT, never about the brief
+
+Trigger:  L03 Round 1 shipped, every one of its own acceptance criteria green. Auditing it
+          against the course brief afterwards found four requirements it did not meet — and the
+          most important of them, the scope filter, was sitting in the plan's own § Out of scope
+          marked "a product decision".
+Cause:    § Out of scope is written while planning, from the repository's constraints, and
+          nothing in the process ever diffs it against the document the work is graded on. So a
+          requirement can be declared out of scope by the same person who is supposed to deliver
+          it, and every later check — the plan's criteria, the tests, the self-review — measures
+          the narrowed plan rather than the brief. Round 1 went further and told the reviewing
+          model the opposite of the requirement in so many words ("it never narrows what you
+          review", `intent/helpers.ts`), which is what a plan sounds like once it has argued
+          itself out of a feature.
+Takeaway: before a lesson is called done, put the brief and the plan's § In scope / § Out of
+          scope side by side, item by item, and write the verdict down. A line in § Out of scope
+          is legitimate only when it says what will not be BUILT YET; it can never say what the
+          brief does not require. Round 2's audit table in `specs/L03-intent-layer.md` is the
+          shape to copy — one row per brief item, ✅/⚠️/❌, each with a `file:line`.
+Evidence: specs/L03-intent-layer.md § "Audit — every brief item against what Round 1 shipped"
+Status:   resolved
+
+### 2026-08-22 · `printf '%s' | tr | while read` silently skips a single-segment command — a guard that allowed everything
+
+Trigger:  `scripts/readonly-agent-guard.sh` was written, registered, and returned exit 0 for
+          `rm -rf server/dist`. Every deny case in its table failed at once; `bash -n` was clean.
+Cause:    `printf '%s'` emits no trailing newline, so `read` hits EOF on the only line, returns
+          non-zero with the data still unread, and the `while` body never runs. The script did
+          nothing and said nothing — exactly the failure mode a guard must not have.
+          `scripts/pr-self-review-gate.sh` has the same `printf '%s' | tr` shape and is fine only
+          because it pipes into `grep -q`, which does not care about the final newline.
+Takeaway: any `printf … | while read` loop needs `printf '%s\n'`. And a security control's first
+          test must be a DENY case that is known to fire: an allow-only table passes perfectly
+          against a script that does nothing at all.
+Evidence: scripts/readonly-agent-guard.sh:112 · server/test/readonly-agent-guard.test.ts
+Status:   resolved
+
 ### 2026-08-02 · Building a screen from design screenshots — the prototype's source says things a PNG cannot
 
 Trigger:  re-doing the L01 severity feature against the unpacked design prototype, after
@@ -113,6 +233,72 @@ Status:   open — fix opportunistically when touching those files
 > resolved with L01's cost column) → [`docs/insights-archive.md`](docs/insights-archive.md).
 
 ## Codebase Patterns
+
+### 2026-08-23 · Seeded `patch` text is a contract with the CLIENT's parser — and nothing checks it
+
+Trigger:  seeding PR #482's nine files so a findings badge could scroll the diff to
+          `config.ts:12`, `webhooks.ts:61`, `users.ts:45`, `ratelimit.ts:28`
+Cause:    which line a patch renders is decided by `client/src/components/diff-viewer/
+          helpers.ts` `parsePatch`: it takes the NEW-side start from each `@@ -a,b +c,d @@`
+          and increments once per `+`/context line, never on a `-`. So a finding's
+          `start_line` is only reachable if the hunk header and the lines above it add up
+          to that number. Nothing on either side asserts this — the server does not read
+          patches, and the client has no fixture tying a seeded finding to a seeded hunk.
+          Two of the four headers were off by exactly the net size of an earlier hunk.
+Takeaway: when seeding or editing `patch` text that a feature jumps into, replay the
+          parser's numbering over it before committing (a dozen lines of script: reset the
+          counter at `@@`, skip `-` lines, record the number of every rendered line, assert
+          each finding's `start_line` is in the map). Treat the hunk header as data under
+          test, not as decoration. The degraded path — scroll to the card header when no
+          rendered line matches — is what saves the reader when this is wrong, so build it
+          in the same change.
+Evidence: server/src/db/seed.ts (PR_482_FILES);
+          client/src/components/diff-viewer/FileCard/FileCard.tsx (the focus effect);
+          client/.../SmartDiffViewer.test.tsx ("falls back to the card header")
+Status:   resolved
+
+### 2026-08-22 · The onion skill's own review checklist ends on a question `arch:check` cannot answer
+
+Trigger:  writing `architecture-reviewer`'s procedure on top of
+          `.claude/skills/onion-architecture/tooling.md` § "Review checklist for a backend diff"
+Cause:    item 9 of that checklist is *"Does `pnpm arch:check` still exit 0?"*. It does — even
+          when a cross-module import was just added, because `no-cross-module-import` is
+          declared `severity: 'warn'` in `server/.dependency-cruiser-onion.cjs:96`, and
+          dependency-cruiser exits 0 on warnings. `server/INSIGHTS.md` (2026-08-06) already
+          records the exit-code half of this, but nothing connects it back to the checklist
+          that a reviewer is told to follow, so the skill quietly instructs you to run a test
+          that cannot fail for the rule it is most likely to catch.
+Takeaway: read the **output** of `pnpm arch:check`, never its exit code, and treat checklist
+          item 9 as "did the output stay empty". Anything automated that gates on this — a
+          hook, a CI step, an agent's `Verify:` line — has the same defect unless it greps the
+          output. `pnpm arch:check:all` (no `--ignore-known`) is the version that also surfaces
+          the frozen debt in `server/.dependency-cruiser-known-violations.json`.
+Evidence: .claude/skills/onion-architecture/tooling.md § "Review checklist for a backend diff"
+          item 9; server/.dependency-cruiser-onion.cjs:96-98; server/package.json:11-12
+Status:   open — the skill is hand-authored and ours to edit, but changing a review checklist
+          is its own decision; `architecture-reviewer.md` § Step 1 states the correction instead
+
+### 2026-08-21 · The canonical path -> skills routing table lives inside a REVIEW skill, so anything else that needs it must point, not copy
+
+Trigger:  authoring `.claude/agents/planner.md` and `.claude/agents/implementer.md`, both of
+          which need to know which project skill applies to which file
+Cause:    the only maintained path -> skills map in this repo is section 3 of
+          `.claude/skills/pr-self-review/SKILL.md` ("Route by path *and* by status"). Its name
+          and its location say "pre-PR gate", so the obvious move when writing a new agent is
+          to write a fresh table into the agent file - and then two tables drift, exactly the
+          way `vendor/shared` does. That skill already carries the correct instinct in its own
+          words ("Repo conventions are read, never copied") and the discovery command that
+          keeps it honest: `ls -d .claude/skills/*/`, never `skills-lock.json`, which names
+          skills that are not on disk and misses several that are.
+Takeaway: any new agent, skill or doc that routes work to skills cites that section by path
+          instead of restating it, and states only its DELTAS. For implementation-time use the
+          deltas are three: add `design-reference` on UI steps (before the code, not after),
+          drop `security` and drop `engineering-insights` - a self-reviewing implementer
+          produces a green that hides findings, and two agents appending to `INSIGHTS.md` in
+          parallel is how it gets a conflict.
+Evidence: .claude/skills/pr-self-review/SKILL.md:55-89; .claude/agents/planner.md step 4;
+          .claude/agents/implementer.md step 2
+Status:   resolved - both new agents reference the table rather than duplicating it
 
 ### 2026-08-12 · Nothing persisted attributes a finding — or a run — to a SKILL, so every per-skill metric in the design is an agent-level approximation
 
@@ -271,6 +457,69 @@ Status:   → promoted to `CLAUDE.md` (Gotchas) on 2026-08-06, after the L02 con
 > Every rule they produced is live in `CLAUDE.md` (Gotchas).
 
 ## Tool & Library Notes
+
+### 2026-08-25 · A vendored skill can be written for a stack this repo does not have — correct it in a delta table, never by forking
+
+Trigger:  writing `security-reviewer` on top of `.claude/skills/security/`, which is vendored
+          and locked by hash in `skills-lock.json`.
+Cause:    the skill is "OWASP Top 10:2025 for React + Express + MongoDB + JWT". This repo is
+          Fastify 5 + Postgres/Drizzle and has NO user auth at all — `LocalNoAuthProvider`
+          returns the default workspace and system user. Applied literally, three of its ten
+          categories aim at code that does not exist: A05 operator injection (Drizzle
+          parameterises), A07 token verification (there are no tokens), and its secrets advice
+          points at `process.env` while this repo's rule is one chokepoint at
+          `adapters/secrets/local.ts`. It also has no category at all for the surface that
+          matters most here — untrusted text reaching a prompt.
+Takeaway: check a vendored skill's assumed stack before routing work to it, and record the
+          mismatch as a delta table inside the CONSUMER (the agent, the routing rule), not by
+          editing the skill: a locked skill is re-pulled by hash and a fork puts a second copy
+          under maintenance. Keep the skill's own confidence ladder — HIGH reports, MEDIUM
+          notes, LOW is not reported — because that part is stack-independent. The same check
+          is owed to any other vendored skill whose frontmatter names a framework.
+Evidence: .claude/agents/security-reviewer.md § "Step 1 — load the skill, then correct it for
+          this repository"; .claude/skills/security/SKILL.md (frontmatter + § OWASP Top 10);
+          server/src/modules/_shared/context.ts:10-12
+Status:   resolved
+
+### 2026-08-22 · Subagent frontmatter has no `hooks:` — but every hook payload carries `agent_type`
+
+Trigger:  three agent files and `.claude/agents/README.md` all claimed the subagent frontmatter
+          schema "accepts `disallowedTools` and a `hooks:` block scoped to a single agent",
+          citing it as the known upgrade that would make `Bash`-read-only a real boundary.
+Cause:    half of it was wrong. The subagent definition schema in Claude Code 2.1.240 carries
+          `description`, `tools`, `disallowedTools`, `prompt`, `model`, `mcpServers`,
+          `criticalSystemReminder_EXPERIMENTAL`, `skills`, `initialPrompt`, `maxTurns`,
+          `background`, `memory`, `effort`, `permissionMode`, `observer`, `observerMessage`.
+          There is no `hooks:` field. `disallowedTools` is real.
+Takeaway: to scope a `PreToolUse` rule to one agent, register ONE repo-level hook and branch on
+          `agent_type` inside it — the shared payload builder sets `agent_type` and `agent_id` on
+          every hook event, `PreToolUse` included, so the script can see both the agent and the
+          command string. That is the only place a per-agent argument rule can live. Verify a
+          frontmatter field against the installed binary before writing prose about it:
+          `strings -a "$(readlink -f "$(which claude)")" | grep -oE "disallowedTools:.{0,1500}"`
+          prints the schema with its `.describe()` strings.
+Evidence: scripts/readonly-agent-guard.sh:10-18 · .claude/agents/README.md § Permissions
+Status:   resolved
+
+### 2026-08-22 · `grep -E '(Write|Edit)'` on an agent's `tools:` line always fires — `TodoWrite` contains `Write`
+
+Trigger:  verifying that the new read-only `architecture-reviewer` really lacks write access,
+          with the check the plan had specified:
+          `grep -E '^tools:' <file> | grep -Eq '(Write|Edit)' && echo FAIL || echo OK`
+Cause:    the line is `tools: Read, Grep, Glob, Bash, Skill, TodoWrite`. Every agent in this
+          repository carries `TodoWrite`, and a substring match on `Write` hits it, so the
+          check reports FAIL on a file that is correct — and, worse, would report FAIL just as
+          loudly on a file that is genuinely broken. It cannot distinguish the two.
+Takeaway: `tools:` is a comma-separated list, so verify it as a list, not as a string. Split
+          and match whole entries:
+          `grep -E '^tools:' f | sed 's/^tools: *//' | tr ',' '\n' | sed 's/ //g' | grep -qx Write`.
+          The same trap is waiting for `Read` (`ReadMcpResource`) and any future tool whose
+          name contains another's. Applies to every "does this agent lack tool X" assertion in
+          a plan's `Verify:` line.
+Evidence: .claude/agents/architecture-reviewer.md:4; .claude/agents/plan-verifier.md:4;
+          specs/four-new-subagents.md § "Implementation plan" Step 1 (the check as originally
+          written)
+Status:   resolved — the four new agent files were verified with the list-aware form
 
 ### 2026-08-06 · `seed.ts` never converges on rename: a skill dropped from `SEED_SKILLS` survives, still linked, and its checklist is still in the prompt
 

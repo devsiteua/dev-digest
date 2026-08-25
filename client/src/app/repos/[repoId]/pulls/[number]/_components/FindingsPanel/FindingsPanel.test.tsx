@@ -4,13 +4,22 @@ import { NextIntlClientProvider } from "next-intl";
 import type { FindingRecord } from "@devdigest/shared";
 import messages from "../../../../../../../../messages/en/prReview.json";
 
+// Hoisted so the SAME spy survives every render — the panel calls the hook on
+// each one, and a factory returning a fresh `vi.fn()` could never be asserted on.
+const { mutate } = vi.hoisted(() => ({ mutate: vi.fn() }));
 vi.mock("../../../../../../../lib/hooks/reviews", () => ({
-  useFindingAction: () => ({ mutate: vi.fn(), isPending: false }),
+  useFindingAction: () => ({ mutate, isPending: false }),
 }));
 
 import { FindingsPanel } from "./FindingsPanel";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  // The spy is module-scoped, so it has to be reset by the harness. Leaving the
+  // reset inside the one test that currently needs it means the next test to
+  // assert on `mutate` silently inherits whatever the tests before it dispatched.
+  mutate.mockClear();
+});
 
 function finding(o: Partial<FindingRecord> & { id: string }): FindingRecord {
   return {
@@ -37,6 +46,12 @@ const FINDINGS: FindingRecord[] = [
   finding({ id: "Hardcoded secret", severity: "CRITICAL" }),
   finding({ id: "Unauthenticated webhook", severity: "CRITICAL" }),
   finding({ id: "N+1 query", severity: "WARNING", category: "perf" }),
+];
+
+/** One finding under `LOW_CONFIDENCE_THRESHOLD` (0.65), one well over it. */
+const LOW_AND_HIGH: FindingRecord[] = [
+  finding({ id: "Hardcoded secret", severity: "CRITICAL", confidence: 0.95 }),
+  finding({ id: "Shaky guess", severity: "WARNING", confidence: 0.3 }),
 ];
 
 function renderWithIntl(ui: React.ReactElement) {
@@ -169,5 +184,101 @@ describe("FindingsPanel — click to filter", () => {
     // The first panel is filtered to the single WARNING; the second still shows all 3.
     expect(screen.getAllByText("N+1 query")).toHaveLength(2);
     expect(screen.getAllByText("Hardcoded secret")).toHaveLength(1);
+  });
+});
+
+/**
+ * A finding reached from a Smart Diff badge has to be ON SCREEN when the reader
+ * lands, whatever the panel was filtered to a moment ago. A click that ends on
+ * "No findings match" is indistinguishable from a dead link, so the filters give
+ * way — visibly, and one click from being put back.
+ */
+describe("FindingsPanel — the target of ?findingId=", () => {
+  const withTarget = (id: string | null) => (
+    <NextIntlClientProvider locale="en" messages={{ prReview: messages }}>
+      <FindingsPanel findings={LOW_AND_HIGH} prId="pr1" focusFindingId={id} />
+    </NextIntlClientProvider>
+  );
+
+  it("reveals a target a severity filter was hiding", () => {
+    const { rerender } = renderWithIntl(
+      <FindingsPanel findings={FINDINGS} prId="pr1" focusFindingId={null} />,
+    );
+    fireEvent.click(chip("Warning"));
+    expect(screen.queryByText("Hardcoded secret")).not.toBeInTheDocument();
+
+    rerender(
+      <NextIntlClientProvider locale="en" messages={{ prReview: messages }}>
+        <FindingsPanel findings={FINDINGS} prId="pr1" focusFindingId="Hardcoded secret" />
+      </NextIntlClientProvider>,
+    );
+    expect(screen.getByText("Hardcoded secret")).toBeInTheDocument();
+    expect(screen.queryByText("No findings match")).not.toBeInTheDocument();
+  });
+
+  it("reveals a target that hide-low-confidence was hiding", () => {
+    const { rerender } = render(withTarget(null));
+    // Found by ROLE rather than by the toolbar's DOM nesting; unambiguous because
+    // this panel renders exactly one Toggle. Deliberately no `{ name }`: the
+    // vendored `Toggle` takes only `on`/`onChange`/`size` and wraps a decorative
+    // <span>, so its accessible name is EMPTY — "Hide low confidence" is a
+    // sibling text node that is never associated with the control. That is a real
+    // a11y gap, and it can only be closed in `vendor/ui` (do-not-touch) or at the
+    // call site, neither of which this diff touches.
+    fireEvent.click(screen.getByRole("switch"));
+    expect(screen.queryByText("Shaky guess")).not.toBeInTheDocument();
+
+    rerender(withTarget("Shaky guess"));
+    expect(screen.getByText("Shaky guess")).toBeInTheDocument();
+  });
+
+  it("expands the target instead of the first card", () => {
+    renderWithIntl(
+      <FindingsPanel findings={FINDINGS} prId="pr1" focusFindingId="N+1 query" />,
+    );
+    // One card is open, and it is the one asked for: `rationale` renders only in
+    // an expanded body, so counting them counts open cards.
+    expect(screen.getAllByText("why")).toHaveLength(1);
+    const open = screen.getByText("why").closest("[data-finding-id]");
+    expect(open).toHaveAttribute("data-finding-id", "N+1 query");
+  });
+
+  it("seats the keyboard cursor once, and does not re-seat it on a refetch", () => {
+    // The regression: `shown` is a fresh array on every recompute, and accepting
+    // a finding invalidates `["reviews", prId]` — so an effect keyed on `shown`
+    // would yank the cursor back to the URL's finding each time the reader acted
+    // on the list they had walked down.
+    // The target is index 1, NOT 0. At index 0 the seat would coincide with
+    // `focusIdx`'s initial state and half this test would be vacuous: seating
+    // could be deleted outright and it would still pass. Checked by mutation —
+    // `const i = -1` in the effect must fail this too, not only removing the ref
+    // guard.
+    const panel = (findings: FindingRecord[]) => (
+      <NextIntlClientProvider locale="en" messages={{ prReview: messages }}>
+        <FindingsPanel findings={findings} prId="pr1" focusFindingId="Unauthenticated webhook" />
+      </NextIntlClientProvider>
+    );
+    const { rerender } = render(panel(FINDINGS));
+
+    fireEvent.keyDown(window, { key: "j" });
+    // …the reader is now one card below the one the badge brought them to.
+    rerender(panel([...FINDINGS])); // a refetch: same findings, new identity
+    fireEvent.keyDown(window, { key: "a" });
+
+    expect(mutate).toHaveBeenCalledWith({
+      findingId: "N+1 query",
+      action: "accept",
+      prId: "pr1",
+    });
+  });
+
+  it("leaves the panel alone when no finding matches the id", () => {
+    renderWithIntl(
+      <FindingsPanel findings={FINDINGS} prId="pr1" focusFindingId="deleted-run-finding" />,
+    );
+    expect(screen.getAllByText("why")).toHaveLength(1);
+    const open = screen.getByText("why").closest("[data-finding-id]");
+    // The resting default: the first card of the list, not nothing at all.
+    expect(open).toHaveAttribute("data-finding-id", "Hardcoded secret");
   });
 });

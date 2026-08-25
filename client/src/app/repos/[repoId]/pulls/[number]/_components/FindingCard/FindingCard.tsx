@@ -27,6 +27,7 @@ export function FindingCard({
   f,
   focused,
   defaultExpanded,
+  focusTarget,
   onAction,
   pending,
   repoFullName,
@@ -35,6 +36,15 @@ export function FindingCard({
   f: FindingRecord;
   focused?: boolean;
   defaultExpanded?: boolean;
+  /**
+   * True while this card is the one `?findingId=` names — a reader who clicked a
+   * severity badge in the Smart Diff and was brought here.
+   *
+   * It is a prop rather than something the card reads off the URL because the
+   * card is rendered in three places (per-run panel, and one day elsewhere) and
+   * only its parent knows whether this list is the one being navigated into.
+   */
+  focusTarget?: boolean;
   onAction?: (action: FindingActionKind, reply?: string) => void;
   pending?: boolean;
   repoFullName?: string | null;
@@ -42,6 +52,25 @@ export function FindingCard({
 }) {
   const t = useTranslations("prReview");
   const [expanded, setExpanded] = React.useState(defaultExpanded ?? false);
+  const rootRef = React.useRef<HTMLDivElement | null>(null);
+
+  /**
+   * Open and reveal the card the URL asked for.
+   *
+   * The scroll waits a frame: `setExpanded(true)` has not been painted yet when
+   * this effect runs, so scrolling now would centre the collapsed header and
+   * leave the body below the fold. Expanding is part of the navigation, not a
+   * nicety — landing on a closed card means the reader has to find and click the
+   * thing they already clicked.
+   */
+  React.useEffect(() => {
+    if (!focusTarget) return;
+    setExpanded(true);
+    const raf = requestAnimationFrame(() => {
+      rootRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [focusTarget, f.id]);
   const sevColor = SEV_COLOR[f.severity] ?? SEV_COLOR_FALLBACK;
   const fileHref =
     repoFullName && headSha
@@ -52,7 +81,7 @@ export function FindingCard({
   const muted = accepted || dismissed;
 
   return (
-    <div data-finding-id={f.id} style={s.card(!!focused, sevColor, muted)}>
+    <div ref={rootRef} data-finding-id={f.id} style={s.card(!!focused, sevColor, muted)}>
       <div onClick={() => setExpanded((e) => !e)} style={s.header}>
         <div style={s.badgeWrap}>
           <SeverityBadge severity={f.severity as Severity} compact />

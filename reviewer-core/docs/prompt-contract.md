@@ -17,12 +17,29 @@ The guard is appended on every path — studio and CI — so an agent author nev
 |---|---------|----------|--------|
 | 1 | task line | trusted | `task` — e.g. `Review PR #482 "…"` plus the blast-risk note |
 | 2 | `## PR description` | **untrusted** | `prDescription`, truncated to 4000 chars |
-| 3 | `## Skills / rules` | trusted-ish | `skills` — resolved bodies, not slugs (L02) |
-| 4 | `## Relevant memory` | trusted | `memory` — curated items (L07) |
-| 5 | `## Repo skeleton` | **untrusted** | `repoMap` — cached repo map |
-| 6 | `## Project context` | **untrusted** | `specs` — one wrapped block per chunk (L05) |
-| 7 | `## Callers of changed symbols` | **untrusted** | `callers` — digest built by the server |
-| 8 | `## Diff to review` | **untrusted** | `diff` — always last, always present |
+| 3 | `## PR intent (derived)` | **untrusted**, between two trusted lines | `intent` + `intentNote`, plus the scope rule (L03) |
+| 4 | `## Skills / rules` | trusted-ish | `skills` — resolved bodies, not slugs (L02) |
+| 5 | `## Relevant memory` | trusted | `memory` — curated items (L07) |
+| 6 | `## Repo skeleton` | **untrusted** | `repoMap` — cached repo map |
+| 7 | `## Project context` | **untrusted** | `specs` — one wrapped block per chunk (L05) |
+| 8 | `## Callers of changed symbols` | **untrusted** | `callers` — digest built by the server |
+| 9 | `## Diff to review` | **untrusted** | `diff` — always last, always present |
+
+Section 3 is the only one that mixes trust levels, and the split is deliberate. `intentNote`
+is ours — a confidence tier computed from which sources were found — so it is rendered ABOVE
+the delimiter; `intent` is distilled from author-controlled text, so it is inside; the **scope
+rule** is ours again and sits BELOW. A trusted sentence placed within an `<untrusted>` block is
+a sentence the guard has just told the model to discount, and the scope rule is one the model
+is meant to act on. The block also carries a distillation only: never the body, the linked
+issue or the spec file it came from. The body is already section 2, and re-sending it here
+would pay twice for one fact.
+
+The scope rule asks the model to set `Finding.scope` to `in` or `out`, and says in as many
+words that the judgement is the model's own, from the diff — not a claim the author made. That
+sentence is the seam between this contract and `INJECTION_GUARD`: the author's `out_of_scope`
+list is evidence about what they set out to do and suppresses nothing, while `scope-gate.ts`
+acts only on the label the reviewing model produced. The rule renders **only when an intent is
+present**, which is what keeps rule 2 below true for every PR without one.
 
 The same structure is recorded in `PromptAssembly` for the run trace, so every section can be
 inspected per run in the UI.

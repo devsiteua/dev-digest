@@ -56,9 +56,16 @@ export function TraceBody({ trace, findings }: { trace: RunTrace; findings: Find
         icon="Gauge"
         title={t("trace.stats")}
         right={
-          <Badge color="var(--ok)" bg="var(--ok-bg)" icon="Check">
-            {stats.grounding}
-          </Badge>
+          <>
+            <Badge color="var(--ok)" bg="var(--ok-bg)" icon="Check">
+              {stats.grounding}
+            </Badge>
+            {/* Absent on every trace written before the gate existed — the key is
+                nullish for exactly that reason, so this must not render "—". */}
+            {stats.scope_gate != null && (
+              <Badge icon="Target">{stats.scope_gate}</Badge>
+            )}
+          </>
         }
       >
         <div style={s.statsRow}>
@@ -73,6 +80,9 @@ export function TraceBody({ trace, findings }: { trace: RunTrace; findings: Find
 
       <TraceSection icon="FileText" title={t("trace.promptAssembly")} defaultOpen={false}>
         <PromptBlock label={t("trace.prompt.system")} text={trace.prompt_assembly.system} color={PROMPT_COLORS.system} />
+        {trace.prompt_assembly.intent != null && (
+          <PromptBlock label={t("trace.prompt.intent")} text={trace.prompt_assembly.intent} color={PROMPT_COLORS.intent} />
+        )}
         {trace.prompt_assembly.skills != null && (
           <PromptBlock label={t("trace.prompt.skills")} text={trace.prompt_assembly.skills} color={PROMPT_COLORS.skills} />
         )}

@@ -13,6 +13,80 @@ export const Intent = z.object({
 });
 export type Intent = z.infer<typeof Intent>;
 
+/**
+ * What kind of change a PR is — a CLOSED taxonomy, not free text.
+ *
+ * The value is stored, rendered as a chip and read back by later lessons, and a
+ * model that answers "refactor/cleanup" on one PR and "cleanup" on the next makes
+ * all three impossible. `mixed` is deliberate rather than a dustbin: a PR that
+ * genuinely does two things should be able to say so instead of being forced into
+ * whichever half is larger, because "this PR is two PRs" is itself review-worthy.
+ */
+export const IntentKind = z.enum([
+  'feature',
+  'fix',
+  'refactor',
+  'perf',
+  'docs',
+  'test',
+  'chore',
+  'deps',
+  'revert',
+  'mixed',
+]);
+export type IntentKind = z.infer<typeof IntentKind>;
+
+/**
+ * How much the derived intent is worth.
+ *
+ * NOT a model-reported probability. The tier is computed by code from WHICH
+ * sources were actually found (`IntentSource` below): documentation the PR points
+ * at outranks the PR's own prose, which outranks signals derived from the change
+ * itself. The model may lower the tier it is given — "this body is a template with
+ * nothing filled in" — and can never raise it.
+ *
+ * Three buckets rather than a percentage because that is the real resolution of
+ * the evidence: there is no honest difference between 41% and 46% confidence when
+ * the input is "a title and some file paths".
+ */
+export const IntentConfidenceTier = z.enum(['high', 'medium', 'low']);
+export type IntentConfidenceTier = z.infer<typeof IntentConfidenceTier>;
+
+/**
+ * Where a derived intent's evidence came from, strongest first.
+ *
+ * `plan_file` and `linked_issue` are documentation the author pointed at
+ * deliberately; the rest is inference. Persisted as a list so the card can show
+ * WHY a tier is what it is — an unexplained "low" reads as a broken feature.
+ *
+ * Note what is absent: an arbitrary URL from the PR body is never a source. The
+ * only reachable documents are this repo's clone and this repo's GitHub issues.
+ */
+export const IntentSource = z.enum([
+  'plan_file',
+  'linked_issue',
+  'pr_body',
+  'pr_title',
+  'commits',
+  'branch',
+  'file_paths',
+]);
+export type IntentSource = z.infer<typeof IntentSource>;
+
+/**
+ * One quoted span behind a derived intent.
+ *
+ * `ref` locates it in a way the reader can check — a repo-relative path, `#471`,
+ * a branch name — and `quote` is the short excerpt that justified the claim.
+ * Evidence is what separates a derived intent from a plausible guess.
+ */
+export const IntentEvidence = z.object({
+  source: IntentSource,
+  ref: z.string(),
+  quote: z.string(),
+});
+export type IntentEvidence = z.infer<typeof IntentEvidence>;
+
 // ---- Blast radius ----
 export const ChangedSymbol = z.object({
   name: z.string(),

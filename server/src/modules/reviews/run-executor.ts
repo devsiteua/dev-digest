@@ -34,6 +34,9 @@ export type RunOutcome = {
   raw: Review;
 };
 
+/** The two strings the prompt's intent slot takes (untrusted text + trusted note). */
+type DerivedIntent = { intent: string; note: string };
+
 /**
  * Owns the background execution of queued agent runs (extracted from
  * ReviewService; behaviour unchanged). Loads the diff + intent once, then
@@ -105,6 +108,12 @@ export class ReviewRunExecutor {
     }
     runLog.info(`Diff ready — ${diff.files.length} changed file(s); starting ${jobs.length} agent run(s)`);
 
+    // L03 — derive the PR's intent ONCE for the whole batch, before any agent
+    // runs. It is a property of the pull request, not of the agent reviewing it,
+    // and the fanned-out logger puts the result in every queued run's Live Log
+    // and persisted trace.
+    const intent = await this.buildIntent(workspaceId, pull, diff, runLog);
+
     for (const { agent, runId } of jobs) {
       const agentStart = Date.now();
       logger?.info(
@@ -112,7 +121,7 @@ export class ReviewRunExecutor {
         `review: agent "${agent.name}" started (${agent.provider}/${agent.model})`,
       );
       try {
-        const outcome = await this.runOneAgent(workspaceId, pull, repo, diff, agent, runId, runLog);
+        const outcome = await this.runOneAgent(workspaceId, pull, repo, diff, agent, runId, runLog, intent);
         logger?.info(
           {
             runId,
@@ -144,6 +153,7 @@ export class ReviewRunExecutor {
     agent: AgentRow,
     runId: string,
     parentLog: RunLogger,
+    intent: DerivedIntent | undefined,
   ): Promise<RunOutcome> {
     const start = Date.now();
     // Narrow the fanned-out pre-work logger to THIS run; the shared diff/intent
@@ -212,6 +222,10 @@ export class ReviewRunExecutor {
         // PR author's description/body — untrusted; assemblePrompt wraps +
         // truncates it. Omitted when the PR has no body.
         ...(pull.body ? { prDescription: pull.body } : {}),
+        // L03 — the derived intent and the trusted confidence line beside it.
+        // Absent when derivation failed or was skipped, and then the assembled
+        // prompt is byte-identical to the pre-L03 one.
+        ...(intent ? { intent: intent.intent, intentNote: intent.note } : {}),
         task,
         sessionId: `${repo.owner}/${repo.name}#${pull.number}:${agent.name}`,
         onEvent: (e) => runLog.event(e.kind, e.msg, e.data),
@@ -219,7 +233,7 @@ export class ReviewRunExecutor {
           if (this.container.runBus.isCancelled(runId)) throw new RunCancelledError();
         },
       });
-      const { tokensIn, tokensOut, costUsd, grounding } = outcome;
+      const { tokensIn, tokensOut, costUsd, grounding, scopeGate } = outcome;
 
       const keptFindings = outcome.review.findings;
 
@@ -278,6 +292,10 @@ export class ReviewRunExecutor {
           cost_usd: costUsd,
           findings: findingRows.length,
           grounding,
+          // What the scope gate did. Written on every run from here on; a trace
+          // from before the gate existed simply has no key, which is why
+          // `RunStats.scope_gate` is nullish.
+          scope_gate: scopeGate,
         },
         prompt_assembly: outcome.assembly,
         tool_calls: outcome.chunks.map((c) => ({
@@ -322,6 +340,54 @@ export class ReviewRunExecutor {
         .catch(() => undefined);
       this.container.runBus.complete(runId);
       throw err;
+    }
+  }
+
+  /**
+   * L03 — the PR's derived intent, rendered for the prompt.
+   *
+   * Best-effort in exactly the way `buildCallersDigest` and `buildRepoMapDigest`
+   * are: an enrichment must never be able to fail a run. A throw here degrades to
+   * no intent section, which by the prompt contract means a prompt identical to
+   * the pre-L03 one — the review still happens, it just happens without knowing
+   * what the PR claims to be for.
+   *
+   * The changed files come from the DIFF ALREADY IN HAND, not from `pr_files`.
+   * `loadDiff` prefers a real `git diff base...head` and only falls back to that
+   * table, so `pr_files` can be empty for a PR whose diff loaded perfectly — and
+   * the changed paths are the one source the confidence ladder counts on always
+   * being there.
+   *
+   * `diff.files` is passed whole rather than mapped down to paths: the intent
+   * module wants each file's hunk headers too, and it is the one that knows what
+   * a header is allowed to contain. Nothing of the diff's CONTENT travels — a
+   * `DiffHunk` is four line numbers.
+   */
+  private async buildIntent(
+    workspaceId: string,
+    pull: PullRow,
+    diff: UnifiedDiff,
+    runLog: RunLogger,
+  ): Promise<DerivedIntent | undefined> {
+    try {
+      const result = await runLog.step(
+        'Deriving PR intent',
+        () =>
+          // `runLog` IS the progress port — `RunLogger` satisfies the two-method
+          // structural type the intent module declares, so nothing adapts here.
+          // Without it this step is a single amber line followed by up to a
+          // minute of silence; the calls inside it are the ones that take the
+          // time, and amber is the Live Log's word for exactly those.
+          this.container.intent.forReview(workspaceId, pull, diff.files, runLog),
+        { kind: 'tool' },
+      );
+      // Always says how this intent came to exist — derived now (with its
+      // sources, tier, model and cost) or reused because the head had not moved.
+      runLog.info(result.logLine);
+      return { intent: result.intent, note: result.note };
+    } catch (err) {
+      runLog.info(`intent: unavailable, continuing without it — ${(err as Error).message}`);
+      return undefined;
     }
   }
 

@@ -19,11 +19,14 @@ export function FindingsPanel({
   prId,
   repoFullName,
   headSha,
+  focusFindingId,
 }: {
   findings: FindingRecord[];
   prId: string;
   repoFullName?: string | null;
   headSha?: string | null;
+  /** The finding `?findingId=` names, when this panel is the one that holds it. */
+  focusFindingId?: string | null;
 }) {
   const t = useTranslations("prReview");
   const action = useFindingAction();
@@ -38,6 +41,28 @@ export function FindingsPanel({
   // shows them, and nothing is narrowed. See `nextSelection` for the transitions.
   const [selected, setSelected] = React.useState<readonly SeverityKey[] | null>(null);
 
+  // Only this panel's own finding counts as a target — the accordion renders one
+  // panel per run, and every one of them is handed the same id.
+  const target = React.useMemo(
+    () =>
+      focusFindingId && findings.some((f) => f.id === focusFindingId) ? focusFindingId : null,
+    [focusFindingId, findings],
+  );
+
+  /**
+   * A navigation target beats the filters that would hide it.
+   *
+   * `hideLow` or a narrowed severity selection can perfectly well exclude the
+   * card a reader just clicked their way to, and a click that lands on "no
+   * findings match" is indistinguishable from a broken link. Widening the filter
+   * is visible on screen and one click to undo; silently showing nothing is not.
+   */
+  React.useEffect(() => {
+    if (!target) return;
+    setHideLow(false);
+    setSelected(null);
+  }, [target]);
+
   const counted = React.useMemo(
     () => severityCounts(confidenceFiltered(findings, hideLow)),
     [findings, hideLow],
@@ -46,6 +71,30 @@ export function FindingsPanel({
     () => visibleFindings(findings, hideLow, selected),
     [findings, hideLow, selected],
   );
+
+  // Keyboard focus follows the reader, so j/k continues from the card they were
+  // brought to rather than from the top of a list they never looked at.
+  //
+  // ONCE per target, guarded by a ref rather than by the dep array. `shown` is a
+  // fresh array on every recompute (`visibleFindings` ends in a sort), and it
+  // recomputes whenever `findings` changes identity — which `useFindingAction`
+  // causes on every accept/dismiss by invalidating `["reviews", prId]`, and
+  // `onRunDone` causes again. Without the guard, accepting a finding after
+  // walking down the list with `j` would yank the cursor back to the one the URL
+  // names; so would the reader's own next click on a severity chip.
+  const seatedFor = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (!target) {
+      seatedFor.current = null;
+      return;
+    }
+    if (seatedFor.current === target) return;
+    const i = shown.findIndex((f) => f.id === target);
+    if (i >= 0) {
+      seatedFor.current = target;
+      setFocusIdx(i);
+    }
+  }, [target, shown]);
 
   const toggleSeverity = React.useCallback((key: SeverityKey) => {
     setSelected((prev) => nextSelection(prev, key));
@@ -87,7 +136,11 @@ export function FindingsPanel({
               key={f.id}
               f={f}
               focused={i === focusIdx}
-              defaultExpanded={i === 0}
+              // With a target, the reader asked for one card in particular; the
+              // "first one is open" default would leave two cards open and only
+              // one of them the one they clicked.
+              defaultExpanded={target ? f.id === target : i === 0}
+              focusTarget={f.id === target}
               pending={action.isPending}
               repoFullName={repoFullName}
               headSha={headSha}

@@ -4,7 +4,12 @@ import { waitForPrRuns } from './helpers/runs.js';
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/platform/config.js';
 import { seed } from '../src/db/seed.js';
-import { MockLLMProvider, MockEmbedder, MockGitClient } from '../src/adapters/mocks.js';
+import {
+  MockLLMProvider,
+  MockEmbedder,
+  MockGitClient,
+  MockGitHubClient,
+} from '../src/adapters/mocks.js';
 import * as t from '../src/db/schema.js';
 import { eq } from 'drizzle-orm';
 import type { Review } from '@devdigest/shared';
@@ -117,8 +122,18 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
       overrides: {
         embedder: new MockEmbedder(),
         git: new MockGitClient({ diff: DIFF }),
+        // The seeded PR body says "Closes #471", which the L03 intent pre-work
+        // resolves through the GitHub port. Without this the suite reaches the
+        // real github.com for a repo that does not exist — slowly, and only on
+        // a machine that happens to have a token configured.
+        github: new MockGitHubClient(),
+        // L03: a review derives the PR's intent first, on the `review_intent`
+        // feature model — `openrouter` by default, a DIFFERENT provider from the
+        // agent's. An unmocked entry here is not a mock gap, it is a real,
+        // billable call to a live provider from the test suite.
         llm: {
           [provider]: new MockLLMProvider(provider, { structured }),
+          openrouter: new MockLLMProvider('openai', { structured }),
         },
       },
     });

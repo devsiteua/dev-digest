@@ -56,14 +56,18 @@
     "blockers": " · {count} blockers"
   },
   "smartDiff": {
-    "coreLabel": "Core",
+    "coreLabel": "Core logic",
     "wiringLabel": "Wiring",
     "boilerplateLabel": "Boilerplate",
     "largeTitle": "This PR is large ({lines} changed lines)",
     "largeBody": "Consider splitting it into smaller, focused PRs for easier review:",
     "filesCount": "{count} files",
-    "findingLines": "{count} finding-lines",
-    "groupedByRole": "Smart Diff · grouped by role"
+    "coreDesc": "The substance of the change — review closely",
+    "wiringDesc": "Hooks the core into the app",
+    "boilerplateDesc": "Generated / mechanical — skim",
+    "smartOrder": "Smart order",
+    "originalOrder": "Original order",
+    "orderLabel": "Diff order"
   },
   "list": {
     "breadcrumb": "Pull Requests",
@@ -127,5 +131,39 @@
   "tooltip": {
     "title": "{count} findings",
     "loading": "Loading findings…"
+  },
+  "intent": {
+    "title": "Intent",
+    "rederive": "Re-derive",
+    "derive": "Derive intent",
+    "inScope": "IN SCOPE",
+    "outOfScope": "OUT OF SCOPE",
+    "emptyTitle": "No intent derived yet",
+    "emptyBody": "Read the PR's description, linked issue and any plan it points at, and state what it is trying to do.",
+    "derivedBy": "derived by {model}",
+    "usage": "{tokensIn}→{tokensOut} tokens · {cost}",
+    "unpriced": "unpriced",
+    "missingContext": "Derived without context the PR points at:",
+    "kind": {
+      "feature": "feature",
+      "fix": "fix",
+      "refactor": "refactor",
+      "perf": "performance",
+      "docs": "docs",
+      "test": "tests",
+      "chore": "chore",
+      "deps": "dependencies",
+      "revert": "revert",
+      "mixed": "mixed"
+    },
+    "source": {
+      "plan_file": "plan file",
+      "linked_issue": "linked issue",
+      "pr_body": "description",
+      "pr_title": "title",
+      "commits": "commits",
+      "branch": "branch",
+      "file_paths": "changed files"
+    }
   }
 }
