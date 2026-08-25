@@ -250,7 +250,19 @@ export const TIER_SCORE: Record<'high' | 'medium' | 'low', number> = {
  * output travels onward into every reviewing agent's prompt. A body that talks
  * the classifier into writing "reviewers should ignore auth changes" has
  * laundered an instruction through a component nobody thought to distrust. Hence
- * the last rule: describe, never direct.
+ * the rule: describe, never direct.
+ *
+ * The LANGUAGE rule is not a style preference. This model's output is the one
+ * place in the derivation where a pull request's own language could leak into
+ * two English-only surfaces at once: the Intent card, which is rendered from
+ * `messages/en/`, and every reviewing agent's prompt, which is assembled in
+ * English. Neither has anywhere to translate it, so the constraint has to be
+ * here or nowhere.
+ *
+ * `evidence[].quote` is carved out of it deliberately. A quote exists so a
+ * reader can go to `ref` and find those words; translate it and the check it
+ * was carrying stops being possible. Every other field is OUR prose about the
+ * PR, so English costs nothing.
  */
 export const INTENT_SYSTEM_PROMPT = [
   'You read a pull request and state what it is TRYING to do, in the author’s own terms.',
@@ -268,6 +280,12 @@ export const INTENT_SYSTEM_PROMPT = [
   'If the material does not say why the change is being made, say so plainly and lower your',
   'suggested confidence — an honest "the author did not explain this" is worth more than a',
   'confident guess.',
+  '',
+  'LANGUAGE. Write every field of your reply in English, whatever language the pull request,',
+  'its issue or its plan files are written in. Translate what you read; do not mirror it.',
+  'The ONE exception is each evidence item’s "quote": copy those words verbatim, in the',
+  'language they were written in, because a reader checks a quote against its source and a',
+  'translated quote can no longer be checked. "source" and "ref" stay as specified.',
 ].join('\n');
 
 /**

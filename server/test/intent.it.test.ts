@@ -397,6 +397,36 @@ d('L03 intent layer (Testcontainers pg)', () => {
     expect(user).not.toContain('import { rateLimit }');
   });
 
+  it('tells the classifier to answer in English, and hands it the body untranslated', async () => {
+    const llm = new MockLLMProvider('openai', {
+      structuredBySchema: { PrIntent: INTENT_FIXTURE, Review: REVIEW_FIXTURE },
+    });
+    const app = await makeApp({ llm });
+    // A body in a language that is not English — the case the rule exists for.
+    // Everything the product renders from this derivation (the Intent card, the
+    // reviewing agents' prompt section) is English-only.
+    const body = 'Обмежуємо частоту запитів до публічного API, щоб зупинити зловживання.';
+    const prId = await makePr(await makeRepo(), { body });
+
+    await derive(app, prId);
+
+    const req = llm.calls.find((c) => c.method === 'completeStructured')!.req as {
+      messages: { role: string; content: string }[];
+    };
+    const system = req.messages.find((m) => m.role === 'system')!.content;
+
+    // The rule reaches the model, and it carves out the one field where a
+    // translation would destroy what the field is for.
+    expect(system).toContain('LANGUAGE');
+    expect(system).toContain('in English');
+    expect(system).toContain('verbatim');
+
+    // And the translating is the model's job, not ours: the author's own words
+    // still arrive whole, so `evidence[].quote` has something to quote.
+    const user = req.messages.find((m) => m.role === 'user')!.content;
+    expect(user).toContain(body);
+  });
+
   it('logs what the prompt was built from, and none of what it said', async () => {
     const lines: Record<string, unknown>[] = [];
     const app = await makeApp();
