@@ -14,6 +14,7 @@ import { PrDetailHeader } from "./_components/PrDetailHeader";
 import { OverviewTab } from "./_components/OverviewTab";
 import { FindingsTab } from "./_components/FindingsTab";
 import { DiffTab } from "./_components/DiffTab";
+import { BlastTab } from "./_components/BlastTab";
 import RunTraceDrawer from "./_components/RunTraceDrawer";
 import { usePullDetail, usePulls } from "../../../../../lib/hooks";
 import { useQueryClient } from "@tanstack/react-query";
@@ -195,6 +196,17 @@ export default function PRDetailPage() {
               // badges themselves come from the reviews refetched above.
               if (prId) qc.invalidateQueries({ queryKey: smartDiffKey(prId) });
             }}
+          />
+        )}
+
+        {tab === "blast" && (
+          <BlastTab
+            prId={prId}
+            repoId={repoId}
+            repoFullName={repoFullName}
+            // The map is only asked for once the detail it describes has
+            // resolved: `GET /pulls/:id` rewrites `pr_files` in a transaction.
+            ready={!!pr}
           />
         )}
 

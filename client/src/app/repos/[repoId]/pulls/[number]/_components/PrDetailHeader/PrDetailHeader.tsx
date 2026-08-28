@@ -123,6 +123,10 @@ export function PrDetailHeader({
           { key: "overview", label: "Overview", icon: "FileText" },
           { key: "findings", label: "Agent runs", icon: "AlertOctagon", count: findingsCount || undefined },
           { key: "diff", label: "Files changed", icon: "Code", count: pr.files_count },
+          // No `count` on purpose. `Tabs` supports one, but filling it would
+          // mean fetching the blast map on every PR page load — and the map is
+          // gated behind this very tab so that it is not.
+          { key: "blast", label: "Blast radius", icon: "Workflow" },
         ]}
       />
     </div>
