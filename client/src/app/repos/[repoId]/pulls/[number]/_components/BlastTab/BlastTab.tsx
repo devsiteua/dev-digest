@@ -4,7 +4,7 @@ import React from "react";
 import { useTranslations } from "next-intl";
 import { Button, Card, EmptyState, Icon, SectionLabel, Skeleton } from "@devdigest/ui";
 import type { BlastReason } from "@devdigest/shared";
-import { useBlast } from "@/lib/hooks/blast";
+import { useBlast, useExplainBlast } from "@/lib/hooks/blast";
 import { useResyncRepoIntel } from "@/lib/hooks/repo-intel";
 import { githubBlobUrl } from "@/lib/github-urls";
 import { BlastSummaryStats } from "./_components/BlastSummaryStats";
@@ -54,6 +54,7 @@ export function BlastTab({ prId, repoId, repoFullName, ready }: BlastTabProps) {
   const [view, setView] = React.useState<"tree" | "graph">("tree");
   const { data: map, isLoading } = useBlast(prId, ready);
   const resync = useResyncRepoIntel(repoId);
+  const explain = useExplainBlast(prId);
 
   if (!prId || isLoading) {
     return (
@@ -138,8 +139,35 @@ export function BlastTab({ prId, repoId, repoFullName, ready }: BlastTabProps) {
 
   return (
     <Card>
-      <SectionLabel icon="Workflow">{t("title")}</SectionLabel>
+      <SectionLabel
+        icon="Workflow"
+        right={
+          // The one model call this feature makes, and the only thing on this
+          // card that costs anything — so it is a button a reader presses, never
+          // something that happens because they opened a tab.
+          <Button
+            kind="ghost"
+            size="sm"
+            icon="Sparkles"
+            onClick={() => explain.mutate()}
+            loading={explain.isPending}
+          >
+            {t("explain")}
+          </Button>
+        }
+      >
+        {t("title")}
+      </SectionLabel>
       {banner}
+      {explain.isError && <p style={s.explainError}>{t("explainFailed")}</p>}
+      {explain.data && (
+        <p style={s.explanation}>
+          {explain.data.explanation}
+          <span style={s.explanationMeta}>
+            {t("explainedBy", { model: explain.data.model })}
+          </span>
+        </p>
+      )}
       <div style={s.header}>
         <BlastSummaryStats counts={counts} />
         <div style={s.toggleGroup}>

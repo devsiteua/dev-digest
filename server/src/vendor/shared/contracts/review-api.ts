@@ -170,3 +170,27 @@ export const BlastRadiusResponse = BlastRadius.extend({
   indexed_sha: z.string().nullable(),
 });
 export type BlastRadiusResponse = z.infer<typeof BlastRadiusResponse>;
+
+/**
+ * Response of `POST /pulls/:id/blast/explain` — the map already computed, put
+ * into one paragraph by exactly one model call.
+ *
+ * Nothing is persisted, so there is no id and no `generated_at` row to point at:
+ * the paragraph is a rendering of a map the caller already has, and the map is
+ * what is durable. Its cost is reported for the same reason `PrIntentRecord`
+ * reports its own — a call the user paid for has to be answerable about what it
+ * cost — and `cost_usd` is nullable for the same reason too: null means the
+ * model has no known price, which is a different fact from free.
+ */
+export const BlastExplainResponse = z.object({
+  explanation: z.string(),
+  /** The commit the explained map was computed against. */
+  indexed_sha: z.string().nullable(),
+  provider: Provider,
+  model: z.string(),
+  tokens_in: z.number().int(),
+  tokens_out: z.number().int(),
+  cost_usd: z.number().nullish(),
+  duration_ms: z.number().int(),
+});
+export type BlastExplainResponse = z.infer<typeof BlastExplainResponse>;

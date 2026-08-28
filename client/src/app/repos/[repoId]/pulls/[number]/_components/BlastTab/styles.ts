@@ -46,6 +46,27 @@ export const s = {
     alignItems: "center",
     gap: 6,
   } satisfies CSSProperties,
+  explanation: {
+    fontSize: 13,
+    lineHeight: 1.6,
+    color: "var(--text-primary)",
+    background: "var(--bg-surface)",
+    border: "1px solid var(--border)",
+    borderRadius: 7,
+    padding: "10px 12px",
+    margin: "0 0 12px",
+  } satisfies CSSProperties,
+  explainError: {
+    fontSize: 12.5,
+    color: "var(--crit)",
+    margin: "0 0 12px",
+  } satisfies CSSProperties,
+  explanationMeta: {
+    display: "block",
+    marginTop: 6,
+    fontSize: 11,
+    color: "var(--text-muted)",
+  } satisfies CSSProperties,
   summary: {
     fontSize: 12.5,
     color: "var(--text-secondary)",

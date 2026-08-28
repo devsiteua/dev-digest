@@ -1,5 +1,8 @@
 {
   "title": "Blast radius",
+  "explain": "Explain",
+  "explainedBy": "Written by {model} from the map above — no new analysis.",
+  "explainFailed": "The explanation could not be written. The map above is unchanged.",
   "stat": {
     "symbols": "symbols",
     "callers": "callers",

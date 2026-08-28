@@ -5,6 +5,9 @@ import type { BlastRadiusResponse } from "@devdigest/shared";
 import messages from "../../../../../../../../messages/en/blast.json";
 
 const resync = vi.fn();
+const explain = vi.fn();
+let explained: { explanation: string; model: string } | undefined;
+let explainFailed = false;
 let stored: BlastRadiusResponse | null = null;
 let loading = false;
 let lastEnabled: boolean | undefined;
@@ -14,6 +17,12 @@ vi.mock("@/lib/hooks/blast", () => ({
     lastEnabled = enabled;
     return { data: stored, isLoading: loading };
   },
+  useExplainBlast: () => ({
+    mutate: explain,
+    isPending: false,
+    data: explained,
+    isError: explainFailed,
+  }),
 }));
 vi.mock("@/lib/hooks/repo-intel", () => ({
   useResyncRepoIntel: () => ({ mutate: resync, isPending: false }),
@@ -68,7 +77,10 @@ beforeEach(() => {
   stored = null;
   loading = false;
   lastEnabled = undefined;
+  explained = undefined;
+  explainFailed = false;
   resync.mockReset();
+  explain.mockReset();
 });
 afterEach(cleanup);
 
@@ -152,6 +164,51 @@ describe("BlastTab — the populated map", () => {
     // `GET /pulls/:id` rewrites `pr_files` in a transaction; a map fetched
     // before it lands would describe a file list the page does not have.
     expect(lastEnabled).toBe(false);
+  });
+});
+
+describe("BlastTab — the one optional model call", () => {
+  beforeEach(() => {
+    stored = POPULATED;
+  });
+
+  it("spends nothing until the reader presses Explain", () => {
+    renderTab();
+    expect(explain).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText("Explain"));
+    expect(explain).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders the paragraph and names the model that wrote it", () => {
+    explained = {
+      explanation: "Two authorization checks now reach four routes and one hourly job.",
+      model: "deepseek/deepseek-v4-flash",
+    };
+    renderTab();
+    expect(screen.getByText(/reach four routes/)).toBeInTheDocument();
+    expect(screen.getByText(/deepseek\/deepseek-v4-flash/)).toBeInTheDocument();
+    // The map is still the map — the paragraph is added, never substituted.
+    expect(screen.getByText("canViewOrder()")).toBeInTheDocument();
+  });
+
+  it("says the paragraph failed without touching the map", () => {
+    explainFailed = true;
+    renderTab();
+    expect(screen.getByText(/explanation could not be written/)).toBeInTheDocument();
+    expect(screen.getByText("canViewOrder()")).toBeInTheDocument();
+  });
+
+  it("offers no Explain button where there is nothing to explain", () => {
+    stored = {
+      changed_symbols: [],
+      downstream: [],
+      summary: "…",
+      status: "degraded",
+      reason: "index_missing",
+      indexed_sha: null,
+    };
+    renderTab();
+    expect(screen.queryByText("Explain")).not.toBeInTheDocument();
   });
 });
 

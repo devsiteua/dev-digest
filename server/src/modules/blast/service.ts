@@ -1,10 +1,17 @@
-import type { BlastRadiusResponse, ChangedSymbol } from '@devdigest/shared';
+import type { BlastExplainResponse, BlastRadiusResponse, ChangedSymbol } from '@devdigest/shared';
 import type { Container } from '../../platform/container.js';
-import { NotFoundError } from '../../platform/errors.js';
+import { AppError, NotFoundError } from '../../platform/errors.js';
 import { BlastRepository } from './repository.js';
-import { DOWNSTREAM_HOPS_BEYOND_CALLERS } from './constants.js';
 import {
+  BLAST_EXPLAIN_MODEL,
+  BLAST_EXPLAIN_SYSTEM_PROMPT,
+  BLAST_EXPLAIN_TIMEOUT_MS,
+  DOWNSTREAM_HOPS_BEYOND_CALLERS,
+} from './constants.js';
+import {
+  BlastExplainReplySchema,
   buildDownstream,
+  buildExplainPrompt,
   decideBlastState,
   describeBlast,
   groupCallersBySymbol,
@@ -111,6 +118,62 @@ export class BlastService {
       status: blastState.status,
       reason: blastState.reason,
       indexed_sha: indexedSha,
+    };
+  }
+
+  /**
+   * The same map, in one paragraph — the ONE model call this feature makes.
+   *
+   * Nodes and edges go IN. The model is handed the symbols, the call sites, the
+   * routes and the jobs that were already computed, and its instruction forbids
+   * naming anything else: it rephrases, it does not discover. That is what makes
+   * the paragraph as trustworthy as the map beside it.
+   *
+   * Nothing is persisted. The map is the durable artefact and it is recomputed
+   * from the index in milliseconds; a stored paragraph would only be a second
+   * thing that can go stale behind it.
+   *
+   * A map with nothing in it is refused rather than explained. Paying a model to
+   * write "there is nothing downstream" over a `degraded` map would be paying it
+   * to dress up "we could not look" as a finding.
+   */
+  async explain(workspaceId: string, prId: string): Promise<BlastExplainResponse> {
+    const map = await this.forPull(workspaceId, prId);
+    if (map.status === 'degraded' || map.downstream.every((d) => d.callers.length === 0)) {
+      // 409, not 422: the request is well-formed, the resource is simply not in
+      // a state where there is anything to explain. The summary is carried
+      // through so the client can say WHY without a second request.
+      throw new AppError(
+        'blast_not_explainable',
+        `There is no blast map to explain yet. ${map.summary}`,
+        409,
+      );
+    }
+
+    const startedAt = Date.now();
+    const choice = BLAST_EXPLAIN_MODEL;
+    const llm = await this.container.llm(choice.provider);
+    const reply = await llm.completeStructured({
+      model: choice.model,
+      schema: BlastExplainReplySchema,
+      schemaName: 'BlastExplanation',
+      messages: [
+        { role: 'system', content: BLAST_EXPLAIN_SYSTEM_PROMPT },
+        { role: 'user', content: buildExplainPrompt({ map }) },
+      ],
+      temperature: 0,
+      timeoutMs: BLAST_EXPLAIN_TIMEOUT_MS,
+    });
+
+    return {
+      explanation: reply.data.explanation.trim(),
+      indexed_sha: map.indexed_sha,
+      provider: choice.provider,
+      model: choice.model,
+      tokens_in: reply.tokensIn,
+      tokens_out: reply.tokensOut,
+      cost_usd: reply.costUsd,
+      duration_ms: Date.now() - startedAt,
     };
   }
 

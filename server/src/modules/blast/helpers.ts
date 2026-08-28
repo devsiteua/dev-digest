@@ -1,11 +1,18 @@
+import { z } from 'zod';
 import type {
   BlastCaller,
+  BlastRadiusResponse,
   BlastReason,
   BlastStatus,
   ChangedSymbol,
   DownstreamImpact,
 } from '@devdigest/shared';
-import { TEST_PATH_PATTERNS } from './constants.js';
+import {
+  EXPLAIN_MAX_CALLERS_PER_SYMBOL,
+  EXPLAIN_MAX_ENDPOINTS_PER_SYMBOL,
+  EXPLAIN_MAX_SYMBOLS,
+  TEST_PATH_PATTERNS,
+} from './constants.js';
 
 /**
  * The pure half of the Blast Radius: which files a fact may be read from, how a
@@ -260,4 +267,69 @@ export function describeBlast(input: {
   return state.status === 'partial'
     ? `${reach}. The index${at} is incomplete, so some callers may be missing.`
     : `${reach}, as indexed${at}.`;
+}
+
+// ---- The one optional model call -------------------------------------------
+
+/**
+ * The shape the model must answer in.
+ *
+ * One field, because the endpoint has one job. A structured call rather than a
+ * plain completion so the answer arrives without a preamble, a heading or a code
+ * fence to strip — the three things a prose model adds when nothing stops it.
+ */
+export const BlastExplainReplySchema = z.object({
+  explanation: z.string(),
+});
+export type BlastExplainReply = z.infer<typeof BlastExplainReplySchema>;
+
+/**
+ * The map, rendered for the model — nodes and edges IN, nothing to invent.
+ *
+ * Everything the paragraph is allowed to mention is in this string, and every
+ * trim is stated in it, so the model is never left to imply it saw a whole map
+ * when it saw twelve symbols of ninety.
+ */
+export function buildExplainPrompt(input: {
+  map: Pick<BlastRadiusResponse, 'changed_symbols' | 'downstream' | 'summary' | 'indexed_sha'>;
+}): string {
+  const { map } = input;
+  const lines: string[] = [
+    `Computed from the index at ${map.indexed_sha ?? 'an unknown commit'}.`,
+    map.summary,
+    '',
+  ];
+
+  const shown = map.downstream.slice(0, EXPLAIN_MAX_SYMBOLS);
+  if (map.downstream.length > shown.length) {
+    lines.push(
+      `Showing ${shown.length} of ${map.downstream.length} changed symbols; the rest are omitted from this prompt.`,
+      '',
+    );
+  }
+
+  const fileOf = new Map(map.changed_symbols.map((s) => [s.name, s.file]));
+  for (const impact of shown) {
+    lines.push(`SYMBOL ${impact.symbol} (${fileOf.get(impact.symbol) ?? 'unknown file'})`);
+    if (impact.callers.length === 0) {
+      lines.push('  callers: none in the index');
+    } else {
+      const callers = impact.callers.slice(0, EXPLAIN_MAX_CALLERS_PER_SYMBOL);
+      for (const caller of callers) {
+        lines.push(`  called by ${caller.name} at ${caller.file}:${caller.line}`);
+      }
+      if (impact.callers.length > callers.length) {
+        lines.push(`  …and ${impact.callers.length - callers.length} more callers`);
+      }
+    }
+    const endpoints = impact.endpoints_affected.slice(0, EXPLAIN_MAX_ENDPOINTS_PER_SYMBOL);
+    for (const endpoint of endpoints) lines.push(`  reaches endpoint ${endpoint}`);
+    if (impact.endpoints_affected.length > endpoints.length) {
+      lines.push(`  …and ${impact.endpoints_affected.length - endpoints.length} more endpoints`);
+    }
+    for (const cron of impact.crons_affected) lines.push(`  reaches scheduled job ${cron}`);
+    lines.push('');
+  }
+
+  return lines.join('\n').trimEnd();
 }

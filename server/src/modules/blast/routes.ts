@@ -1,17 +1,19 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
-import type { BlastRadiusResponse } from '@devdigest/shared';
+import type { BlastExplainResponse, BlastRadiusResponse } from '@devdigest/shared';
 import { getContext } from '../_shared/context.js';
 import { IdParams } from '../_shared/schemas.js';
 import { BlastService } from './service.js';
 
 /**
  * L04 — the Blast Radius.
- *   GET /pulls/:id/blast → what the diff reaches: symbols, callers, endpoints, crons
+ *   GET  /pulls/:id/blast         → what the diff reaches: symbols, callers, endpoints, crons
+ *   POST /pulls/:id/blast/explain → that map, in one paragraph (the only model call)
  *
- * No rate-limit override, on the same reasoning as `GET /pulls/:id/smart-diff`:
- * those caps exist where a held-down button is a bill, and this endpoint spends
- * nothing but indexed reads. The global 120/min limit still applies.
+ * The GET carries no rate-limit override, on the same reasoning as
+ * `GET /pulls/:id/smart-diff`: those caps exist where a held-down button is a
+ * bill, and it spends nothing but indexed reads. The global 120/min limit still
+ * applies. The POST does spend money and is capped accordingly.
  *
  * The service is instantiated here rather than brokered on `Container`, which is
  * what `modules/smart-diff/routes.ts` does and for the same reason: nothing else
@@ -58,6 +60,45 @@ export default async function blastRoutes(appBase: FastifyInstance) {
         'blast radius served',
       );
       return blast;
+    },
+  );
+
+  /**
+   * The optional paragraph — the one and only model call this feature makes,
+   * and it is a POST behind an explicit button for exactly that reason.
+   *
+   * Rate-limited on the same budget as `POST /pulls/:id/intent` and the
+   * conventions scan: it spends money, so a held-down button is a bill.
+   *
+   * Synchronous, like the intent derivation and for the same reason: one call to
+   * a cheap model, one step, and no partial output worth streaming.
+   */
+  app.post(
+    '/pulls/:id/blast/explain',
+    { schema: { params: IdParams }, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    async (req): Promise<BlastExplainResponse> => {
+      const { workspaceId } = await getContext(app.container, req);
+      const explained = await service.explain(workspaceId, req.params.id);
+
+      // `llmCalls: 1` here against the `0` above is the pair the "the main
+      // scenario makes no LLM call, and the optional summary makes exactly one"
+      // criterion is read against. Both are literals, and both are wrong the
+      // moment either route changes shape — which is the point.
+      req.log.info(
+        {
+          prId: req.params.id,
+          provider: explained.provider,
+          model: explained.model,
+          tokensIn: explained.tokens_in,
+          tokensOut: explained.tokens_out,
+          costUsd: explained.cost_usd,
+          indexedSha: explained.indexed_sha,
+          llmCalls: 1,
+          durationMs: explained.duration_ms,
+        },
+        'blast radius explained',
+      );
+      return explained;
     },
   );
 }

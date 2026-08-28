@@ -4,9 +4,9 @@
    safe to refetch whenever the index could have moved. */
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { api, ApiError } from "../api";
-import type { BlastRadiusResponse } from "@devdigest/shared";
+import type { BlastExplainResponse, BlastRadiusResponse } from "@devdigest/shared";
 
 /** The one place this query's key is spelled — a resync invalidates through it. */
 export const blastKey = (prId: string | null | undefined) => ["blast", prId];
@@ -39,5 +39,22 @@ export function useBlast(prId: string | null | undefined, enabled = true) {
       }
     },
     enabled: !!prId && enabled,
+  });
+}
+
+/**
+ * POST /pulls/:id/blast/explain → the map already on screen, in one paragraph.
+ *
+ * The one model call this feature makes, which is why it is a mutation behind a
+ * button rather than a query that fires on render. Nothing is persisted, so
+ * there is no cache to invalidate: the paragraph lives in the component that
+ * asked for it, and asking again pays again — deliberately visible.
+ *
+ * A 409 is the ordinary answer for a map with nothing in it, not a bug: the
+ * server refuses to spend a call dressing up "we could not look" as a finding.
+ */
+export function useExplainBlast(prId: string | null | undefined) {
+  return useMutation({
+    mutationFn: () => api.post<BlastExplainResponse>(`/pulls/${prId}/blast/explain`),
   });
 }

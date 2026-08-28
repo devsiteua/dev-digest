@@ -336,6 +336,80 @@ d('L04 blast radius (Testcontainers pg)', () => {
     }
   });
 
+  describe('the optional explanation', () => {
+    let explainApp: Awaited<ReturnType<typeof buildApp>>;
+    let calls: number;
+
+    beforeAll(async () => {
+      calls = 0;
+      const counting = (id: LLMProvider['id']): LLMProvider => {
+        const boom = (): never => {
+          throw new Error(`explain uses completeStructured only (${id})`);
+        };
+        return {
+          id,
+          listModels: boom,
+          complete: boom,
+          embed: boom,
+          completeStructured: (async () => {
+            calls += 1;
+            return {
+              data: { explanation: 'Two exported authorization checks now reach four routes.' },
+              tokensIn: 420,
+              tokensOut: 38,
+              costUsd: 0.00012,
+            };
+          }) as unknown as LLMProvider['completeStructured'],
+        };
+      };
+      explainApp = await buildApp({
+        config: config(),
+        db: pg.handle.db,
+        overrides: {
+          llm: {
+            openai: counting('openai'),
+            anthropic: counting('anthropic'),
+            openrouter: counting('openrouter'),
+          },
+        },
+      });
+    }, 60_000);
+
+    afterAll(async () => {
+      await explainApp?.close();
+    });
+
+    it('makes EXACTLY one model call, and the GET beside it makes none', async () => {
+      calls = 0;
+      // The same app, so a model reached from the GET would be counted here.
+      const read = await explainApp.inject({ method: 'GET', url: `/pulls/${prId}/blast` });
+      expect(read.statusCode).toBe(200);
+      expect(calls, 'the map costs nothing').toBe(0);
+
+      const res = await explainApp.inject({
+        method: 'POST',
+        url: `/pulls/${prId}/blast/explain`,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(calls, 'exactly one call, never two').toBe(1);
+
+      const explained = res.json() as Record<string, unknown>;
+      expect(explained.explanation).toContain('authorization checks');
+      expect(explained.indexed_sha).toBe(INDEXED_SHA);
+      expect(explained.tokens_in).toBe(420);
+    });
+
+    it('refuses a map with nothing in it rather than paying to describe it', async () => {
+      calls = 0;
+      const res = await explainApp.inject({
+        method: 'POST',
+        url: `/pulls/${unindexedPrId}/blast/explain`,
+      });
+      expect(res.statusCode).toBe(409);
+      expect(calls, 'no model is asked to dress up "we could not look"').toBe(0);
+    });
+  });
+
   it('404s for a pull request that does not exist, and only for that', async () => {
     const res = await app.inject({
       method: 'GET',
