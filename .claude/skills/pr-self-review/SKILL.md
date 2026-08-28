@@ -81,6 +81,7 @@ that are. A skill named below but absent degrades its lane to repo rules with a 
 | `client/src/lib/hooks/*.ts`, `client/src/lib/*.ts` | FRONTEND | react-best-practices, typescript-expert |
 | `client/**/*.test.tsx` | FRONTEND | react-testing-library |
 | `client/src/components/mermaid-diagram/**`, docs with a ```mermaid fence | FRONTEND / REPO | mermaid-diagram |
+| `mcp/src/**` | REPO | typescript-expert, zod |
 | `e2e/**` | REPO | typescript-expert *(`*.ts` only)* |
 | `INSIGHTS.md`, `*/INSIGHTS.md` | REPO | engineering-insights |
 | everything else | REPO | — |
@@ -92,7 +93,7 @@ it instead of restating it:
 |---|---|
 | BACKEND · DATA · ENGINE | `.claude/skills/onion-architecture/tooling.md` → "Review checklist for a backend diff" |
 | FRONTEND | `.claude/skills/frontend-architecture/references/devdigest-profile.md` |
-| REPO | `e2e/CLAUDE.md`, `specs/README.md`, root `CLAUDE.md` |
+| REPO | `e2e/CLAUDE.md`, `mcp/CLAUDE.md` (its ring table is enforced by hand — `arch:check` does not cover `mcp/`), `specs/README.md`, root `CLAUDE.md` |
 
 A third copy would drift. It already has: `client/CLAUDE.md:25-27` and
 `client/docs/component-anatomy.md:20` state opposite rules for how many files a component

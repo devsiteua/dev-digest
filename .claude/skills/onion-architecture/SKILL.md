@@ -1,11 +1,16 @@
 ---
 name: onion-architecture
-description: "Enforces the onion (ports-and-adapters) dependency rule in the DevDigest backend — server/ and reviewer-core/ only, never client/. Use when adding or reviewing a module, route, service, repository, adapter, port or background job; when deciding where a piece of backend code belongs; when a service reaches for Drizzle, Fastify, Octokit or a concrete adapter; or when `pnpm arch:check` fails. Trigger terms: onion architecture, layering, dependency rule, ports and adapters, where does this code go, new module, new adapter, routes service repository, container, DI, arch:check, dependency-cruiser."
+description: "Enforces the onion (ports-and-adapters) dependency rule in the DevDigest backend — server/ and reviewer-core/, plus mcp/ by hand (no arch:check there), never client/. Use when adding or reviewing a module, route, service, repository, adapter, port or background job; when deciding where a piece of backend code belongs; when a service reaches for Drizzle, Fastify, Octokit or a concrete adapter; or when `pnpm arch:check` fails. Trigger terms: onion architecture, layering, dependency rule, ports and adapters, where does this code go, new module, new adapter, routes service repository, container, DI, arch:check, dependency-cruiser."
 ---
 
 # Onion architecture — DevDigest backend
 
-Scope: `server/**` and `reviewer-core/**`. For the client use `frontend-architecture`.
+Scope: `server/**` and `reviewer-core/**`, where the rule below is **enforced** by
+`cd server && pnpm arch:check`. Also `mcp/**` — but there the rule applies **by hand only**:
+dependency-cruiser does not cover that package, so nothing goes red when a ring is crossed,
+and `mcp/`'s own ring table (Delivery / Infrastructure / Pure / Composition, checked by the
+two greps beside it) lives in `mcp/CLAUDE.md` § Rings. Read it there; this file does not
+restate it. For the client use `frontend-architecture`.
 
 ## The rule
 

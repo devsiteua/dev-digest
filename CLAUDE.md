@@ -1,12 +1,12 @@
 # DevDigest — local AI PR-review studio (and the L01–L08 course starter)
 
-Four standalone packages, **no monorepo workspace**. Cross-package code is shared
+Five standalone packages, **no monorepo workspace**. Cross-package code is shared
 through tsconfig path aliases over TypeScript **source**, not published modules.
 
 ## Stack
 
-Node ≥22 · pnpm ≥10 (server, client) · npm (reviewer-core, e2e)
-Fastify 5 + Drizzle + Postgres 16/pgvector · Next.js 15 + React 19 · Zod 3 · vitest 2
+Node ≥22 · pnpm ≥10 (server, client, mcp) · npm (reviewer-core, e2e)
+Fastify 5 + Drizzle + Postgres 16/pgvector · Next.js 15 + React 19 · Zod 3 (Zod 4 in `mcp/`) · vitest 2
 
 ## Commands
 
@@ -17,6 +17,8 @@ cd server && pnpm exec vitest run --exclude '**/*.it.test.ts'   # unit, no Docke
 cd server && pnpm exec vitest run .it.test                      # integration, needs Docker
 cd client && pnpm test && pnpm typecheck
 cd reviewer-core && npm test      # npm, not pnpm
+cd mcp && pnpm test               # hermetic MCP tools; fetch is injected and stubbed
+cd mcp && pnpm test:live          # needs the API on :3001; self-skips when it is down
 cd e2e && pnpm e2e:hermetic       # isolated stack on ports 5433/3101/3100
 ```
 
@@ -27,6 +29,7 @@ cd e2e && pnpm e2e:hermetic       # isolated stack on ports 5433/3101/3100
 | `server/` | `@devdigest/api` — Fastify, :3001. All I/O and persistence lives here |
 | `client/` | `@devdigest/web` — Next.js, :3000. UI only |
 | `reviewer-core/` | Engine: diff → prompt → LLM → grounded findings. **Zero I/O** |
+| `mcp/` | `@devdigest/mcp` — stdio MCP server over the API. Five tools, no I/O of its own |
 | `e2e/` | Deterministic browser flows on agent-browser (not Playwright) |
 | `server/src/vendor/shared/` | `@devdigest/shared` Zod contracts — **source of truth** |
 | `client/src/vendor/shared/` | **Mirror copy** of the same (see Gotchas) |

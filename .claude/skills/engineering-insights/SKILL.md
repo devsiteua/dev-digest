@@ -16,6 +16,7 @@ write to it before you stop.
 | `server/**` only | `server/INSIGHTS.md` |
 | `client/**` only | `client/INSIGHTS.md` |
 | `reviewer-core/**` only | `reviewer-core/INSIGHTS.md` |
+| `mcp/**` only | `mcp/INSIGHTS.md` |
 | `e2e/**` only | `e2e/INSIGHTS.md` |
 | two or more packages, or `scripts/` `docs/` `specs/` `.github/` `docker-compose.yml` | `INSIGHTS.md` (root) |
 
