@@ -86,6 +86,24 @@ export interface BlastResult {
   reason?: DegradedReason;
 }
 
+/**
+ * One file that depends on a seed file, with the per-file facts the index
+ * already holds for it.
+ *
+ * `depth` is hops **from the seed set**, not from any changed file: 1 is a
+ * direct importer of a seed, 2 imports one of those. The caller decides what the
+ * seeds are, so the same walk answers "who imports the changed file" and "who
+ * imports the changed file's callers" without a second method.
+ */
+export interface DependentRow {
+  file: string;
+  depth: number;
+  /** "METHOD /path", from `file_facts.endpoints`. */
+  endpoints: string[];
+  /** A cron expression or `job:<kind>`, from `file_facts.crons`. */
+  crons: string[];
+}
+
 // ---------------------------------------------------------------------------
 // Read-model rows.
 // ---------------------------------------------------------------------------
@@ -145,6 +163,27 @@ export interface RepoIntel {
 
   // --- Reads --------------------------------------------------------------
   getBlastRadius(repoId: string, changedFiles: string[]): Promise<BlastResult>;
+  /**
+   * The blast map read **only** from the persistent index, or `null` when the
+   * index cannot answer it.
+   *
+   * The difference from `getBlastRadius` is the whole point: that method falls
+   * back to ripgrep over the clone and re-reads clone files to detect endpoints,
+   * which is a repository parse on the request's hot path. A read endpoint that
+   * must not do that calls THIS one and renders `null` as a degraded state
+   * instead of quietly paying for a parse.
+   */
+  getBlastRadiusFromIndex(repoId: string, changedFiles: string[]): Promise<BlastResult | null>;
+  /**
+   * Reverse breadth-first walk over `file_edges`: who depends on `files`, out to
+   * `depth` hops, with each dependent's `file_facts`.
+   *
+   * Keyed on `(repo_id, to_file)` — the index `file_edges_repo_to_idx` exists
+   * for exactly this direction, so each level costs O(degree) and no graph is
+   * built in memory. Seeds are never returned as their own dependents, and a
+   * file already seen at a shallower level is not repeated at a deeper one.
+   */
+  getDependents(repoId: string, files: string[], depth?: number): Promise<DependentRow[]>;
   getRepoMap(repoId: string, tokenBudget?: number): Promise<RepoMapResult>;
   getFileRank(repoId: string, paths: string[]): Promise<FileRankRow[]>;
   getSymbolsInFiles(repoId: string, paths: string[]): Promise<SymbolRow[]>;

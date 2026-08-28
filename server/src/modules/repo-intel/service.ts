@@ -33,6 +33,7 @@ import type {
   BlastCallerRow,
   BlastChangedSymbol,
   BlastResult,
+  DependentRow,
   FileRankRow,
   IndexResult,
   IndexState,
@@ -221,7 +222,7 @@ export class RepoIntelService implements RepoIntel {
     // T3: serve from the persistent index when it's built. Falls through to the
     // ripgrep best-effort below when the flag is off / index is absent.
     if (this.container.config.repoIntelEnabled && changedFiles.length > 0) {
-      const persistent = await this.tryPersistentBlast(repoId, changedFiles);
+      const persistent = await this.getBlastRadiusFromIndex(repoId, changedFiles);
       if (persistent) return persistent;
     }
 
@@ -306,16 +307,23 @@ export class RepoIntelService implements RepoIntel {
   /**
    * Persistent-index blast (T3): reads symbols / resolved references / file_rank
    * / file_facts straight from Postgres — NO clone parsing on the hot path.
-   * Returns `null` when the index isn't usable (caller falls back to ripgrep).
+   * Returns `null` when the index isn't usable.
+   *
+   * PUBLIC, and on the `RepoIntel` interface, because a read endpoint that must
+   * not parse the repository during a request needs to be able to ask for
+   * exactly this and be told "no" — `getBlastRadius` would answer the same
+   * question by shelling out to ripgrep and re-reading the clone.
    *
    * Callers are PRECISE: only references whose `decl_file` resolved to a changed
    * file count. That favours precision over recall — an ambiguous
    * (NULL decl_file) reference is not asserted as a caller.
    */
-  private async tryPersistentBlast(
+  async getBlastRadiusFromIndex(
     repoId: string,
     changedFiles: string[],
   ): Promise<BlastResult | null> {
+    if (!this.container.config.repoIntelEnabled) return null;
+    if (changedFiles.length === 0) return null;
     const state = await this.repo.tryGetIndexState(repoId);
     if (!state || (state.status !== 'full' && state.status !== 'partial')) return null;
 
@@ -369,11 +377,29 @@ export class RepoIntelService implements RepoIntel {
         rank: c.rank,
       });
     }
-    callers.sort((a, b) => b.rank - a.rank);
+    // rank DESC, then file ASC, then line ASC. The tie-breakers are not
+    // decoration: two references from ONE file carry the same `file_rank.rank`
+    // to the last bit, and every test file in a repository tends to share one
+    // rank too, so a sort on rank alone leaves the order to the planner — the
+    // read-side form of the `defaultNow()` trap the root CLAUDE.md records.
+    callers.sort(
+      (a, b) => b.rank - a.rank || a.file.localeCompare(b.file) || a.line - b.line,
+    );
+
+    // The cap is PER CHANGED SYMBOL, which is what the constant has always been
+    // named and documented as (`constants.ts`: "Caller fan-out cap per changed
+    // symbol"). Applying it to the flat array — as this method did until the
+    // blast feature gained a consumer — is a GLOBAL cap of 20: a PR touching
+    // three hot symbols would show all 20 rows against the first of them and
+    // none against the other two, and the response would not say so.
+    const capped = capPerSymbol(callers, MAX_CALLERS_PER_SYMBOL);
+    // Facts follow the callers that survived the cap, so nothing is attributed
+    // through a caller the response does not contain.
+    const keptFiles = [...new Set(capped.map((c) => c.file))];
 
     // Precomputed facts per caller file (endpoints + crons), so consumers can
     // attribute them to the changed symbol whose callers live in that file.
-    const facts = await this.repo.getFileFacts(repoId, callerFiles);
+    const facts = await this.repo.getFileFacts(repoId, keptFiles);
     const endpoints = new Set<string>();
     const factsByFile: Record<string, { endpoints: string[]; crons: string[] }> = {};
     for (const f of facts) {
@@ -383,11 +409,67 @@ export class RepoIntelService implements RepoIntel {
 
     return {
       changedSymbols,
-      callers: callers.slice(0, MAX_CALLERS_PER_SYMBOL),
+      callers: capped,
       impactedEndpoints: [...endpoints],
       factsByFile,
       degraded: false,
     };
+  }
+
+  /**
+   * Who depends on `files`, out to `depth` reverse hops, with each dependent's
+   * precomputed facts. See `RepoIntel.getDependents` for the contract.
+   *
+   * One query per LEVEL, not per file: the frontier goes into a single
+   * `to_file IN (...)`, so a two-level walk is two indexed reads plus one facts
+   * read however wide the graph is. Nothing here touches the clone.
+   */
+  async getDependents(
+    repoId: string,
+    files: string[],
+    depth: number = BFS_DEPTH,
+  ): Promise<DependentRow[]> {
+    if (!this.container.config.repoIntelEnabled) return [];
+    if (files.length === 0 || depth < 1) return [];
+
+    // Seeded with the inputs so a seed is never returned as its own dependent,
+    // and so a cycle (a ↔ b) terminates instead of alternating forever.
+    const seen = new Set(files);
+    const rows: DependentRow[] = [];
+    let frontier = [...new Set(files)];
+
+    for (let level = 1; level <= depth; level += 1) {
+      const edges = await this.repo.getReverseEdges(repoId, frontier);
+      const next: string[] = [];
+      for (const edge of edges) {
+        if (seen.has(edge.fromFile)) continue;
+        seen.add(edge.fromFile);
+        next.push(edge.fromFile);
+        // First sighting wins the depth. A file reachable at both 1 and 2 is a
+        // direct dependent, and reporting it as the deeper one would understate
+        // how close it sits to the change.
+        rows.push({ file: edge.fromFile, depth: level, endpoints: [], crons: [] });
+      }
+      if (next.length === 0) break;
+      frontier = next;
+    }
+    if (rows.length === 0) return [];
+
+    const facts = await this.repo.getFileFacts(
+      repoId,
+      rows.map((r) => r.file),
+    );
+    const factsByFile = new Map(facts.map((f) => [f.filePath, f]));
+    for (const row of rows) {
+      const hit = factsByFile.get(row.file);
+      if (!hit) continue;
+      row.endpoints = hit.endpoints;
+      row.crons = hit.crons;
+    }
+    // Shallowest first, then by path — the same determinism rule the caller sort
+    // above follows, for the same reason.
+    rows.sort((a, b) => a.depth - b.depth || a.file.localeCompare(b.file));
+    return rows;
   }
 
   /**
@@ -730,6 +812,25 @@ const JUNK_PATH_PATTERNS = [
 function isJunkPath(path: string): boolean {
   const lower = path.toLowerCase();
   return JUNK_PATH_PATTERNS.some((p) => lower.includes(p));
+}
+
+/**
+ * Keep at most `limit` callers PER `viaSymbol`, in the order they arrive.
+ *
+ * Order in, order out: the array is expected to be sorted already, so this drops
+ * the least important callers of a busy symbol and never re-orders the rest.
+ * Exported so the cap is assertable without a database.
+ */
+export function capPerSymbol(callers: BlastCallerRow[], limit: number): BlastCallerRow[] {
+  const kept: BlastCallerRow[] = [];
+  const perSymbol = new Map<string, number>();
+  for (const caller of callers) {
+    const taken = perSymbol.get(caller.viaSymbol) ?? 0;
+    if (taken >= limit) continue;
+    perSymbol.set(caller.viaSymbol, taken + 1);
+    kept.push(caller);
+  }
+  return kept;
 }
 
 /** Enclosing top-level (bare-name) symbol for a line, from persistent rows. */

@@ -436,6 +436,22 @@ export class RepoIntelRepository {
       .where(eq(t.fileEdges.repoId, repoId));
   }
 
+  /**
+   * Who imports `toFiles` — one reverse hop of the import graph.
+   *
+   * This is the read `file_edges_repo_to_idx (repo_id, to_file)` was created
+   * for, so a blast walk costs O(degree) per level instead of loading the whole
+   * graph the way `getEdges` does. `getEdges` stays for the rank build, which
+   * genuinely needs every edge at once.
+   */
+  async getReverseEdges(repoId: string, toFiles: string[]): Promise<IndexerEdgeRow[]> {
+    if (toFiles.length === 0) return [];
+    return this.db
+      .select({ fromFile: t.fileEdges.fromFile, toFile: t.fileEdges.toFile })
+      .from(t.fileEdges)
+      .where(and(eq(t.fileEdges.repoId, repoId), inArray(t.fileEdges.toFile, toFiles)));
+  }
+
   /** `{path, percentile}` for the given paths (smart-diff / run-executor). */
   async getFileRankFor(repoId: string, paths: string[]): Promise<FileRankRow[]> {
     if (paths.length === 0) return [];
