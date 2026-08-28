@@ -8,7 +8,15 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { api, ApiError } from "../api";
 import type { BlastExplainResponse, BlastRadiusResponse } from "@devdigest/shared";
 
-/** The one place this query's key is spelled — a resync invalidates through it. */
+/**
+ * The one place this query's key is spelled.
+ *
+ * Nothing invalidates through it, and that is not an oversight to fix by adding
+ * an `invalidateQueries` to the resync: `POST /repos/:id/resync` ENQUEUES a job
+ * and answers 202, so a refetch fired on its success would re-read the same
+ * degraded map and report it as the new answer. The map refreshes when the tab
+ * is next mounted past `staleTime`, by which time the job has actually run.
+ */
 export const blastKey = (prId: string | null | undefined) => ["blast", prId];
 
 /**

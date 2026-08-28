@@ -31,6 +31,7 @@ export const s = {
     color: "var(--text-secondary)",
     lineHeight: 1.5,
   } satisfies CSSProperties,
+  bannerIcon: { color: "var(--warn)", flexShrink: 0 } satisfies CSSProperties,
   bannerTitle: {
     fontWeight: 650,
     color: "var(--text-primary)",

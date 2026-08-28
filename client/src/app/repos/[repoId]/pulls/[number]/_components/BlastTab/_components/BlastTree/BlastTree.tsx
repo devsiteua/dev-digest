@@ -35,16 +35,21 @@ export function BlastTree({ downstream, hrefFor }: BlastTreeProps) {
 
   return (
     <div style={s.root}>
-      {downstream.map((impact) => {
-        const isOpen = open[impact.symbol] ?? false;
+      {downstream.map((impact, i) => {
+        // Keyed by POSITION, not by name. The server emits one row per changed
+        // symbol and two changed files may each declare a `format` — same string,
+        // two rows. Keying either the list or this open-state record on the name
+        // alone gives React duplicate siblings and makes one chevron expand both.
+        const rowKey = `${i}:${impact.symbol}`;
+        const isOpen = open[rowKey] ?? false;
         const empty = impact.callers.length === 0;
         return (
-          <div key={impact.symbol}>
+          <div key={rowKey}>
             <button
               type="button"
               aria-expanded={isOpen}
               disabled={empty}
-              onClick={() => setOpen((o) => ({ ...o, [impact.symbol]: !o[impact.symbol] }))}
+              onClick={() => setOpen((o) => ({ ...o, [rowKey]: !o[rowKey] }))}
               style={symbolRowStyle(isOpen, empty)}
             >
               <Icon.ChevronRight size={13} style={chevronStyle(isOpen)} />

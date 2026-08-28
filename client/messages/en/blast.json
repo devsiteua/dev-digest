@@ -20,6 +20,8 @@
     "ariaLabel": "Blast radius graph"
   },
   "indexedAt": "Indexed at {sha}",
+  "loadFailedTitle": "The blast radius could not be loaded",
+  "loadFailedBody": "The request itself did not arrive — this says nothing about what the pull request reaches.",
   "notIndexed": "This repository has never been indexed.",
   "reanalyze": "Re-analyze",
   "reason": {

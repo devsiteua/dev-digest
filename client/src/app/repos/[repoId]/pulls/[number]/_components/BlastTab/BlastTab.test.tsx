@@ -10,12 +10,19 @@ let explained: { explanation: string; model: string } | undefined;
 let explainFailed = false;
 let stored: BlastRadiusResponse | null = null;
 let loading = false;
+let failed = false;
 let lastEnabled: boolean | undefined;
+const refetch = vi.fn();
 
 vi.mock("@/lib/hooks/blast", () => ({
-  useBlast: (_prId: string | null, enabled?: boolean) => {
+  // The mock HONOURS `enabled`, because the state it produces is the one the
+  // gate exists to create: React Query holds a disabled query as PENDING with
+  // no data, and a mock that answers with a populated map anyway would assert
+  // the gate in a state the component can never be in.
+  useBlast: (_prId: string | null, enabled = true) => {
     lastEnabled = enabled;
-    return { data: stored, isLoading: loading };
+    if (!enabled) return { data: undefined, isPending: true, isError: false, refetch };
+    return { data: stored, isPending: loading, isError: failed, refetch };
   },
   useExplainBlast: () => ({
     mutate: explain,
@@ -76,7 +83,9 @@ const renderTab = (over: Partial<React.ComponentProps<typeof BlastTab>> = {}) =>
 beforeEach(() => {
   stored = null;
   loading = false;
+  failed = false;
   lastEnabled = undefined;
+  refetch.mockClear();
   explained = undefined;
   explainFailed = false;
   resync.mockReset();
@@ -160,10 +169,26 @@ describe("BlastTab — the populated map", () => {
   });
 
   it("waits for the PR detail before asking for a map", () => {
+    stored = POPULATED;
     renderTab({ ready: false });
     // `GET /pulls/:id` rewrites `pr_files` in a transaction; a map fetched
     // before it lands would describe a file list the page does not have.
     expect(lastEnabled).toBe(false);
+    // And the wait is VISIBLE: the card holds its skeleton rather than drawing
+    // nothing at all, which is what a `isLoading` read produced here — a
+    // disabled query is pending but not loading.
+    expect(screen.queryByText("symbols")).not.toBeInTheDocument();
+    expect(screen.getByText("Blast radius")).toBeInTheDocument();
+  });
+
+  it("says the request failed instead of rendering an empty card", () => {
+    failed = true;
+    renderTab();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "The blast radius could not be loaded",
+    );
+    fireEvent.click(screen.getByText("Retry"));
+    expect(refetch).toHaveBeenCalledTimes(1);
   });
 });
 

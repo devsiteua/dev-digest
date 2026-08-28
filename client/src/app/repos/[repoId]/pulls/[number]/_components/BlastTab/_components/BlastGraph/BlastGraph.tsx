@@ -58,9 +58,9 @@ export function BlastGraph({ subject }: BlastGraphProps) {
         aria-label={t("graph.ariaLabel")}
         style={s.svg}
       >
-        {callerNodes.map((node) => (
+        {callerNodes.map((node, i) => (
           <path
-            key={`root-${node.label}`}
+            key={`root-${i}`}
             d={edgePath(root, node)}
             fill="none"
             stroke="var(--border-strong)"
@@ -68,18 +68,18 @@ export function BlastGraph({ subject }: BlastGraphProps) {
           />
         ))}
         {endpointNodes.length > 0 &&
-          callerNodes.map((node) => (
+          callerNodes.map((node, i) => (
             <path
-              key={`junction-${node.label}`}
+              key={`junction-${i}`}
               d={edgePath(node, junction)}
               fill="none"
               stroke="var(--border)"
               strokeWidth={1.25}
             />
           ))}
-        {endpointNodes.map((node) => (
+        {endpointNodes.map((node, i) => (
           <path
-            key={`endpoint-${node.label}`}
+            key={`endpoint-${i}`}
             d={edgePath(junction, node)}
             fill="none"
             stroke="var(--border)"
@@ -88,11 +88,11 @@ export function BlastGraph({ subject }: BlastGraphProps) {
         ))}
 
         <Node node={root} width={110} stroke="var(--accent)" />
-        {callerNodes.map((node) => (
-          <Node key={node.label} node={node} width={130} stroke="var(--border-strong)" />
+        {callerNodes.map((node, i) => (
+          <Node key={i} node={node} width={130} stroke="var(--border-strong)" />
         ))}
-        {endpointNodes.map((node) => (
-          <Node key={node.label} node={node} width={160} stroke="var(--accent)" />
+        {endpointNodes.map((node, i) => (
+          <Node key={i} node={node} width={160} stroke="var(--accent)" />
         ))}
       </svg>
 

@@ -2,7 +2,7 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { Button, Card, EmptyState, Icon, SectionLabel, Skeleton } from "@devdigest/ui";
+import { Button, Card, EmptyState, ErrorState, Icon, SectionLabel, Skeleton } from "@devdigest/ui";
 import type { BlastReason } from "@devdigest/shared";
 import { useBlast, useExplainBlast } from "@/lib/hooks/blast";
 import { useResyncRepoIntel } from "@/lib/hooks/repo-intel";
@@ -52,15 +52,34 @@ const RESYNCABLE: ReadonlySet<BlastReason> = new Set<BlastReason>([
 export function BlastTab({ prId, repoId, repoFullName, ready }: BlastTabProps) {
   const t = useTranslations("blast");
   const [view, setView] = React.useState<"tree" | "graph">("tree");
-  const { data: map, isLoading } = useBlast(prId, ready);
+  // `isPending`, not `isLoading`: a query held back by `enabled` is pending but
+  // NOT loading, and that is the normal first paint of this tab — the gate is
+  // open only once `usePullDetail` has resolved. Reading `isLoading` here draws
+  // nothing at all for the whole width of that window.
+  const { data: map, isPending, isError, refetch } = useBlast(prId, ready);
   const resync = useResyncRepoIntel(repoId);
   const explain = useExplainBlast(prId);
 
-  if (!prId || isLoading) {
+  if (!prId || isPending) {
     return (
       <Card>
         <SectionLabel icon="Workflow">{t("title")}</SectionLabel>
         <Skeleton height={140} />
+      </Card>
+    );
+  }
+  // A non-404 failure. Every OTHER way this can go wrong is an answer with a
+  // `reason` — this branch is the request itself not arriving, and it says so
+  // rather than rendering a card-shaped hole.
+  if (isError) {
+    return (
+      <Card>
+        <SectionLabel icon="Workflow">{t("title")}</SectionLabel>
+        <ErrorState
+          title={t("loadFailedTitle")}
+          body={t("loadFailedBody")}
+          onRetry={() => void refetch()}
+        />
       </Card>
     );
   }
@@ -80,7 +99,7 @@ export function BlastTab({ prId, repoId, repoFullName, ready }: BlastTabProps) {
 
   const banner = map.reason && map.status !== "ok" && (
     <div style={s.banner}>
-      <Icon.AlertTriangle size={14} style={{ color: "var(--warn)", flexShrink: 0 }} />
+      <Icon.AlertTriangle size={14} style={s.bannerIcon} />
       <span>
         <span style={s.bannerTitle}>{t(`reason.${map.reason}.title`)}</span>
         {t(`reason.${map.reason}.body`)}
