@@ -52,11 +52,21 @@ grep -rln "process\.env" src              # must print only src/config.ts
   so one would also fail loudly at the first test instead of quietly pulling the
   server's Zod into this process. The cost is stated plainly: **this package does
   not re-validate API responses at runtime.** `pnpm typecheck` is the guard.
-- **stdout is the JSON-RPC channel.** No `console.log` / `.info` / `.debug`
-  anywhere in `src/` — one line corrupts the stream and the client drops the
-  connection with the reason visible only on stderr. Every diagnostic goes
-  through `log()` (`src/log.ts`), which is `console.error`.
-  `test/stdio-purity.test.ts` spawns the process and asserts it.
+- **stdout is the JSON-RPC channel — of the MCP server process.** No stdout write
+  of any kind (`console.log` / `.info` / `.debug`, `process.stdout.write`) on any
+  path reachable from **`src/index.ts`**: one line corrupts the stream and the
+  client drops the connection with the reason visible only on stderr. Every
+  diagnostic on that path goes through `log()` (`src/log.ts`), which is
+  `console.error`. `test/stdio-purity.test.ts` spawns **that entry point
+  specifically** and asserts it.
+
+  The rule is scoped to the PROCESS, not to the directory, and the difference
+  matters now that `src/` holds a second entry point: `src/cli.ts`, whose whole
+  job is to print findings to stdout for a human. Both failure modes are silent
+  and neither is caught by types — read the rule as covering all of `src/` and the
+  CLI cannot print; delete it and the transport breaks intermittently. So: a
+  module the CLI reaches AND `src/index.ts` reaches is still bound by it, and
+  `src/log.ts` stays `console.error` for exactly that reason.
 - **A business failure is a tool result, never a thrown protocol fault.** Return
   `isError: true` with text that names the next step; the process must stay alive
   and answer the next call even with nothing on `:3001`.

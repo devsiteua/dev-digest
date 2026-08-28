@@ -4,21 +4,32 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 /**
- * stdout is the JSON-RPC channel (D12).
+ * stdout is the JSON-RPC channel **of `src/index.ts`** (D12).
  *
- * One `console.log` in `mcp/src` writes a non-JSON line into the middle of the
- * protocol stream and the client drops the connection — a server that "does not
- * appear", with the cause visible only on stderr. A grep catches the obvious
- * form; this test catches the rest, including a dependency that decides to print
- * something and a stack trace escaping onto the wrong stream.
+ * One `console.log` on a path this entry point reaches writes a non-JSON line
+ * into the middle of the protocol stream and the client drops the connection — a
+ * server that "does not appear", with the cause visible only on stderr. A grep
+ * catches the obvious form; this test catches the rest, including a dependency
+ * that decides to print something and a stack trace escaping onto the wrong
+ * stream.
  *
- * So: spawn the real entry point, drive it through a handshake, a good call, a
+ * The scope is a PROCESS, not the package, and `MCP_ENTRY` below is where that
+ * is decided. `src/` will grow a second entry point — a CLI whose whole job is
+ * to print to stdout — and the rule that protects the transport must not be read
+ * as forbidding that. Anything the CLI reaches that this entry point ALSO
+ * reaches is still covered here, which is the part that matters: the rule
+ * follows the reachable set, not the directory.
+ *
+ * So: spawn the MCP entry point, drive it through a handshake, a good call, a
  * failing call and an unknown method, and assert that **every** line it wrote to
  * stdout parses as a JSON-RPC message — while the diagnostics we do emit are all
  * on stderr.
  */
 
 const PACKAGE_ROOT = fileURLToPath(new URL('..', import.meta.url));
+
+/** The MCP server's entry point — the one process this rule protects. */
+const MCP_ENTRY = `${PACKAGE_ROOT}src/index.ts`;
 
 /** A port nothing is listening on, so the failing call fails fast and locally. */
 const DEAD_API = 'http://127.0.0.1:1';
@@ -29,7 +40,7 @@ interface Captured {
 }
 
 async function driveServer(): Promise<Captured> {
-  const child = spawn(`${PACKAGE_ROOT}node_modules/.bin/tsx`, [`${PACKAGE_ROOT}src/index.ts`], {
+  const child = spawn(`${PACKAGE_ROOT}node_modules/.bin/tsx`, [MCP_ENTRY], {
     cwd: PACKAGE_ROOT,
     stdio: ['pipe', 'pipe', 'pipe'],
     env: { ...process.env, DEVDIGEST_API_URL: DEAD_API },
@@ -62,7 +73,8 @@ async function driveServer(): Promise<Captured> {
   // A call that reaches the API layer and fails there: the error path logs, and
   // the log must not land on stdout.
   send({ id: 3, method: 'tools/call', params: { name: 'list_agents', arguments: {} } });
-  // A call that fails inside the server: the stub, which is an error by design.
+  // A second call through the API layer against the same dead port, so more
+  // than one error path is exercised on one process.
   send({
     id: 4,
     method: 'tools/call',

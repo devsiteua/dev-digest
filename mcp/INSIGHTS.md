@@ -116,5 +116,8 @@ Takeaway: when the CLI lands, narrow the rule rather than deleting it — someth
           `CLAUDE.md`, before writing the first `console.log`.
 Evidence: mcp/CLAUDE.md § Conventions (the stdout rule); mcp/test/stdio-purity.test.ts;
           mcp/src/log.ts
-Status:   open — nothing to do until the CLI exists; recorded so it is not discovered by a
-          broken transport
+Status:   resolved 2026-08-28 — narrowed to "no stdout writes on any path reachable from
+          `src/index.ts`" BEFORE the first `console.log` was written, and
+          `stdio-purity.test.ts` now names that entry point in a constant. A module both
+          entry points reach is still bound by it, which is why `src/log.ts` stays
+          `console.error`.
