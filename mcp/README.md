@@ -22,7 +22,7 @@ always `owner/name` and `pr` is always the number the hosting platform shows.
 
 | Tool | Arguments | What it does |
 |---|---|---|
-| `list_agents` | — | Lists the configured reviewer agents with `name`, `slug`, `provider`, `model`, `enabled`, `description`. The only source of a valid `agent` value — call it first instead of guessing. Costs nothing. |
+| `list_agents` | — | Lists the configured reviewer agents with `name`, `slug`, `model`, `enabled`, `description` — no `provider`, which nothing resolves against. The only source of a valid `agent` value — call it first instead of guessing. Costs nothing. |
 | `run_agent_on_pr` | `repo`, `pr`, `agent`, `response_format?` | Starts one agent's review, **waits** for it, and returns the finished verdict, score and findings. One blocking call, no separate start/poll tool. **Spends a real model call.** |
 | `get_findings` | `repo`, `pr`, `agent?`, `response_format?`, `limit?` | Re-reads a review that already ran. Spends nothing, starts nothing. Omit `agent` for the most recent review, whose agent is named in the answer. |
 | `get_conventions` | `repo`, `response_format?`, `limit?` | Returns the **accepted** house rules the L02 extractor stored, each with its `file:line` evidence, plus the pending/rejected counts. Never runs the extractor (that spends money). |

@@ -144,7 +144,8 @@ export const listAgentsOutput = z.object({
       name: z.string(),
       /** Derived in this package by kebab-casing the name — there is no slug column. */
       slug: z.string(),
-      provider: z.string(),
+      // No `provider`. The `Agent` contract has one; a model has no use for it,
+      // and a field a tool publishes is a field every caller pays for.
       model: z.string(),
       enabled: z.boolean(),
       description: z.string(),

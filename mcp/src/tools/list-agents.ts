@@ -12,8 +12,9 @@ import { toAgentSummary } from '../shape/agents.js';
  * Delivery ring — `list_agents`, the tool every other tool's `agent` argument
  * depends on.
  *
- * It reads `GET /agents` and projects the seven fields the contract exposes plus
- * the slug this package mints (`shape/agents.ts`). It takes no arguments and
+ * It reads `GET /agents` and projects six of the fields the contract exposes plus
+ * the slug this package mints (`shape/agents.ts`) — `provider` is left behind on
+ * purpose, and `shape/agents.ts` says why. It takes no arguments and
  * costs nothing, which is why the description tells a model to call it first
  * rather than guess a name.
  */

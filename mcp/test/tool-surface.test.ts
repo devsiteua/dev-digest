@@ -316,7 +316,6 @@ describe('list_agents', () => {
           id: 'a1',
           name: 'General Reviewer',
           slug: 'general-reviewer',
-          provider: 'anthropic',
           model: 'claude-opus-5',
           enabled: true,
           description: 'Everything else.',
@@ -326,6 +325,17 @@ describe('list_agents', () => {
 
     const text = result.content?.find((block) => block.type === 'text')?.text ?? '';
     expect(JSON.parse(text)).toEqual(result.structuredContent);
+
+    // The seeded row above carries `provider` and `system_prompt`; neither may
+    // reach the model, and this asserts it on BOTH surfaces a client can read.
+    // The structured payload alone is not enough: the text block is what a client
+    // that ignores `structuredContent` hands over.
+    for (const surface of [result.structuredContent, JSON.parse(text)] as Array<{
+      agents: Array<Record<string, unknown>>;
+    }>) {
+      expect(surface.agents[0]).not.toHaveProperty('provider');
+      expect(surface.agents[0]).not.toHaveProperty('system_prompt');
+    }
   });
 
   it('reports an unreachable API as a tool error naming ./scripts/dev.sh', async () => {

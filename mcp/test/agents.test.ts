@@ -62,7 +62,7 @@ describe('slugify', () => {
 });
 
 describe('toAgentSummary', () => {
-  it('projects exactly the seven fields list_agents publishes', () => {
+  it('projects exactly the six fields list_agents publishes, and drops the provider', () => {
     const projected = toAgentSummary(
       agentRow({
         id: 'a1',
@@ -74,15 +74,19 @@ describe('toAgentSummary', () => {
       }),
     );
 
+    // `toEqual` is exact, so this is also the assertion that `provider` — set on
+    // the row above — does not survive the projection. Stated twice on purpose:
+    // the field is the kind that comes back by reflex when someone widens the
+    // contract, and a diff that adds it should fail on a line that says so.
     expect(projected).toEqual({
       id: 'a1',
       name: 'Security Reviewer',
       slug: 'security-reviewer',
-      provider: 'anthropic',
       model: 'claude-opus-5',
       enabled: false,
       description: 'Injection, authz and secrets.',
     });
+    expect(projected).not.toHaveProperty('provider');
   });
 
   it('carries a disabled agent through — `enabled` is reported, not filtered on', () => {

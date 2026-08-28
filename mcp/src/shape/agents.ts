@@ -8,13 +8,20 @@ import type { Agent } from '@devdigest/shared';
  * ambiguity rule testable without a server.
  */
 
-/** What `list_agents` publishes, and what every other tool resolves against. */
+/**
+ * What `list_agents` publishes, and what every other tool resolves against.
+ *
+ * `Agent` also carries a `provider`, and it is deliberately NOT here. Nothing in
+ * this package reads it — resolution matches on `name`, `slug` and `id`, and the
+ * candidate lists print those three — so publishing it only spends context in
+ * every session that calls the tool. `model` stays, because what a review will
+ * cost and how capable it is are things a caller can act on.
+ */
 export interface AgentSummary {
   readonly id: string;
   readonly name: string;
   /** Derived here — see {@link slugify}. */
   readonly slug: string;
-  readonly provider: string;
   readonly model: string;
   readonly enabled: boolean;
   readonly description: string;
@@ -44,13 +51,12 @@ export function slugify(name: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
-/** Project one `Agent` contract row onto the seven fields the tools publish. */
+/** Project one `Agent` contract row onto the six fields the tools publish. */
 export function toAgentSummary(agent: Agent): AgentSummary {
   return {
     id: agent.id,
     name: agent.name,
     slug: slugify(agent.name),
-    provider: agent.provider,
     model: agent.model,
     enabled: agent.enabled,
     description: agent.description,
