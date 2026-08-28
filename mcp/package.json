@@ -9,6 +9,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "review": "tsx src/cli.ts review",
     "test": "vitest run --passWithNoTests",
     "test:live": "vitest run --config vitest.live.config.ts --passWithNoTests"
   },

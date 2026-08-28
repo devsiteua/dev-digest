@@ -1,4 +1,4 @@
-# `@devdigest/mcp` — DevDigest as five MCP tools
+# `@devdigest/mcp` — DevDigest as five MCP tools, and one CLI
 
 A **Model Context Protocol** server over stdio that lets an agent — Claude Code,
 the MCP Inspector, any MCP client — drive DevDigest without a browser and without
@@ -140,6 +140,41 @@ with the reason visible only in the client's stderr pane. Diagnostics are
 `console.error` through `src/log.ts`, prefixed `[devdigest-mcp]`; the Inspector
 shows them, and so does `claude --debug`.
 
+## `devdigest review` — the CLI
+
+A **second entry point**, `src/cli.ts`, reviewing the working tree instead of a
+pull request.
+
+```sh
+cd mcp
+pnpm review -- --help
+pnpm review -- --agent security-reviewer
+```
+
+It runs `git rev-parse --show-toplevel`, then `git diff HEAD`, posts that diff to
+`POST /reviews/working` and prints `severity · path:line · title`. The server
+runs the same engine and the same input builders a pull-request review runs, and
+persists nothing — a working-tree review is stale the moment you save the file.
+
+**Untracked files are excluded.** `git diff HEAD` does not show them, so a file
+you have never `git add`ed is invisible to the review; `git add -N <file>` makes
+it visible without staging its contents. `--help` says so, because it is the one
+way this command can quietly review less than you believe.
+
+**Exit codes are a contract:** `0` the review ran and found nothing blocking,
+`1` it found at least one blocking finding, `2` it could not run at all.
+"Blocking" is the server's count against the agent's `ci_fail_on` — never
+re-derived here, or the CLI and the studio would disagree the first time somebody
+changed that threshold.
+
+`--mode` takes `working` (the default), `staged` or `branch`. Only `working` is
+implemented; the other two parse and then fail with "not implemented", so the
+spelling is fixed before the feature is.
+
+**stdout here is a terminal, not a transport.** The no-stdout rule is scoped to
+`src/index.ts` and the paths it reaches — see [`CLAUDE.md`](CLAUDE.md)
+§ Conventions.
+
 ## Tests
 
 ```sh
@@ -164,8 +199,9 @@ contract changes shape underneath this package.
 | Path | Ring | What |
 |---|---|---|
 | `src/index.ts`, `src/server.ts`, `src/tools/` | Delivery | the MCP protocol shape — tools, content blocks, `structuredContent`, annotations |
-| `src/api/` | Infrastructure | the only place that speaks HTTP: the client, resolution, the poll |
-| `src/shape/`, `src/schemas.ts`, `src/errors.ts`, `src/copy.ts` | Pure | DTO projections, tool schemas, error text — nothing awaits |
+| `src/cli.ts` | Delivery | the other entry point: a terminal, an exit code, and the only stdout writes in the package |
+| `src/api/`, `src/cli/git.ts` | Infrastructure | the only places that reach outside: HTTP, and two `git` subprocesses |
+| `src/shape/`, `src/cli/args.ts`, `src/cli/render.ts`, `src/schemas.ts`, `src/errors.ts`, `src/copy.ts` | Pure | DTO projections, tool schemas, flag parsing, the exit-code rule, error text — nothing awaits |
 | `src/config.ts` | Composition | the only `process.env` read in the package |
 
 The rules that keep those rings honest — and the reason contracts are imported as

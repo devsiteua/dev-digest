@@ -1,9 +1,14 @@
-# @devdigest/mcp — a stdio MCP delivery adapter over the API. No I/O of its own.
+# @devdigest/mcp — delivery adapters over the API. No I/O of its own.
 
-Five tools (`list_agents`, `run_agent_on_pr`, `get_findings`, `get_conventions`,
-`get_blast_radius`) spoken over stdio to a client that spawns this process. Every
-byte of data comes from `@devdigest/api` on `:3001` over HTTP. No database, no
-Drizzle, no secrets, no migrations — and none of them may be added here (root
+**Two entry points, one package.** `src/index.ts` is the stdio MCP server: five
+tools (`list_agents`, `run_agent_on_pr`, `get_findings`, `get_conventions`,
+`get_blast_radius`) spoken to a client that spawns the process. `src/cli.ts` is
+`devdigest review`, which prints a review of your working tree to a terminal.
+They share the HTTP client, the config and the error text, and nothing else —
+the difference that matters is stdout (see § Conventions).
+
+Every byte of data comes from `@devdigest/api` on `:3001` over HTTP. No database,
+no Drizzle, no secrets, no migrations — and none of them may be added here (root
 `CLAUDE.md` § Map: all I/O and persistence lives in `server/`).
 
 ## Commands
@@ -13,7 +18,8 @@ pnpm install
 pnpm typecheck                          # the ONLY drift guard this package has — see Gotchas
 pnpm test                               # hermetic: fetch injected and stubbed
 pnpm test:live                          # needs the API on :3001; self-skips when it is down
-pnpm exec tsx src/index.ts              # run it by hand (stdin/stdout are JSON-RPC)
+pnpm exec tsx src/index.ts              # the MCP server by hand (stdin/stdout are JSON-RPC)
+pnpm review -- --help                   # the CLI: `devdigest review` over the working tree
 pnpm dlx @modelcontextprotocol/inspector -- pnpm exec tsx src/index.ts   # first-line debugging
 ```
 
@@ -33,13 +39,13 @@ is enforced by hand and by the greps beside it.
 
 | Ring | Path | May do | Must not |
 |---|---|---|---|
-| Delivery | `src/tools/*.ts`, `src/server.ts`, `src/index.ts` | know the MCP protocol shape — content blocks, `structuredContent`, `isError`, annotations | call `fetch`, read `process.env` |
-| Infrastructure | `src/api/*.ts` | `fetch`, HTTP status → error mapping, polling | know anything about MCP |
-| Pure | `src/shape/*.ts`, `src/schemas.ts`, `src/errors.ts`, `src/copy.ts` | transform DTOs, build error text | `await` anything |
+| Delivery | `src/tools/*.ts`, `src/server.ts`, `src/index.ts`, `src/cli.ts` | know the MCP protocol shape — content blocks, `structuredContent`, `isError`, annotations — or, in the CLI, a terminal and an exit code | call `fetch`, read `process.env` |
+| Infrastructure | `src/api/*.ts`, `src/cli/git.ts` | `fetch`, HTTP status → error mapping, polling, spawning `git` | know anything about MCP |
+| Pure | `src/shape/*.ts`, `src/cli/args.ts`, `src/cli/render.ts`, `src/schemas.ts`, `src/errors.ts`, `src/copy.ts` | transform DTOs, build error text, decide an exit code | `await` anything |
 | Composition | `src/config.ts` | the **only** `process.env` read | — |
 
 ```sh
-grep -rn "fetch(" src/tools src/shape     # must be empty
+grep -rn "fetch(" src/tools src/shape src/cli/args.ts src/cli/render.ts   # must be empty
 grep -rln "process\.env" src              # must print only src/config.ts
 ```
 
@@ -99,6 +105,16 @@ grep -rln "process\.env" src              # must print only src/config.ts
   required on `run_agent_on_pr` and `{ all: true }` is never sent (one such call
   bills every enabled agent); no tool calls
   `POST /repos/:id/conventions/extract`.
+
+- **The CLI's exit codes are a contract**, documented in `--help` and decided in
+  one pure function (`cli/render.ts`): `0` the review ran and nothing blocks, `1`
+  the review ran and something blocks, `2` the review could not run. "Blocking" is
+  the SERVER's count against the agent's `ci_fail_on` — never re-derived here, or
+  the CLI and the studio disagree the first time that threshold changes.
+- **`--mode` is an enum whose only implemented value is `working`.** `staged` and
+  `branch` parse and then fail with "not implemented". Rejecting them as unknown
+  would teach a user the mode does not exist; falling back to `working` would
+  review the wrong diff silently.
 
 ## Gotchas
 
