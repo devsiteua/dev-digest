@@ -203,11 +203,33 @@ export type BlastExplainResponse = z.infer<typeof BlastExplainResponse>;
  * no repository id and no PR number, because there is no PR: this is the
  * uncommitted working tree of whoever ran the CLI.
  */
+/**
+ * How much diff `POST /reviews/working` will accept, in characters.
+ *
+ * The endpoint is the first one where a caller controls the whole body, and the
+ * whole body is rendered into ONE prompt — `reviewer-core` truncates the PR
+ * description and the intent, never the diff. Without a ceiling here the only
+ * bound is Fastify's global `bodyLimit`, which is a transport default rather
+ * than a promise this endpoint made, and the failure it produces (a bare 413,
+ * ten times a minute, against a paid model) says nothing a caller can act on.
+ *
+ * 400k characters is roughly 100k tokens — already past what the reviewing
+ * models here read well, so a diff above it would be reviewed badly rather than
+ * expensively.
+ */
+export const MAX_WORKING_DIFF_CHARS = 400_000;
+
 export const WorkingReviewRequest = z.object({
   /** The agent's name, its kebab-cased slug, or its id. */
   agent: z.string().min(1),
   /** A unified diff, exactly as `git diff` produced it. */
-  diff: z.string().min(1),
+  diff: z
+    .string()
+    .min(1)
+    .max(
+      MAX_WORKING_DIFF_CHARS,
+      `The diff is larger than ${MAX_WORKING_DIFF_CHARS} characters. Commit or stash part of the working tree and review the rest.`,
+    ),
 });
 export type WorkingReviewRequest = z.infer<typeof WorkingReviewRequest>;
 

@@ -67,7 +67,9 @@ export default async function reviewsRoutes(appBase: FastifyInstance) {
     { schema: { body: WorkingReviewRequest }, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
     async (req): Promise<WorkingReviewResponse> => {
       const { workspaceId } = await getContext(container, req);
-      const result = await reviewWorkingDiff(container, workspaceId, req.body);
+      const result = await reviewWorkingDiff(container, workspaceId, req.body, {
+        info: (message, data) => req.log.info((data ?? {}) as object, message),
+      });
       req.log.info(
         {
           agent: result.agent_name,

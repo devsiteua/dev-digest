@@ -5,7 +5,7 @@ import { AppError, NotFoundError } from '../../platform/errors.js';
 import type { AgentRow } from '../../db/rows.js';
 import { parseUnifiedDiff } from '../../adapters/git/diff-parser.js';
 import { REVIEW_STRATEGY, WORKING_TASK_LINE } from './constants.js';
-import { buildSkillBlocks, resolveAgentProvider } from './inputs.js';
+import { buildSkillBlocks, resolveAgentProvider, type InputProgress } from './inputs.js';
 
 /**
  * Review a diff with no pull request behind it — the working tree of whoever ran
@@ -33,6 +33,7 @@ export async function reviewWorkingDiff(
   container: Container,
   workspaceId: string,
   request: WorkingReviewRequest,
+  progress?: InputProgress,
 ): Promise<WorkingReviewResponse> {
   const startedAt = Date.now();
   const agent = await resolveAgentByRef(container, workspaceId, request.agent);
@@ -50,7 +51,11 @@ export async function reviewWorkingDiff(
   }
 
   const llm = await resolveAgentProvider(container, agent.provider);
-  const skillBlocks = await buildSkillBlocks(container, agent.id);
+  // The progress channel is not decoration here: `buildSkillBlocks` reports a
+  // budget cut, a disabled link and a failed lookup through it, and all three
+  // degrade to `undefined` silently. A CLI user whose skills never made it into
+  // the prompt would otherwise read the result as "the model ignored my rule".
+  const skillBlocks = await buildSkillBlocks(container, agent.id, progress);
 
   const outcome = await reviewPullRequest({
     systemPrompt: agent.systemPrompt,

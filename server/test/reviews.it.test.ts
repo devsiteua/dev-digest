@@ -11,6 +11,7 @@ import {
   MockGitHubClient,
 } from '../src/adapters/mocks.js';
 import * as t from '../src/db/schema.js';
+import { MAX_WORKING_DIFF_CHARS } from '@devdigest/shared';
 import { eq } from 'drizzle-orm';
 import type { Review } from '@devdigest/shared';
 
@@ -652,6 +653,23 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
       url: '/reviews/working',
       payload: { agent: 'general-reviewer', diff: '' },
     });
+    expect(res.statusCode).toBe(422);
+    await app.close();
+  });
+
+  it('rejects a diff past the contract ceiling, and never pays for it', async () => {
+    const app = await appWith(REVIEW_FIXTURE);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/reviews/working',
+      payload: {
+        agent: 'general-reviewer',
+        diff: `${DIFF}\n${'+'.repeat(MAX_WORKING_DIFF_CHARS)}`,
+      },
+    });
+    // The whole body is rendered into ONE prompt, so without a ceiling of its
+    // own the only bound is Fastify's transport default — a 413 ten times a
+    // minute against a paid model. Rejected at the edge: no provider is reached.
     expect(res.statusCode).toBe(422);
     await app.close();
   });
