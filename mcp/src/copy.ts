@@ -23,7 +23,7 @@ export const SERVER_INSTRUCTIONS = [
 
 /** Tool descriptions, keyed by the tool name they are registered under. */
 export const TOOL_DESCRIPTIONS = {
-  /** `list_agents` — 632 chars. */
+  /** `list_agents` — 622 chars. */
   list_agents: [
     "List the reviewer agents configured in DevDigest — the AI code reviewers that can be run over a pull request. Returns each agent's name, slug, model, enabled flag and a one-line description of what it looks for. This is the only source of a valid `agent` value for run_agent_on_pr and get_findings, so call it first instead of guessing a name. `enabled` is the membership test for a review-all triggered in the DevDigest UI; it does not stop you running that agent by name here. Costs nothing.",
     "Example: list_agents() -> [{ name: \"Security Reviewer\", slug: \"security-reviewer\", model: \"claude-opus-5\", enabled: true }, ...]",
