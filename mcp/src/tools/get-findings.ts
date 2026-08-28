@@ -109,10 +109,33 @@ export async function runGetFindings(
   }
 }
 
-function errorResult(code: string, message: string): CallToolResult {
+/**
+ * An error result carries NO `structuredContent`, and that is deliberate.
+ *
+ * This tool advertises `getFindingsOutput` — the shape of a successful review
+ * read. An error payload cannot satisfy it. The SDK lets that pass, because
+ * `validateToolOutput` returns early when `isError` is true, so every unit test
+ * here is green either way. A CLIENT does not skip it: the MCP Inspector
+ * validates `structuredContent` against the published `outputSchema` with ajv
+ * and rejects the WHOLE result, so the caller gets a schema complaint instead of
+ * the sentence naming `list_agents` or `./scripts/dev.sh` — losing exactly the
+ * guidance the error exists to deliver.
+ *
+ * So the machine-readable payload rides in a second text block, where no schema
+ * governs it and every client can still read it. `get_blast_radius` is the one
+ * tool that keeps `structuredContent` on an error, because its `outputSchema`
+ * IS its error shape.
+ */
+export function errorContent(code: string, message: string): CallToolResult {
   return {
-    content: [{ type: 'text', text: message }],
-    structuredContent: { status: 'error', code, message },
+    content: [
+      { type: 'text', text: message },
+      { type: 'text', text: JSON.stringify({ status: 'error', code, message }, null, 2) },
+    ],
     isError: true,
   };
+}
+
+function errorResult(code: string, message: string): CallToolResult {
+  return errorContent(code, message);
 }

@@ -38,8 +38,19 @@ export function registerListAgents(server: McpServer, deps: { readonly api: ApiC
         if (!isDevDigestApiError(error)) throw error;
         log('list_agents failed', error);
         return {
-          content: [{ type: 'text', text: error.message }],
-          structuredContent: { status: 'error', code: error.code, message: error.message },
+          content: [
+            { type: 'text', text: error.message },
+            {
+              type: 'text',
+              text: JSON.stringify(
+                { status: 'error', code: error.code, message: error.message },
+                null,
+                2,
+              ),
+            },
+          ],
+          // No `structuredContent` on an error path — see `errorContent` in
+          // `get-findings.ts` for why a validating client makes that mandatory.
           isError: true,
         };
       }

@@ -8,6 +8,7 @@ import type { McpConfig } from '../config.js';
 import { TOOL_DESCRIPTIONS } from '../copy.js';
 import { isDevDigestApiError } from '../errors.js';
 import { log } from '../log.js';
+import { errorContent } from './get-findings.js';
 import { runAgentOnPrInput, runAgentOnPrOutput } from '../schemas.js';
 import { resolveAgent, toAgentSummary, type AgentSummary } from '../shape/agents.js';
 import {
@@ -253,7 +254,9 @@ function stillRunningResult(args: {
       { type: 'text', text: message },
       { type: 'text', text: JSON.stringify(payload, null, 2) },
     ],
-    structuredContent: payload,
+    // No `structuredContent` on an error path — see `errorContent` in
+    // `get-findings.ts`. A validating client would reject the whole result
+    // against `runAgentOnPrOutput`, and this text is what stops a second run.
     isError: true,
   };
 }
@@ -306,7 +309,9 @@ function runNotDoneResult(
       { type: 'text', text: message },
       { type: 'text', text: JSON.stringify(payload, null, 2) },
     ],
-    structuredContent: payload,
+    // No `structuredContent` on an error path — see `errorContent` in
+    // `get-findings.ts`. A validating client would reject the whole result
+    // against `runAgentOnPrOutput`, and this text is what stops a second run.
     isError: true,
   };
 }
@@ -375,9 +380,5 @@ function describeMissingReview(
 }
 
 function errorResult(code: string, message: string): CallToolResult {
-  return {
-    content: [{ type: 'text', text: message }],
-    structuredContent: { status: 'error', code, message },
-    isError: true,
-  };
+  return errorContent(code, message);
 }

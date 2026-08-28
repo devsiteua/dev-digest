@@ -161,7 +161,22 @@ function reviewRow(overrides: Partial<ReviewRecord> & Pick<ReviewRecord, 'id'>):
  * key" is a statement about the KEYS, not about a value being empty.
  */
 function payloadOf(result: CallToolResult): Record<string, unknown> {
-  return (result.structuredContent ?? {}) as Record<string, unknown>;
+  // An error result deliberately carries NO `structuredContent` — it would
+  // violate the tool's advertised `outputSchema` and a validating client (the
+  // MCP Inspector) rejects the whole result over it. The machine-readable
+  // payload moves to the last JSON text block, so this reads either place.
+  if (result.structuredContent) return result.structuredContent as Record<string, unknown>;
+  for (let i = (result.content?.length ?? 0) - 1; i >= 0; i -= 1) {
+    const block = result.content?.[i];
+    if (!block || !('text' in block)) continue;
+    try {
+      const parsed: unknown = JSON.parse(String(block.text));
+      if (parsed && typeof parsed === 'object') return parsed as Record<string, unknown>;
+    } catch {
+      // Not the JSON block — keep walking back.
+    }
+  }
+  return {};
 }
 
 /** The nth content block's text; a non-text block reads as empty rather than throwing. */
@@ -637,7 +652,7 @@ describe('run_agent_on_pr — a run that fails', () => {
       reviews: [],
     });
     const answer = await result;
-    expect(answer.structuredContent).toMatchObject({ status: 'cancelled', code: 'run_cancelled' });
+    expect(payloadOf(answer)).toMatchObject({ status: 'cancelled', code: 'run_cancelled' });
     expect(textOf(answer)).toContain('cancelled');
   });
 });
@@ -651,7 +666,7 @@ describe('run_agent_on_pr — 429', () => {
     const answer = await result;
 
     expect(answer.isError).toBe(true);
-    expect(answer.structuredContent).toMatchObject({ code: 'rate_limited' });
+    expect(payloadOf(answer)).toMatchObject({ code: 'rate_limited' });
     const text = textOf(answer);
     expect(text).toContain('10 calls per minute');
     expect(text).toContain('No run was started');

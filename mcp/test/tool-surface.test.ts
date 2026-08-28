@@ -341,7 +341,13 @@ describe('list_agents', () => {
     const text = result.content?.[0]?.text ?? '';
     expect(text).toContain('./scripts/dev.sh');
     expect(text).not.toContain('at Object.'); // no stack trace
-    expect(result.structuredContent).toMatchObject({ code: 'api_unreachable' });
+    // The error payload rides in the JSON text block, not `structuredContent`:
+    // it cannot satisfy `listAgentsOutput`, and a validating client rejects the
+    // whole result when it does not.
+    expect(result.structuredContent).toBeUndefined();
+    expect(JSON.parse(result.content?.[1]?.text ?? '{}')).toMatchObject({
+      code: 'api_unreachable',
+    });
   });
 });
 
@@ -368,5 +374,64 @@ describe('get_blast_radius — the honest stub', () => {
     expect(Object.keys(result.structuredContent ?? {})).not.toContain('changed_symbols');
     expect(Object.keys(result.structuredContent ?? {})).not.toContain('downstream');
     expect(JSON.stringify(result)).not.toContain('changed_symbols');
+  });
+});
+
+/**
+ * The guard for the fault that shipped past 197 green tests.
+ *
+ * A tool that declares an `outputSchema` and then returns `structuredContent`
+ * violating it is malformed — but the SDK's `validateToolOutput` returns early
+ * when `isError` is true, so the server never complains and neither did this
+ * suite. A client does not skip that check: the MCP Inspector validates with ajv
+ * and rejects the entire result, so the caller sees a schema error instead of the
+ * sentence naming `list_agents` or `./scripts/dev.sh` — losing precisely the
+ * guidance the Degraded acceptance criteria are about.
+ *
+ * The rule, and it is checkable rather than arguable: on an error result, either
+ * carry no `structuredContent` at all, or carry one its own `outputSchema`
+ * accepts. `get_blast_radius` is the only tool that takes the second branch,
+ * because its declared shape IS its error shape.
+ */
+describe('error results never contradict their own outputSchema', () => {
+  const DEAD_FETCH: FetchLike = () => Promise.reject(new Error('ECONNREFUSED'));
+
+  const ERROR_CALLS: ReadonlyArray<[string, Record<string, unknown>]> = [
+    ['list_agents', {}],
+    ['get_findings', { repo: 'acme/payments-api', pr: 482 }],
+    ['get_conventions', { repo: 'acme/payments-api' }],
+    ['run_agent_on_pr', { repo: 'acme/payments-api', pr: 482, agent: 'security-reviewer' }],
+    ['get_blast_radius', { repo: 'acme/payments-api', pr: 482 }],
+  ];
+
+  it.each(ERROR_CALLS)('%s', async (name, args) => {
+    const result = await callTool(DEAD_FETCH, name, args);
+    expect(result.isError, `${name} should have failed with a dead API`).toBe(true);
+
+    if (result.structuredContent === undefined) {
+      // Took the first branch. The payload must still be readable, or the error
+      // is machine-opaque — the JSON block is where it moved to.
+      const blocks = (result.content ?? []).filter((block) => 'text' in block);
+      const parsed = blocks
+        .map((block) => {
+          try {
+            return JSON.parse(String((block as { text: unknown }).text)) as unknown;
+          } catch {
+            return null;
+          }
+        })
+        .filter((value) => value !== null && typeof value === 'object');
+      expect(parsed.length, `${name} error carries no JSON payload block`).toBeGreaterThan(0);
+      return;
+    }
+
+    // Took the second branch: it must actually validate.
+    const schema = toolNamed(name).outputSchema as Record<string, unknown> | undefined;
+    expect(schema, `${name} declares no outputSchema`).toBeDefined();
+    const required = (schema?.required ?? []) as string[];
+    const present = Object.keys(result.structuredContent);
+    for (const key of required) {
+      expect(present, `${name} error payload is missing required key "${key}"`).toContain(key);
+    }
   });
 });

@@ -6,6 +6,7 @@ import { resolveRepo } from '../api/resolve.js';
 import { TOOL_DESCRIPTIONS } from '../copy.js';
 import { isDevDigestApiError } from '../errors.js';
 import { log } from '../log.js';
+import { errorContent } from './get-findings.js';
 import { getConventionsInput, getConventionsOutput } from '../schemas.js';
 import {
   buildConventionsResult,
@@ -101,10 +102,8 @@ export async function runGetConventions(
     // nothing listening on :3001.
     if (!isDevDigestApiError(error)) throw error;
     log('get_conventions failed', error);
-    return {
-      content: [{ type: 'text', text: error.message }],
-      structuredContent: { status: 'error', code: error.code, message: error.message },
-      isError: true,
-    };
+    // No `structuredContent` on an error path — see `errorContent` in
+    // `get-findings.ts` for why a validating client makes that mandatory.
+    return errorContent(error.code, error.message);
   }
 }

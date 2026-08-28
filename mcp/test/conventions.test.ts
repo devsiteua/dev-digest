@@ -291,7 +291,22 @@ describe('describeConventionsResult — an empty list is not an empty answer', (
 
 /** The structured payload as a plain bag of keys. */
 function payloadOf(result: CallToolResult): Record<string, unknown> {
-  return (result.structuredContent ?? {}) as Record<string, unknown>;
+  // An error result deliberately carries NO `structuredContent` — it would
+  // violate the tool's advertised `outputSchema` and a validating client (the
+  // MCP Inspector) rejects the whole result over it. The machine-readable
+  // payload moves to the last JSON text block, so this reads either place.
+  if (result.structuredContent) return result.structuredContent as Record<string, unknown>;
+  for (let i = (result.content?.length ?? 0) - 1; i >= 0; i -= 1) {
+    const block = result.content?.[i];
+    if (!block || !('text' in block)) continue;
+    try {
+      const parsed: unknown = JSON.parse(String(block.text));
+      if (parsed && typeof parsed === 'object') return parsed as Record<string, unknown>;
+    } catch {
+      // Not the JSON block — keep walking back.
+    }
+  }
+  return {};
 }
 
 /** The accepted rules of a tool result, as plain objects. */
@@ -448,7 +463,7 @@ describe('get_conventions — the tool', () => {
 
     expect(result.isError).toBe(true);
     expect(textOf(result)).toContain('Add the repo in DevDigest');
-    expect(result.structuredContent).toMatchObject({ code: 'not_found' });
+    expect(payloadOf(result)).toMatchObject({ code: 'not_found' });
   });
 
   it('reports an unreachable API as a tool error naming ./scripts/dev.sh', async () => {
@@ -466,7 +481,7 @@ describe('get_conventions — the tool', () => {
 
     expect(result.isError).toBe(true);
     expect(textOf(result)).toContain('./scripts/dev.sh');
-    expect(result.structuredContent).toMatchObject({ code: 'api_unreachable' });
+    expect(payloadOf(result)).toMatchObject({ code: 'api_unreachable' });
   });
 });
 
