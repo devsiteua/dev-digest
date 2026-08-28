@@ -11,6 +11,7 @@ import {
 } from '../src/cli/args.js';
 import {
   EXIT_BLOCKING,
+  EXIT_FAILED,
   EXIT_OK,
   exitCodeFor,
   renderFindings,
@@ -23,8 +24,14 @@ import {
  * The exit code is a documented contract a CI step branches on, and the flag
  * surface is what a saved script depends on. Neither is worth testing through a
  * spawned process: both live in pure modules for exactly that reason, and the
- * subprocess and the HTTP call around them are covered by `reviews.it.test.ts`
- * on the server, where the review actually happens.
+ * HTTP call around them is covered by `reviews.it.test.ts` on the server, where
+ * the review actually happens.
+ *
+ * What is NOT covered, stated rather than implied: nothing here spawns or stubs
+ * `git`, and every path that returns exit 2 lives inside `main()`, which is not
+ * exported and self-invokes on import. Testing those needs `main(argv, deps)`
+ * with an injected git and api — the shape the MCP side already uses for
+ * `fetch` — and that refactor is not in this change.
  */
 
 const RESULT: WorkingReviewResponse = {
@@ -154,6 +161,16 @@ describe('the exit code is the server\'s judgement, not a second opinion', () =>
 
   it('is 0 for an empty review', () => {
     expect(exitCodeFor({ blocking: 0 })).toBe(EXIT_OK);
+  });
+
+  it('is 2, never 0, when the count cannot be read', () => {
+    // This package asserts responses instead of parsing them, so a differently
+    // versioned API on a user-set DEVDIGEST_API_URL can answer without the
+    // field. `undefined > 0` is false, which would have exited 0 — a gate
+    // reporting "clean" on an answer it never understood.
+    expect(exitCodeFor({ blocking: undefined as unknown as number })).toBe(EXIT_FAILED);
+    expect(exitCodeFor({ blocking: '3' as unknown as number })).toBe(EXIT_FAILED);
+    expect(exitCodeFor({ blocking: Number.NaN })).toBe(EXIT_FAILED);
   });
 });
 

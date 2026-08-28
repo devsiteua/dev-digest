@@ -118,7 +118,13 @@ export async function runRunAgentOnPr(
       throw error;
     }
 
-    const target = triggered.runs.find((run) => run.agent_id === agent.id) ?? triggered.runs[0];
+    // No `?? triggered.runs[0]`. A run whose `agent_id` is not the one we asked
+    // for is not this call's run: waiting on it would bill two minutes of
+    // polling and then hand `buildReviewResult` a run `matchesAgent` rejects,
+    // reporting `reviewed: false` for a review that did in fact finish. The same
+    // rule `mcp/CLAUDE.md` states as "never `reviews[0]`" — report, don't
+    // substitute.
+    const target = triggered.runs.find((run) => run.agent_id === agent.id);
     if (!target) {
       return errorResult('api_error', describeNothingStarted(pull.repo, args.pr, agent));
     }

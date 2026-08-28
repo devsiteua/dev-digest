@@ -122,9 +122,11 @@ export async function runGetFindings(
  * guidance the error exists to deliver.
  *
  * So the machine-readable payload rides in a second text block, where no schema
- * governs it and every client can still read it. `get_blast_radius` is the one
- * tool that keeps `structuredContent` on an error, because its `outputSchema`
- * IS its error shape.
+ * governs it and every client can still read it. There is NO exception:
+ * `get_blast_radius` routes its errors through this helper too. It used to be
+ * one, back when its `outputSchema` was the not-implemented error shape; that
+ * schema is now its success shape, and a `structuredContent` on one of its
+ * errors is exactly what the Inspector's ajv pass would reject.
  */
 export function errorContent(code: string, message: string): CallToolResult {
   return {

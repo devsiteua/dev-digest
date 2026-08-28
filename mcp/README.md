@@ -202,7 +202,7 @@ contract changes shape underneath this package.
 | `src/cli.ts` | Delivery | the other entry point: a terminal, an exit code, and the only stdout writes in the package |
 | `src/api/`, `src/cli/git.ts` | Infrastructure | the only places that reach outside: HTTP, and two `git` subprocesses |
 | `src/shape/`, `src/cli/args.ts`, `src/cli/render.ts`, `src/schemas.ts`, `src/errors.ts`, `src/copy.ts` | Pure | DTO projections, tool schemas, flag parsing, the exit-code rule, error text — nothing awaits |
-| `src/config.ts` | Composition | the only `process.env` read in the package |
+| `src/config.ts` | Composition | the only module that INTERPRETS the environment; the two entry points hand it `process.env` and read nothing else themselves |
 
 The rules that keep those rings honest — and the reason contracts are imported as
 types only — are in [`CLAUDE.md`](CLAUDE.md).

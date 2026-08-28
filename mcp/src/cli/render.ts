@@ -22,6 +22,14 @@ export const EXIT_FAILED = 2;
  * somebody changed an agent's threshold, and only one of the two would be right.
  */
 export function exitCodeFor(result: Pick<WorkingReviewResponse, 'blocking'>): number {
+  // This package asserts API responses rather than parsing them (`mcp/CLAUDE.md`
+  // § Conventions), and `pnpm typecheck` guards contract drift inside this
+  // repository — not a differently-versioned API answering on a user-set
+  // `DEVDIGEST_API_URL`. Everywhere else that costs some garbled text; here it
+  // would cost the contract, because `undefined > 0` is `false`, and the one
+  // direction a gate must never fail in is the one that reports "clean" without
+  // knowing. An unreadable count is a review that could not be judged: exit 2.
+  if (!Number.isInteger(result.blocking)) return EXIT_FAILED;
   return result.blocking > 0 ? EXIT_BLOCKING : EXIT_OK;
 }
 

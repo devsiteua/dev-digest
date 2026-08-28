@@ -98,8 +98,15 @@ async function main(argv: readonly string[]): Promise<number> {
  * `agent` rather than accepting `{ all: true }`.
  */
 async function firstAgentName(api: ApiClient): Promise<string | null> {
-  const agents = await api.get<Array<{ name: string }>>('/agents');
-  return agents[0]?.name ?? null;
+  const agents = await api.get<Array<{ name: string; enabled?: boolean }>>('/agents');
+  // `GET /agents` is `select().from(agents)` with no ORDER BY and no `enabled`
+  // filter, so `agents[0]` is planner order — the same trap the root CLAUDE.md
+  // records for "latest per group" reads. Left alone, two runs of the same
+  // command on the same tree could be reviewed by different agents, and a
+  // reviewer the user switched OFF in the studio could be the one billed.
+  const usable = agents.filter((agent) => agent.enabled !== false);
+  const [first] = [...usable].sort((a, b) => a.name.localeCompare(b.name));
+  return first?.name ?? null;
 }
 
 main(process.argv.slice(2))

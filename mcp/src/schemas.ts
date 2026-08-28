@@ -1,4 +1,9 @@
 import { z } from 'zod';
+// The bounds the model reads in the tool description and the bounds `clampLimit`
+// enforces are now ONE pair each. They were two literal pairs, with a comment on
+// each side saying the other existed — which is a promise, not a mechanism.
+import { DEFAULT_CONVENTIONS_LIMIT, MAX_CONVENTIONS_LIMIT } from './shape/conventions.js';
+import { DEFAULT_FINDINGS_LIMIT, MAX_FINDINGS_LIMIT } from './shape/findings.js';
 
 /**
  * Pure ring — every tool's input and output schema, and the flat argument fields
@@ -112,13 +117,13 @@ export const getFindingsInput = z.object({
   // recent review", which is a question only this tool can answer.
   agent: agentField.optional(),
   response_format: responseFormatField,
-  limit: limitField(20, 100),
+  limit: limitField(DEFAULT_FINDINGS_LIMIT, MAX_FINDINGS_LIMIT),
 });
 
 export const getConventionsInput = z.object({
   repo: repoField,
   response_format: responseFormatField,
-  limit: limitField(50, 200),
+  limit: limitField(DEFAULT_CONVENTIONS_LIMIT, MAX_CONVENTIONS_LIMIT),
 });
 
 export const getBlastRadiusInput = z.object({

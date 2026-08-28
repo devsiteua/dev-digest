@@ -11,8 +11,19 @@ const run = promisify(execFile);
  * in — part of a command string.
  */
 
-/** How much diff we are willing to hold in memory before giving up. */
-const MAX_DIFF_BYTES = 8 * 1024 * 1024;
+/**
+ * How much diff this command will send, in bytes.
+ *
+ * Matched to `MAX_WORKING_DIFF_CHARS` in the contract, not to what fits in
+ * memory. An 8 MB ceiling here was worse than no ceiling: everything between the
+ * server's limit and it passed this guard, got posted, came back 413 and was
+ * rendered as "DevDigest rejected the request as invalid — check the arguments",
+ * which is neither true nor actionable at a terminal. Refusing here says the one
+ * useful sentence instead. Not imported: `mcp/` takes the contracts as TYPES
+ * ONLY, so a runtime value cannot cross that boundary — the number is restated
+ * with its owner named.
+ */
+const MAX_DIFF_BYTES = 400_000;
 
 export class GitError extends Error {}
 
@@ -21,7 +32,13 @@ export async function repoRoot(cwd: string): Promise<string> {
   try {
     const { stdout } = await run('git', ['rev-parse', '--show-toplevel'], { cwd });
     return stdout.trim();
-  } catch {
+  } catch (error) {
+    // ENOENT is not "you are in the wrong directory", it is "there is no git
+    // here at all" — and telling someone without git installed to cd somewhere
+    // else is the one answer that cannot help them.
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new GitError('`git` was not found on PATH. Install git, or run this where git is.');
+    }
     throw new GitError(
       'Not inside a git repository. Run this from a checkout — the diff it reviews is ' +
         '`git diff HEAD` in the repository you are standing in.',
@@ -51,8 +68,8 @@ export async function workingDiff(root: string): Promise<string> {
     const message = (error as { message?: string }).message ?? String(error);
     if (message.includes('maxBuffer')) {
       throw new GitError(
-        `The working diff is larger than ${MAX_DIFF_BYTES / 1024 / 1024} MB. Commit or stash ` +
-          'part of it and review the rest.',
+        `The working diff is larger than ${MAX_DIFF_BYTES} bytes, which is what the review ` +
+          'endpoint accepts. Commit or stash part of it and review the rest.',
       );
     }
     throw new GitError(`\`git diff HEAD\` failed: ${message}`);

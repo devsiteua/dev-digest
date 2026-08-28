@@ -86,7 +86,15 @@ async function driveServer(): Promise<Captured> {
   // Wait until every request has been answered, then shut the process down.
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline) {
-    const answered = captured.stdout.split('\n').filter((line) => line.trim().length > 0).length;
+    // Count only TERMINATED lines. A frame still being flushed is a non-empty
+    // line too, so counting those can break the loop mid-write, kill the child,
+    // and fail the assertion below on the harness's own truncation — reported as
+    // "stdout carried a line that is not JSON", which is the one message this
+    // test must never print for a reason other than a real stdout write.
+    const answered = captured.stdout
+      .split('\n')
+      .slice(0, -1)
+      .filter((line) => line.trim().length > 0).length;
     if (answered >= 5) break;
     await new Promise((resolve) => setTimeout(resolve, 50));
   }

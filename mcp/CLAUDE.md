@@ -42,11 +42,11 @@ is enforced by hand and by the greps beside it.
 | Delivery | `src/tools/*.ts`, `src/server.ts`, `src/index.ts`, `src/cli.ts` | know the MCP protocol shape — content blocks, `structuredContent`, `isError`, annotations — or, in the CLI, a terminal and an exit code | call `fetch`, read `process.env` |
 | Infrastructure | `src/api/*.ts`, `src/cli/git.ts` | `fetch`, HTTP status → error mapping, polling, spawning `git` | know anything about MCP |
 | Pure | `src/shape/*.ts`, `src/cli/args.ts`, `src/cli/render.ts`, `src/schemas.ts`, `src/errors.ts`, `src/copy.ts` | transform DTOs, build error text, decide an exit code | `await` anything |
-| Composition | `src/config.ts` | the **only** `process.env` read | — |
+| Composition | `src/config.ts` | the **only** module that interprets the environment — an entry point may pass `process.env` in (`src/cli.ts` does), nothing else may read it | — |
 
 ```sh
 grep -rn "fetch(" src/tools src/shape src/cli/args.ts src/cli/render.ts   # must be empty
-grep -rln "process\.env" src              # must print only src/config.ts
+grep -rln "process\.env" src              # only src/config.ts and src/cli.ts (which passes it in)
 ```
 
 ## Conventions

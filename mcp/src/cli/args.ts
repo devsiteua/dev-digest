@@ -47,7 +47,10 @@ export function parseArgs(argv: readonly string[]): CliOptions {
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i] ?? '';
-    if (arg === '--help' || arg === '-h') {
+    // `--help` only. The doc comment above forbids short aliases, and `-h` was
+    // one — undocumented in `helpText()`, so it was a second spelling nobody had
+    // been told about and everybody would have had to keep working.
+    if (arg === '--help') {
       help = true;
       continue;
     }
@@ -117,14 +120,18 @@ export function helpText(): string {
     'devdigest review — review your uncommitted changes with a DevDigest agent.',
     '',
     'Usage:',
-    '  devdigest review [--mode working] [--agent <name-or-slug>] [--json]',
+    // The invocation that exists. There is no `bin` entry and no build: the
+    // package is private and runs through tsx, so `devdigest review` is the
+    // feature's name, not a command anyone can type.
+    '  pnpm review -- [--mode working] [--agent <name-or-slug>] [--json]',
     '',
     'Options:',
     '  --mode <mode>    working (default) · staged · branch.',
     '                   Only `working` is implemented; the other two parse and',
     '                   then fail, so the spelling is fixed before the feature is.',
     '  --agent <ref>    Which reviewer to run, by name or slug. Defaults to the',
-    '                   first agent DevDigest has configured.',
+    '                   first ENABLED agent by name — pass it explicitly in a',
+    '                   script, so a new agent cannot change what runs.',
     '  --json           Print the raw API response instead of the finding list.',
     '  --help           This text.',
     '',
