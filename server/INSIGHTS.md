@@ -11,6 +11,29 @@ _None yet._
 
 ## What Doesn't Work
 
+### 2026-08-28 · Adding a file to the `.it.test` lane is a LOAD change, so a green baseline does not predict a green lane
+
+Trigger:  adding `pulls-lookup.it.test.ts` (the 12th integration file) turned
+          `skills.it.test.ts > "puts linked+enabled skills in the prompt"` red once with
+          `TypeError: Cannot read properties of undefined (reading 'skills')` — in a file the
+          change never touched. Removing the new file: 103/103 green. Adding it back: one
+          failure, then two consecutive 110/110 passes.
+Cause:    not shared-DB interference — every integration file starts its OWN Postgres
+          container (`test/helpers/pg.ts`), so a 12th file is a 12th container and pure
+          resource contention. `runAndReadAssembly` (`test/skills.it.test.ts:767`) calls
+          `waitForPrRuns` and then immediately reads `/runs/:id/trace`, returning
+          `trace.prompt_assembly`. `waitForPrRuns` returns the rows it has when its timeout
+          expires (`server/INSIGHTS.md` 2026-08-07), so under load the trace is not persisted
+          yet, `prompt_assembly` is `undefined`, and the next line dereferences it.
+Takeaway: when a new integration file makes an unrelated one fail, do not reach for "flake" —
+          and do not assume interference either. Remove the new file and re-run: that separates
+          a real regression from a load-exposed race in two commands. The 2026-08-07 lesson has
+          a second half this proves: a caller of a bounded wait helper must assert the condition
+          it waited for, or the timeout resurfaces as a `TypeError` three lines later instead of
+          as "the run never finished".
+Evidence: server/test/skills.it.test.ts:767 (runAndReadAssembly); server/test/helpers/pg.ts (startPg);
+          server/test/helpers/runs.ts (waitForPrRuns)
+Status:   open — not fixed; `skills.it.test.ts` was outside the L04 spec's file list
 ### 2026-08-23 · A path-keyed seed backfill that only INSERTS converges on the row count and not on the columns
 
 Trigger:  bringing seeded PR #482 from four `pr_files` rows to nine. The plan said: select
@@ -178,6 +201,27 @@ Status:   → promoted to `CLAUDE.md` (Gotchas)
 
 ## Codebase Patterns
 
+### 2026-08-28 · `PrMeta.status` is DERIVED, not the column — a third producer will disagree and nothing will complain
+
+Trigger:  adding `GET /pulls/lookup` as a second endpoint returning `PrMeta`, built from the
+          persisted row alone. The obvious mapping — pass `pull_requests.status` straight
+          through — compiles, validates and is wrong.
+Cause:    the `status` COLUMN holds GitHub's merge state (`open`/`merged`/`closed`); the
+          `PrMeta.status` FIELD is review freshness (`needs_review`/`reviewed`/`stale`), which
+          `GET /repos/:id/pulls` derives with `deriveReviewStatus(ghStatus, lastReviewedSha,
+          headSha, updatedAt)`. `PrStatus` accepts both vocabularies, so neither Zod nor `tsc`
+          objects: the lookup would have reported `open` for the same PR the list reports
+          `needs_review`, and the two `PrMeta` producers would silently disagree.
+Takeaway: any new endpoint returning `PrMeta` must call `deriveReviewStatus` (pure, persisted
+          columns only, no GitHub) rather than reading the column. When two endpoints return
+          one contract, the derived fields are the ones to check first — an enum wide enough
+          to hold both meanings is exactly why the bug is invisible. Related, found the same
+          round: `_shared/schemas.ts` holds only `IdParams` despite being described as where
+          every request schema lives; module-specific request schemas live at the top of their
+          own `routes.ts` (`agents/routes.ts:11,14,33,46`).
+Evidence: server/src/modules/pulls/status.ts (deriveReviewStatus); server/src/modules/pulls/routes.ts
+          (both PrMeta producers); server/src/vendor/shared/contracts/platform.ts (PrStatus)
+Status:   resolved
 ### 2026-08-25 · `RunLogger` reaches exactly one module, so every service it calls is invisible in the Live Log
 
 Trigger:  a review said the Live Log emits no amber events during the intent derivation. Two

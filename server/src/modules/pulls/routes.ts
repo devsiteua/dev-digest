@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { and, desc, eq, inArray } from 'drizzle-orm';
+import { z } from 'zod';
 import type {
   PrMeta,
   PrDetail,
@@ -16,10 +17,22 @@ import { AppError, NotFoundError } from '../../platform/errors.js';
 import { deriveReviewStatus, rollupSeveritiesByReview } from './status.js';
 
 /**
+ * `GET /pulls/lookup?repo=acme/payments-api&number=482`. Query params arrive as
+ * strings, so `number` coerces — the same shape `VersionParams` uses in the
+ * agents module. Request schemas that serve exactly one module live beside that
+ * module's routes; `_shared/schemas.ts` is for the ones every module reuses.
+ */
+const PullLookupQuery = z.object({
+  repo: z.string().regex(/^[^\s/]+\/[^\s/]+$/, 'repo must be "owner/name"'),
+  number: z.coerce.number().int().positive(),
+});
+
+/**
  * F1 — pulls module. PR import via Octokit (list + per-PR detail).
  *   GET /repos/:id/pulls → list PRs for a repo (open + recently merged/closed,
  *                          synced from GitHub, persisted). `status` is GitHub's
  *                          merge state (open/merged/closed).
+ *   GET /pulls/lookup    → resolve owner/name#number → the persisted PR (no GitHub)
  *   GET /pulls/:id       → full PR detail (diff/files, commits, body, linked issue)
  *
  * Import is idempotent (unique repo_id+number). Review trigger is MANUAL
@@ -216,6 +229,82 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
       };
     });
   });
+
+  // Resolve GitHub's coordinates — owner/name + PR number — to the persisted
+  // PR, for callers that never see a DevDigest uuid (the MCP server, a CLI).
+  //
+  // Deliberately does NOT call `container.github()`. `GET /repos/:id/pulls`
+  // above resolves a number too, but syncs from GitHub on every request; a
+  // caller whose whole job is turning a number into an id would then be dead
+  // offline and slow online. Every field `PrMeta` needs is a column on
+  // `pull_requests`, so the persisted row alone answers this.
+  //
+  // Registered ahead of `/pulls/:id` for readability only — find-my-way ranks a
+  // static segment above a parametric one whatever the order, so `lookup` is
+  // never swallowed as an `:id` (and `IdParams` would 422 it if it were).
+  // `pulls-lookup.it.test.ts` asserts that rather than trusting it.
+  app.get(
+    '/pulls/lookup',
+    { schema: { querystring: PullLookupQuery } },
+    async (req): Promise<PrMeta> => {
+      const { workspaceId } = await getContext(container, req);
+      const { repo: fullName, number } = req.query;
+
+      const [repo] = await container.db
+        .select()
+        .from(t.repos)
+        .where(and(eq(t.repos.workspaceId, workspaceId), eq(t.repos.fullName, fullName)));
+      // Both 404s name the NEXT step, because "not found" is ambiguous here:
+      // the repo may be absent from DevDigest, or present but never opened.
+      if (!repo)
+        throw new NotFoundError(
+          `Repo "${fullName}" is not in DevDigest — add the repo in DevDigest first.`,
+        );
+
+      const [pr] = await container.db
+        .select()
+        .from(t.pullRequests)
+        .where(
+          and(
+            eq(t.pullRequests.workspaceId, workspaceId),
+            eq(t.pullRequests.repoId, repo.id),
+            eq(t.pullRequests.number, number),
+          ),
+        );
+      if (!pr)
+        throw new NotFoundError(
+          `PR #${number} of ${fullName} has not been imported — open the repo's PR list ` +
+            `in DevDigest so PR #${number} is imported.`,
+        );
+
+      return {
+        id: pr.id,
+        number: pr.number,
+        title: pr.title,
+        author: pr.author,
+        branch: pr.branch,
+        base: pr.base,
+        head_sha: pr.headSha,
+        additions: pr.additions,
+        deletions: pr.deletions,
+        files_count: pr.filesCount,
+        // Same derivation as the list endpoint, off the same persisted columns:
+        // both produce a `PrMeta`, so `status` has to mean one thing in both.
+        status: deriveReviewStatus({
+          ghStatus: pr.status,
+          lastReviewedSha: pr.lastReviewedSha,
+          headSha: pr.headSha,
+          updatedAt: pr.updatedAt,
+          now: Date.now(),
+        }),
+        opened_at: pr.openedAt?.toISOString() ?? null,
+        updated_at: pr.updatedAt?.toISOString() ?? null,
+        // `score`, `cost_usd` and `findings_by_severity` are list-endpoint-only
+        // (see PrMeta's own comments) and stay absent: this route answers "which
+        // PR is that", not "how did its review go".
+      };
+    },
+  );
 
   app.get('/pulls/:id', { schema: { params: IdParams } }, async (req): Promise<PrDetail> => {
     const { workspaceId } = await getContext(container, req);

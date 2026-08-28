@@ -1,0 +1,26 @@
+{
+  "name": "@devdigest/mcp",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "DevDigest MCP server — a stdio delivery adapter over the @devdigest/api on localhost:3001. No database, no secrets, no migrations: every read and write goes through the HTTP API.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "review": "tsx src/cli.ts review",
+    "test": "vitest run --passWithNoTests",
+    "test:live": "vitest run --config vitest.live.config.ts --passWithNoTests"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.0.0",
+    "zod": "^4.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

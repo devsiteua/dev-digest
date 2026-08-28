@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "devdigest": {
+      "type": "stdio",
+      "command": "pnpm",
+      "args": ["--dir", "mcp", "exec", "tsx", "src/index.ts"],
+      "env": {
+        "DEVDIGEST_API_URL": "http://localhost:3001"
+      },
+      "timeout": 180000
+    }
+  }
+}

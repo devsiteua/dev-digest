@@ -1,15 +1,17 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
-import { RunRequest } from '@devdigest/shared';
-import type { RunEvent } from '@devdigest/shared';
+import { RunRequest, WorkingReviewRequest } from '@devdigest/shared';
+import type { RunEvent, WorkingReviewResponse } from '@devdigest/shared';
 import { getContext } from '../_shared/context.js';
 import { IdParams } from '../_shared/schemas.js';
 import { NotFoundError } from '../../platform/errors.js';
 import { ReviewService } from './service.js';
+import { reviewWorkingDiff } from './working.js';
 
 /**
  * reviews module.
  *   POST   /pulls/:id/review  {agentId} | {all:true}  → run review(s); returns runs
+ *   POST   /reviews/working   {agent, diff}            → review a diff with no PR behind it
  *   GET    /runs/:id/events                            → SSE stream of RunEvent (replay-first)
  *   GET    /runs/:id/trace                             → the single-document RunTrace
  *   GET    /pulls/:id/reviews                          → persisted reviews + findings for a PR
@@ -42,6 +44,52 @@ export default async function reviewsRoutes(appBase: FastifyInstance) {
     );
     return { pr_id: req.params.id, runs, reviews };
   });
+
+  // ---- Review a diff with no pull request behind it ----------------------
+  /**
+   * `devdigest review --mode working`'s server side.
+   *
+   * SYNCHRONOUS, and that is the one way it deliberately differs from its
+   * neighbour above: `POST /pulls/:id/review` is fire-and-forget because a
+   * browser subscribes to the run over SSE afterwards, and returns `reviews: []`
+   * on purpose. A CLI has nothing to subscribe with — a fire-and-forget answer
+   * would leave it with nothing to print.
+   *
+   * Same rate limit as the run trigger, for the same reason: each call is a real
+   * model call, and a `--watch` loop somebody writes later must hit a cap rather
+   * than a bill.
+   *
+   * Persists NOTHING. There is no pull request to key a review row on, and a
+   * review of a working tree is stale the moment its author saves the file.
+   */
+  app.post(
+    '/reviews/working',
+    { schema: { body: WorkingReviewRequest }, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    async (req): Promise<WorkingReviewResponse> => {
+      const { workspaceId } = await getContext(container, req);
+      const result = await reviewWorkingDiff(container, workspaceId, req.body, {
+        info: (message, data) => req.log.info((data ?? {}) as object, message),
+      });
+      req.log.info(
+        {
+          agent: result.agent_name,
+          provider: result.provider,
+          model: result.model,
+          files: result.files_reviewed,
+          findings: result.findings.length,
+          blocking: result.blocking,
+          grounding: result.grounding,
+          tokensIn: result.tokens_in,
+          tokensOut: result.tokens_out,
+          costUsd: result.cost_usd,
+          persisted: false,
+          durationMs: result.duration_ms,
+        },
+        'working-tree review served',
+      );
+      return result;
+    },
+  );
 
   // ---- SSE: live run events (replay buffer first, then live; ends on done) -
   // No rate limit: SSE is one long-lived connection, not burst traffic.

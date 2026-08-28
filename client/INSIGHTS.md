@@ -264,6 +264,26 @@ Status:   resolved
 
 ## Tool & Library Notes
 
+### 2026-08-28 · A query held back by `enabled` is `isPending`, never `isLoading` — reading the wrong one renders NOTHING
+
+Trigger:  the Blast tab drew a blank card for the whole window in which `usePullDetail`
+          resolved, which is the tab's normal first paint. Every test was green.
+Cause:    React Query v5 defines `isLoading = isPending && isFetching`. A disabled query
+          never fetches, so it sits at `isPending: true, isLoading: false, data: undefined`.
+          A component that guards with `if (isLoading) return <Skeleton/>` and then
+          `if (!data) return null` therefore renders nothing at all for exactly as long as
+          the gate is closed — and every gate in this client is deliberate (`useBlast`,
+          `useSmartDiff`), so this is the common path, not an edge. The same guard swallowed
+          a non-404 failure, since `isError` leaves `data` undefined too.
+Takeaway: with an `enabled` gate, branch on `isPending` for the placeholder and on `isError`
+          for the failure, and keep `!data` for the genuine "there is no such thing" answer.
+          And a mock of the hook has to HONOUR `enabled` — one that answers with a populated
+          payload regardless renders a state the component cannot reach, so the test asserting
+          the gate cannot fail for the reason the gate exists.
+Evidence: client/src/app/repos/[repoId]/pulls/[number]/_components/BlastTab/BlastTab.tsx
+          (the isPending/isError guards); BlastTab.test.tsx (the mock that reads `enabled`)
+Status:   resolved
+
 ### 2026-08-23 · jsdom has no `scrollIntoView` — stub it on `Element.prototype`, and read `mock.instances` to learn WHICH element scrolled
 
 Trigger:  proving that a findings badge scrolls the diff to the flagged line, and that a

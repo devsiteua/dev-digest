@@ -1,4 +1,8 @@
 {
+  "title": "Blast radius",
+  "explain": "Explain",
+  "explainedBy": "Written by {model} from the map above — no new analysis.",
+  "explainFailed": "The explanation could not be written. The map above is unchanged.",
   "stat": {
     "symbols": "symbols",
     "callers": "callers",
@@ -14,5 +18,44 @@
   "graph": {
     "empty": "No downstream callers to graph.",
     "ariaLabel": "Blast radius graph"
+  },
+  "indexedAt": "Indexed at {sha}",
+  "loadFailedTitle": "The blast radius could not be loaded",
+  "loadFailedBody": "The request itself did not arrive — this says nothing about what the pull request reaches.",
+  "notIndexed": "This repository has never been indexed.",
+  "reanalyze": "Re-analyze",
+  "reason": {
+    "index_missing": {
+      "title": "This repository has no usable index",
+      "body": "Nothing was analysed, so this is not a claim that the pull request affects nothing. Re-analyze the repository to build the index."
+    },
+    "index_failed": {
+      "title": "The last index of this repository failed",
+      "body": "Nothing was analysed, so this is not a claim that the pull request affects nothing. Re-analyze the repository to try again."
+    },
+    "repo_intel_disabled": {
+      "title": "Repository intelligence is switched off",
+      "body": "Nothing was analysed, so this is not a claim that the pull request affects nothing. Turn repo-intel back on to see what this pull request reaches."
+    },
+    "index_partial": {
+      "title": "The index is incomplete",
+      "body": "The map below is real, but some callers may be missing. Re-analyze the repository for the whole picture."
+    },
+    "no_changed_files": {
+      "title": "No changed files are recorded yet",
+      "body": "Open the Files changed tab once so this pull request's files are imported, then come back."
+    },
+    "no_indexed_symbols": {
+      "title": "No indexed symbols in these files",
+      "body": "The changed files declare nothing the index knows about at this commit — a brand-new file has no entry in an index built from the default branch."
+    },
+    "no_callers": {
+      "title": "Nothing calls these symbols"
+    }
+  },
+  "legend": {
+    "symbol": "changed symbol",
+    "callers": "callers",
+    "endpoints": "endpoints affected"
   }
 }

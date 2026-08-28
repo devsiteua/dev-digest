@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { Finding, Verdict } from './findings.js';
 import {
+  BlastRadius,
   Intent,
   IntentConfidenceTier,
   IntentEvidence,
@@ -118,3 +119,149 @@ export type PrIntentRecord = z.infer<typeof PrIntentRecord>;
 /** Smart-diff response for a PR (the SmartDiff). */
 export const SmartDiffResponse = SmartDiff;
 export type SmartDiffResponse = z.infer<typeof SmartDiffResponse>;
+
+/**
+ * How much of a blast map to believe.
+ *
+ * `ok` does NOT mean "there is something to show" — an honest empty map is
+ * `ok` with a reason. It means the index answered the question it was asked.
+ */
+export const BlastStatus = z.enum(['ok', 'partial', 'degraded']);
+export type BlastStatus = z.infer<typeof BlastStatus>;
+
+/**
+ * Why a map looks the way it does — the field that keeps an empty array from
+ * being read as "this pull request affects nothing".
+ *
+ * The first three go with `degraded` (no usable index), `index_partial` with
+ * `partial`, and the last three with `ok`: nothing is wrong in those cases,
+ * there is simply nothing downstream to draw, and each of them has a different
+ * next step for the reader.
+ */
+export const BlastReason = z.enum([
+  'index_missing',
+  'index_failed',
+  'repo_intel_disabled',
+  'index_partial',
+  'no_changed_files',
+  'no_indexed_symbols',
+  'no_callers',
+]);
+export type BlastReason = z.infer<typeof BlastReason>;
+
+/**
+ * Response of `GET /pulls/:id/blast` — the `BlastRadius` plus how far it is to
+ * be trusted.
+ *
+ * `BlastRadius` itself is left alone deliberately, for the reason `Intent` is:
+ * it is a member of `PrBrief`, which a later lesson owns, and the three fields
+ * below describe THIS read rather than what a blast radius is.
+ *
+ * `indexed_sha` is the commit the map was computed against — the index's, never
+ * the pull request's head. Every `file:line` in it was recorded at that commit
+ * and is only guaranteed to point at the right line there, which is why the
+ * links the UI builds are pinned to it.
+ */
+export const BlastRadiusResponse = BlastRadius.extend({
+  status: BlastStatus,
+  /** `null` only when `status` is `ok` and the map is populated. */
+  reason: BlastReason.nullable(),
+  /** `null` when the repository has never been indexed. */
+  indexed_sha: z.string().nullable(),
+});
+export type BlastRadiusResponse = z.infer<typeof BlastRadiusResponse>;
+
+/**
+ * Response of `POST /pulls/:id/blast/explain` — the map already computed, put
+ * into one paragraph by exactly one model call.
+ *
+ * Nothing is persisted, so there is no id and no `generated_at` row to point at:
+ * the paragraph is a rendering of a map the caller already has, and the map is
+ * what is durable. Its cost is reported for the same reason `PrIntentRecord`
+ * reports its own — a call the user paid for has to be answerable about what it
+ * cost — and `cost_usd` is nullable for the same reason too: null means the
+ * model has no known price, which is a different fact from free.
+ */
+export const BlastExplainResponse = z.object({
+  explanation: z.string(),
+  /** The commit the explained map was computed against. */
+  indexed_sha: z.string().nullable(),
+  provider: Provider,
+  model: z.string(),
+  tokens_in: z.number().int(),
+  tokens_out: z.number().int(),
+  cost_usd: z.number().nullish(),
+  duration_ms: z.number().int(),
+});
+export type BlastExplainResponse = z.infer<typeof BlastExplainResponse>;
+
+/**
+ * Request of `POST /reviews/working` — review a diff with no pull request
+ * behind it.
+ *
+ * The whole input is what `git diff` printed and which agent to run. There is
+ * no repository id and no PR number, because there is no PR: this is the
+ * uncommitted working tree of whoever ran the CLI.
+ */
+/**
+ * How much diff `POST /reviews/working` will accept, in characters.
+ *
+ * The endpoint is the first one where a caller controls the whole body, and the
+ * whole body is rendered into ONE prompt — `reviewer-core` truncates the PR
+ * description and the intent, never the diff. Without a ceiling here the only
+ * bound is Fastify's global `bodyLimit`, which is a transport default rather
+ * than a promise this endpoint made, and the failure it produces (a bare 413,
+ * ten times a minute, against a paid model) says nothing a caller can act on.
+ *
+ * 400k characters is roughly 100k tokens — already past what the reviewing
+ * models here read well, so a diff above it would be reviewed badly rather than
+ * expensively.
+ */
+export const MAX_WORKING_DIFF_CHARS = 400_000;
+
+export const WorkingReviewRequest = z.object({
+  /** The agent's name, its kebab-cased slug, or its id. */
+  agent: z.string().min(1),
+  /** A unified diff, exactly as `git diff` produced it. */
+  diff: z
+    .string()
+    .min(1)
+    .max(
+      MAX_WORKING_DIFF_CHARS,
+      `The diff is larger than ${MAX_WORKING_DIFF_CHARS} characters. Commit or stash part of the working tree and review the rest.`,
+    ),
+});
+export type WorkingReviewRequest = z.infer<typeof WorkingReviewRequest>;
+
+/**
+ * Response of `POST /reviews/working`.
+ *
+ * `findings` are `Finding`s, not `FindingRecord`s, and that difference is the
+ * feature: nothing is persisted, so there is no row id to accept or dismiss.
+ * The review happened, was reported, and left no trace — which is what makes it
+ * safe to run on a working tree on every save.
+ *
+ * SYNCHRONOUS, deliberately unlike its neighbour `POST /pulls/:id/review`. That
+ * one is fire-and-forget and returns `reviews: []` on purpose, because a browser
+ * subscribes to the run over SSE afterwards. A CLI has nothing to subscribe
+ * with, and a fire-and-forget answer would leave it with nothing to print.
+ */
+export const WorkingReviewResponse = z.object({
+  agent_name: z.string(),
+  provider: Provider,
+  model: z.string(),
+  verdict: Verdict.nullable(),
+  score: z.number().int().nullable(),
+  summary: z.string().nullable(),
+  findings: z.array(Finding),
+  /** How many findings count as blocking under this agent's `ci_fail_on`. */
+  blocking: z.number().int(),
+  /** How the grounding gate judged the model's citations. */
+  grounding: z.string(),
+  files_reviewed: z.number().int(),
+  tokens_in: z.number().int(),
+  tokens_out: z.number().int(),
+  cost_usd: z.number().nullish(),
+  duration_ms: z.number().int(),
+});
+export type WorkingReviewResponse = z.infer<typeof WorkingReviewResponse>;

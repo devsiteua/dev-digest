@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { renderSkillBlocks, taskLine } from '../src/modules/reviews/helpers.js';
-import { MAX_SKILLS_CHARS } from '../src/modules/reviews/constants.js';
+import { MAX_SKILLS_CHARS, WORKING_TASK_LINE } from '../src/modules/reviews/constants.js';
 
 /**
  * Unit coverage for the review task-line. The key invariant: our trusted
@@ -21,6 +21,19 @@ describe('taskLine', () => {
     const line = taskLine(pull);
     expect(line).toMatch(/never .*withhold .*(or downgrade )?.*security/i);
     expect(line).toMatch(/review the entire diff/i);
+  });
+
+  /**
+   * The CLI's task line is a hand-copied sibling: `WORKING_TASK_LINE` restates
+   * the same contract minus the PR sentence, and nothing in the type system
+   * keeps the two in step. Pinning the SAME two rules on both is what makes a
+   * one-sided edit fail here rather than quietly leaving `devdigest review`
+   * with a weaker reviewer than the studio has.
+   */
+  it('holds the same two rules on the working-tree line', () => {
+    expect(WORKING_TASK_LINE).toMatch(/never .*withhold .*(or downgrade )?.*security/i);
+    expect(WORKING_TASK_LINE).toMatch(/review the entire diff/i);
+    expect(WORKING_TASK_LINE).not.toContain('pull request behind it.');
   });
 });
 

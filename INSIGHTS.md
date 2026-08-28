@@ -46,6 +46,27 @@ entries pile up, move them to `docs/insights-archive.md`.
 
 ## What Works
 
+### 2026-08-28 · Unit-test a facade that builds its own repository by patching the FIELD, not the constructor
+
+Trigger:  the two new `repoIntel` methods L04 is built on had to be proven never to reach
+          `container.codeIndex` (the ripgrep path), which is a claim about a code path and
+          cannot be made against a database.
+Cause:    `RepoIntelService`'s constructor takes only a `Container` and builds
+          `new RepoIntelRepository(container.db)` itself, so there is no seam in the
+          signature. `repo-intel-facade-degraded.test.ts` had already solved it:
+          `(svc as unknown as { repo: … }).repo = { … }` after construction, with a `container`
+          literal carrying only `config`, `db: {} as never` and the ports the path touches.
+          The second half is what makes it worth copying — the stubbed `codeIndex` THROWS on
+          every method rather than returning `[]`. A returning stub lets the fallback run and
+          pass, so "the ripgrep path is unreachable" would still be a claim; a throwing one
+          makes it an assertion.
+Takeaway: for any facade method that must NOT take a fallback, stub the fallback's port to
+          throw. And when a service builds its own repository, patch the field — the pattern
+          is established, it needs no DI change, and it keeps the unit lane Docker-free.
+Evidence: server/test/repo-intel-blast.test.ts (EXPLODING_CODE_INDEX, buildService);
+          server/test/repo-intel-facade-degraded.test.ts (the original)
+Status:   resolved
+
 ### 2026-08-07 · A skills A/B lands on WHICH findings, not how many — count the demonstration wrong and it looks like nothing happened
 
 Trigger:  running the control experiment on PR #484 (API Contract Reviewer, deepseek-v4-flash),
@@ -73,6 +94,46 @@ Status:   resolved — the recipe generalises to experiment 1 and to any future 
 
 ## What Doesn't Work
 
+### 2026-08-28 · A constant whose name documents a rule the code does not implement — and no test can catch it while the method has no consumer
+
+Trigger:  wiring the first consumer of `repoIntel.getBlastRadius`. Its persistent path ended
+          with `callers.slice(0, MAX_CALLERS_PER_SYMBOL)` over the FLAT array, while
+          `constants.ts` documents that constant as "Caller fan-out cap per changed symbol".
+Cause:    the method had no consumer at all (`grep -rn "getBlastRadius" server/src` outside
+          `modules/repo-intel/` was empty), so nothing exercised the multi-symbol case and no
+          test pinned the behaviour. A global cap of 20 is invisible on a one-symbol diff and
+          only wrong on a PR touching several hot symbols — which then shows twenty rows
+          against the first and none against the rest, without saying so. The caller sort had
+          the same shape of defect: `b.rank - a.rank` alone, and two references from ONE file
+          carry the same `file_rank.rank` to the last bit.
+Takeaway: when you become the first consumer of a facade method, re-read what its constants
+          CLAIM before trusting what its code does — an unconsumed method's behaviour has
+          never been checked against its own documentation, and a green suite says nothing
+          about it. Both corrections were free precisely because there was no consumer to
+          break; a year later they would have been a behaviour change.
+Evidence: server/src/modules/repo-intel/constants.ts (MAX_CALLERS_PER_SYMBOL);
+          server/src/modules/repo-intel/service.ts (capPerSymbol, the caller sort)
+Status:   resolved
+
+### 2026-08-28 · Shortening a wait does not make a review free — `POST /pulls/:id/review` is fire-and-forget
+
+Trigger:  L04's own test plan says to exercise `run_agent_on_pr`'s timeout branch with
+          `DEVDIGEST_MCP_RUN_TIMEOUT_MS=1` "without spending a model call", and the live lane
+          was about to be written that way.
+Cause:    the trigger returns as soon as it has created the `agent_runs` rows;
+          `ReviewService.runReview` fires `executor.executeRuns` in the background. The
+          ceiling governs only how long the CALLER waits, so a 1 ms timeout produces a fast
+          `still_running` answer and a full, billed review that finishes minutes later. The
+          spec's sentence is wrong in a way that reads as a cost control.
+Takeaway: to exercise the timeout branch for free, intercept the POST itself and answer with
+          a run id that does not exist — that is both unpaid and deterministic. Assert the
+          interception (`triggers === 1`), not merely that nothing threw. More generally: any
+          automated thing that touches `run_agent_on_pr` must stub the trigger, never trust a
+          short deadline. The same fire-and-forget shape is why `reviews: []` in the response
+          is correct (`server/CLAUDE.md` § Gotchas).
+Evidence: server/src/modules/reviews/service.ts (runReview); mcp/test/mcp.live.test.ts
+          (the intercepted trigger); specs/L04-mcp-server.md § Test plan (the wrong sentence)
+Status:   resolved — the live lane intercepts; the spec sentence is the thing that misleads
 ### 2026-08-25 · A gap held open on purpose gets cited as if it were closed — four files routed to an agent that did not exist
 
 Trigger:  a review noted `.claude/agents/security-reviewer.md` was missing. It had been left
@@ -233,6 +294,56 @@ Status:   open — fix opportunistically when touching those files
 > resolved with L01's cost column) → [`docs/insights-archive.md`](docs/insights-archive.md).
 
 ## Codebase Patterns
+
+### 2026-08-28 · A `done` spec can be live code — `mcp/test/copy.test.ts` asserts the L04 Appendix byte for byte, character count included
+
+Trigger:  a mentor review asked for `provider` to be dropped from `list_agents`. The tool
+          description naming it lives in `mcp/src/copy.ts`, so the edit looked like one line
+          in one package.
+Cause:    `mcp/test/copy.test.ts` re-reads `specs/L04-mcp-server.md` § Appendix AT TEST TIME,
+          parses its fenced blocks, and asserts each tool description matches byte for byte —
+          plus the character count declared in the block's own `### … — NNN chars` heading.
+          Editing `copy.ts` alone turns that lane red; editing the Appendix without
+          recomputing the count does too. `specs/README.md` rule 5 ("never delete a spec;
+          history explains why the code looks the way it does") reads as though every closed
+          spec is inert, and for this one section it is the opposite.
+Takeaway: before changing any string in `mcp/src/copy.ts`, `grep -n "chars" specs/L04-mcp-server.md`
+          and move the Appendix first — the file's own rule is "the Appendix changes first and
+          `copy.ts` follows". Recompute the count mechanically rather than by eye (632 → 622
+          for a ten-character deletion). More generally: before assuming a `specs/` file is
+          history, grep the test suites for its path — a spec a test reads is a source file.
+          A round that edits a closed spec still appends its own `# Round N` section and
+          leaves the prose as written; the Appendix is the one part that moves in place, and
+          the round says why it had to.
+Evidence: mcp/test/copy.test.ts:22 (SPEC_PATH), :98-107 (the character-count assertion);
+          specs/L04-mcp-server.md § Appendix, § Round 2 D18
+Status:   resolved
+
+### 2026-08-28 · Three silent narrowings sit between a real call site and a row in the blast map
+
+Trigger:  the demo PR's map shows `tests/authorization.test.ts:34` as a caller of
+          `canViewOrder` — but the file also calls it at line 39, and that row is absent.
+Cause:    three independent filters, none of which announces itself.
+          (a) `resolveReferences` (`repository.ts`) sets `references.decl_file` only when a
+          `file_edges` row exists from referencing to declaring file, the declaring file
+          EXPORTS that exact name, and there is exactly one candidate (`HAVING count(*) = 1`)
+          — so a call through a barrel is never attributed and an ambiguous name is dropped
+          rather than guessed.
+          (b) `getResolvedCallers` INNER JOINs `file_rank`, so a caller file with no rank row
+          is invisible; that only bites on a partial index, which is what `status: 'partial'`
+          exists to say.
+          (c) the de-duplication key is `file|ENCLOSING SYMBOL|toSymbol`, and the enclosing
+          symbol falls back to the file's basename when the caller file has no `symbols`
+          rows. A test file the indexer never parsed therefore collapses ALL its references
+          to one row, whatever line they are on.
+Takeaway: the map is precision-first by construction: a row in it is a real call, but its
+          absence is not evidence of no call. Do not "fix" a missing caller downstream — the
+          three rules above are where the answer is, and (c) in particular means a caller
+          count from a symbol-less file is a count of FILES, not of call sites.
+Evidence: server/src/modules/repo-intel/repository.ts (resolveReferences, getResolvedCallers);
+          server/src/modules/repo-intel/service.ts (enclosingFromRows, the seenCaller key)
+Status:   open — (c) is a real under-count; correcting it means keying on the line when the
+          enclosing symbol is unknown, which no consumer needs yet
 
 ### 2026-08-23 · Seeded `patch` text is a contract with the CLIENT's parser — and nothing checks it
 
@@ -458,6 +569,100 @@ Status:   → promoted to `CLAUDE.md` (Gotchas) on 2026-08-06, after the L02 con
 
 ## Tool & Library Notes
 
+### 2026-08-28 · `.mcp.json` takes a per-server `timeout`, and it is one half of a pair that nothing else keeps ordered
+
+Trigger:  a mentor review: `.mcp.json` declares no `timeout`, so a client can give up while
+          `run_agent_on_pr` is still legitimately waiting.
+Cause:    Claude Code supports a per-server `timeout` in milliseconds (≥ 1000) in each
+          `.mcp.json` entry; it overrides `MCP_TOOL_TIMEOUT` for that server alone, and
+          `claude mcp get devdigest` prints it back as `Timeout: 180000ms`. The reason it had
+          never bitten locally is worth knowing before diagnosing one: Claude Code's own
+          default tool timeout is hours long, so it is other clients — the Inspector included
+          — whose defaults are shorter than a 120 s review. The real hazard is that the bound
+          was implicit, and that the two numbers that must stay ordered
+          (`.mcp.json` `timeout` > `DEVDIGEST_MCP_RUN_TIMEOUT_MS`) sit in different files with
+          nothing between them. If the client wins that race, the model never sees the
+          `still_running` sentence naming `get_findings`, and its next move is a second paid
+          run.
+Takeaway: declare `timeout` explicitly for any tool that blocks on purpose, keep it strictly
+          above the server's own wait, and pin the ordering with a test that READS
+          `.mcp.json` rather than restating the number — `mcp/test/config.test.ts` does, and
+          it was verified by lowering the value to parity and watching the lane go red. A
+          guard for an invariant nobody has seen fail is worth one deliberate failure.
+Evidence: .mcp.json (timeout: 180000); mcp/src/config.ts (DEFAULT_RUN_TIMEOUT_MS);
+          mcp/test/config.test.ts § "the client's timeout in .mcp.json"
+Status:   resolved
+
+### 2026-08-28 · dependency-cruiser omits `import type` — so `file_edges` has no row for a type-only dependency
+
+Trigger:  L04's spec named a "direction control": the demo PR's changed file
+          `src/auth/authorization.ts` imports `../domain/models`, so an inverted traversal
+          would put `domain/models.ts` in the blast map. The criterion passed — and then
+          `select … from file_edges where from_file='src/auth/authorization.ts'` returned
+          NOTHING at all.
+Cause:    the file's one import is `import type { Order, User } from '../domain/models'`, and
+          `cruise()` runs with `tsPreCompilationDeps` at its default of `false`
+          (`server/src/adapters/depgraph/index.ts` sets `exclude`, `doNotFollow` and
+          `tsConfig`, and nothing else). Type-only imports vanish at compile time, so
+          dependency-cruiser does not report them. The edge is not filtered by our adapter —
+          it is never emitted.
+Takeaway: `file_edges` is the RUNTIME import graph, not the TypeScript one. Anything reading
+          it — blast, PageRank, `resolveReferences` — is blind to a type-only dependency, so
+          a file that is imported only for its types has no rank and no dependents. And a
+          test whose whole point is a graph edge must assert that the edge EXISTS before
+          trusting what its absence proves; here the control was vacuous and the criterion
+          still went green.
+Evidence: server/src/adapters/depgraph/index.ts (the cruise options);
+          server/test/blast.it.test.ts (the seeded direction control that replaced it)
+Status:   resolved — the control moved into a test that seeds its own edge
+
+### 2026-08-28 · The char count in an Appendix heading is load-bearing — `copy.test.ts` asserts it
+
+Trigger:  rewriting `get_blast_radius`'s tool description when the stub became real. The
+          fenced block and `mcp/src/copy.ts` were updated together, and `pnpm test` still
+          failed.
+Cause:    `mcp/test/copy.test.ts` parses `### \`<tool>\` — NNN chars` out of the heading and
+          asserts `block.text.length === NNN`, on top of the byte-for-byte comparison against
+          `copy.ts`. Changing a description therefore touches THREE places, and the heading is
+          the one that reads like decoration. A second assertion in the same file pinned the
+          old CONTENT ("keeps get_blast_radius announcing itself as not implemented"), which
+          is correct while the tool is a stub and has to be inverted when it stops being one.
+Takeaway: to change a tool description: edit the Appendix fence, recompute its length, update
+          the heading's count, mirror into `copy.ts`, then re-read `copy.test.ts` for an
+          assertion about that tool's WORDING. The guard is doing its job — it is just wider
+          than "the two copies agree".
+Evidence: mcp/test/copy.test.ts ("matches the character count each Appendix heading declares");
+          specs/L04-mcp-server.md § Appendix
+Status:   resolved
+
+### 2026-08-28 · A cross-package `paths` alias does not force a Zod major — the `zod` SELF-PIN beside it does
+
+Trigger:  `mcp/` needs Zod 4 (`@modelcontextprotocol/server@2.0.0` requires `^4.2.0` for
+          Standard Schema, which Zod 3 does not implement) while `server/` and
+          `reviewer-core/` are on `zod@^3.24.1`. Copying `reviewer-core/tsconfig.json`'s
+          paths block — the `@devdigest/shared` alias PLUS its `zod` self-pin — made
+          `cd mcp && pnpm typecheck` fail with one error, in the server's source:
+          `contracts/platform.ts(97,72): TS2769` on
+          `z.record(FeatureModelId, FeatureModelChoice).default({})`.
+Cause:    Zod 4 infers an EXHAUSTIVE `Record<K, V>` for an enum-keyed record, so `{}` stops
+          being a legal default. The contract is correct under the Zod 3 its package runs.
+          The plan (L04 D14) read this as "the alias makes tsc compile Zod 3 source under
+          Zod 4" and offered two fallbacks, both of which spend something: drop the alias
+          and hand-copy the shapes, or fall back to the older SDK line. Both were
+          unnecessary. `mcp/` and `server/` are separate package trees, so with NO `zod`
+          entry in `paths` each side resolves its own Zod by ordinary node resolution
+          (`mcp/` 4.4.3, `server/` 3.25.76) and the alias compiles clean. The self-pin is
+          the whole cause; `reviewer-core` carries it harmlessly only because it is *also*
+          Zod 3.
+Takeaway: when a cross-package alias fails across a dependency major, delete the self-pin
+          before dropping the alias — one tsconfig line versus a growing file of hand-copied
+          types. Verify BOTH directions rather than arguing: flip the line, re-run typecheck,
+          and prove the coupling still bites with a deliberate error (`a.slug` on `Agent`
+          must produce TS2339). That coupling is the only drift guard `mcp/` has, since no CI
+          workflow covers it.
+Evidence: mcp/tsconfig.json (paths — alias, no zod); server/src/vendor/shared/contracts/platform.ts:97;
+          mcp/CLAUDE.md § Gotchas
+Status:   resolved
 ### 2026-08-25 · A vendored skill can be written for a stack this repo does not have — correct it in a delta table, never by forking
 
 Trigger:  writing `security-reviewer` on top of `.claude/skills/security/`, which is vendored
