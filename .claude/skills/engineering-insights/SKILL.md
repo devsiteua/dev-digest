@@ -75,5 +75,8 @@ Sections, in fixed order in every file:
 **Promotion:** an entry that saves us twice becomes a one-line rule in the relevant
 `CLAUDE.md`, and its `Status` here becomes `→ promoted to <file>`.
 
-Files are written in English. Keep each under ~250 lines; spill promoted entries to
-`docs/insights-archive.md`.
+Files are written in English. Keep each under ~250 lines. Over budget, spill to
+`docs/insights-archive.md`: verbatim, under the same section, with a `> Archived …` blockquote
+left at the foot of the section listing the dates that left. Only `→ promoted` and `resolved`
+entries whose lesson has shipped qualify — an `open` entry never moves, and neither does a
+resolved one an open entry points at.
