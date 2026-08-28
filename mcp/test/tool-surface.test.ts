@@ -371,8 +371,11 @@ describe('get_blast_radius — the honest stub', () => {
   });
 });
 
-describe('the three tools whose handlers land in later steps', () => {
-  it.each(['run_agent_on_pr', 'get_findings', 'get_conventions'])(
+// Shrinks by one as each step lands: Step 4 wired `get_findings`, so it moved out
+// of this list and into `findings.test.ts`. When steps 5 and 6 empty the list, the
+// whole block goes with it.
+describe('the tools whose handlers land in later steps', () => {
+  it.each(['run_agent_on_pr', 'get_conventions'])(
     '%s answers that it is not wired up rather than returning an empty result',
     async (name) => {
       let requests = 0;

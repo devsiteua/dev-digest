@@ -6,12 +6,11 @@ import { SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS } from './copy.js';
 import {
   getConventionsInput,
   getConventionsOutput,
-  getFindingsInput,
-  getFindingsOutput,
   runAgentOnPrInput,
   runAgentOnPrOutput,
 } from './schemas.js';
 import { registerGetBlastRadius } from './tools/get-blast-radius.js';
+import { registerGetFindings } from './tools/get-findings.js';
 import { registerListAgents } from './tools/list-agents.js';
 
 /**
@@ -19,10 +18,10 @@ import { registerListAgents } from './tools/list-agents.js';
  * five tools.
  *
  * "Exactly five" is a property of this file and is asserted over the wire in
- * `test/tool-surface.test.ts`. Three of them (`run_agent_on_pr`, `get_findings`,
- * `get_conventions`) are registered here with their **final** description, input
- * schema, output schema and annotations, and a handler that says it is not wired
- * up yet — steps 4 to 6 of `specs/L04-mcp-server.md` replace those handlers with
+ * `test/tool-surface.test.ts`. Two of them (`run_agent_on_pr`, `get_conventions`)
+ * are still registered here with their **final** description, input schema,
+ * output schema and annotations, and a handler that says it is not wired up yet
+ * — steps 5 and 6 of `specs/L04-mcp-server.md` replace those handlers with
  * modules under `src/tools/`. Registering them now rather than later is what
  * keeps the published surface stable: a client that has already approved this
  * server does not see the tool list change under it, and a model that reads the
@@ -49,7 +48,7 @@ export function createServer(deps: ServerDeps): McpServer {
 
   registerListAgents(server, deps);
   registerRunAgentOnPr(server);
-  registerGetFindings(server);
+  registerGetFindings(server, deps);
   registerGetConventions(server);
   registerGetBlastRadius(server);
 
@@ -57,7 +56,7 @@ export function createServer(deps: ServerDeps): McpServer {
 }
 
 // ---------------------------------------------------------------------------
-// The three tools whose handlers land in steps 4 to 6. Everything a client can
+// The two tools whose handlers land in steps 5 and 6. Everything a client can
 // SEE about them is already final; only the body is missing.
 // ---------------------------------------------------------------------------
 
@@ -75,20 +74,6 @@ function registerRunAgentOnPr(server: McpServer): void {
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
     },
     () => notWiredYet('run_agent_on_pr', 'step 5'),
-  );
-}
-
-function registerGetFindings(server: McpServer): void {
-  server.registerTool(
-    'get_findings',
-    {
-      title: 'Read an existing review',
-      description: TOOL_DESCRIPTIONS.get_findings,
-      inputSchema: getFindingsInput,
-      outputSchema: getFindingsOutput,
-      annotations: { readOnlyHint: true },
-    },
-    () => notWiredYet('get_findings', 'step 4'),
   );
 }
 
