@@ -869,6 +869,15 @@ Verification:   `cd mcp && pnpm typecheck && pnpm test` · `cd mcp && pnpm test:
                 `cd server && pnpm arch:check` — read the OUTPUT, not the exit code
                 `cd client && pnpm test && pnpm typecheck` (must stay untouched and green)
                 `claude mcp get devdigest` after `./scripts/dev.sh`
+Closing step:   after Step 8 passes, run `/engineering-insights` and set this spec's
+                `Status:` to `done`, then remove its pointer from `specs/README.md`'s
+                Read-when list per `specs/README.md` rule 6. That is the moment the
+                planning-time hypotheses in D14 and Risks are either confirmed as
+                lessons or dropped — routed to the **root** `INSIGHTS.md`, since this
+                work spans `mcp/` and `server/`. Nothing goes in the journal before
+                then: its entries are read as high-confidence guidance, and a hypothesis
+                recorded as a lesson devalues every entry beside it.
+                Commit: `docs(mcp): close the spec, and record what it taught`.
 Deviation policy: stop at the step, report the divergence, finish the independent steps.
                   Step 3 is independent of Steps 1–2 and can proceed while `mcp/` is blocked.
                   Do not re-plan.
