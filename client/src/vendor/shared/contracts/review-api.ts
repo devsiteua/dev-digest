@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { Finding, Verdict } from './findings.js';
 import {
+  BlastRadius,
   Intent,
   IntentConfidenceTier,
   IntentEvidence,
@@ -118,3 +119,54 @@ export type PrIntentRecord = z.infer<typeof PrIntentRecord>;
 /** Smart-diff response for a PR (the SmartDiff). */
 export const SmartDiffResponse = SmartDiff;
 export type SmartDiffResponse = z.infer<typeof SmartDiffResponse>;
+
+/**
+ * How much of a blast map to believe.
+ *
+ * `ok` does NOT mean "there is something to show" — an honest empty map is
+ * `ok` with a reason. It means the index answered the question it was asked.
+ */
+export const BlastStatus = z.enum(['ok', 'partial', 'degraded']);
+export type BlastStatus = z.infer<typeof BlastStatus>;
+
+/**
+ * Why a map looks the way it does — the field that keeps an empty array from
+ * being read as "this pull request affects nothing".
+ *
+ * The first three go with `degraded` (no usable index), `index_partial` with
+ * `partial`, and the last three with `ok`: nothing is wrong in those cases,
+ * there is simply nothing downstream to draw, and each of them has a different
+ * next step for the reader.
+ */
+export const BlastReason = z.enum([
+  'index_missing',
+  'index_failed',
+  'repo_intel_disabled',
+  'index_partial',
+  'no_changed_files',
+  'no_indexed_symbols',
+  'no_callers',
+]);
+export type BlastReason = z.infer<typeof BlastReason>;
+
+/**
+ * Response of `GET /pulls/:id/blast` — the `BlastRadius` plus how far it is to
+ * be trusted.
+ *
+ * `BlastRadius` itself is left alone deliberately, for the reason `Intent` is:
+ * it is a member of `PrBrief`, which a later lesson owns, and the three fields
+ * below describe THIS read rather than what a blast radius is.
+ *
+ * `indexed_sha` is the commit the map was computed against — the index's, never
+ * the pull request's head. Every `file:line` in it was recorded at that commit
+ * and is only guaranteed to point at the right line there, which is why the
+ * links the UI builds are pinned to it.
+ */
+export const BlastRadiusResponse = BlastRadius.extend({
+  status: BlastStatus,
+  /** `null` only when `status` is `ok` and the map is populated. */
+  reason: BlastReason.nullable(),
+  /** `null` when the repository has never been indexed. */
+  indexed_sha: z.string().nullable(),
+});
+export type BlastRadiusResponse = z.infer<typeof BlastRadiusResponse>;
