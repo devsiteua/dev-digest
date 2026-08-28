@@ -73,6 +73,25 @@ Status:   resolved — the recipe generalises to experiment 1 and to any future 
 
 ## What Doesn't Work
 
+### 2026-08-28 · Shortening a wait does not make a review free — `POST /pulls/:id/review` is fire-and-forget
+
+Trigger:  L04's own test plan says to exercise `run_agent_on_pr`'s timeout branch with
+          `DEVDIGEST_MCP_RUN_TIMEOUT_MS=1` "without spending a model call", and the live lane
+          was about to be written that way.
+Cause:    the trigger returns as soon as it has created the `agent_runs` rows;
+          `ReviewService.runReview` fires `executor.executeRuns` in the background. The
+          ceiling governs only how long the CALLER waits, so a 1 ms timeout produces a fast
+          `still_running` answer and a full, billed review that finishes minutes later. The
+          spec's sentence is wrong in a way that reads as a cost control.
+Takeaway: to exercise the timeout branch for free, intercept the POST itself and answer with
+          a run id that does not exist — that is both unpaid and deterministic. Assert the
+          interception (`triggers === 1`), not merely that nothing threw. More generally: any
+          automated thing that touches `run_agent_on_pr` must stub the trigger, never trust a
+          short deadline. The same fire-and-forget shape is why `reviews: []` in the response
+          is correct (`server/CLAUDE.md` § Gotchas).
+Evidence: server/src/modules/reviews/service.ts (runReview); mcp/test/mcp.live.test.ts
+          (the intercepted trigger); specs/L04-mcp-server.md § Test plan (the wrong sentence)
+Status:   resolved — the live lane intercepts; the spec sentence is the thing that misleads
 ### 2026-08-25 · A gap held open on purpose gets cited as if it were closed — four files routed to an agent that did not exist
 
 Trigger:  a review noted `.claude/agents/security-reviewer.md` was missing. It had been left
@@ -458,6 +477,34 @@ Status:   → promoted to `CLAUDE.md` (Gotchas) on 2026-08-06, after the L02 con
 
 ## Tool & Library Notes
 
+### 2026-08-28 · A cross-package `paths` alias does not force a Zod major — the `zod` SELF-PIN beside it does
+
+Trigger:  `mcp/` needs Zod 4 (`@modelcontextprotocol/server@2.0.0` requires `^4.2.0` for
+          Standard Schema, which Zod 3 does not implement) while `server/` and
+          `reviewer-core/` are on `zod@^3.24.1`. Copying `reviewer-core/tsconfig.json`'s
+          paths block — the `@devdigest/shared` alias PLUS its `zod` self-pin — made
+          `cd mcp && pnpm typecheck` fail with one error, in the server's source:
+          `contracts/platform.ts(97,72): TS2769` on
+          `z.record(FeatureModelId, FeatureModelChoice).default({})`.
+Cause:    Zod 4 infers an EXHAUSTIVE `Record<K, V>` for an enum-keyed record, so `{}` stops
+          being a legal default. The contract is correct under the Zod 3 its package runs.
+          The plan (L04 D14) read this as "the alias makes tsc compile Zod 3 source under
+          Zod 4" and offered two fallbacks, both of which spend something: drop the alias
+          and hand-copy the shapes, or fall back to the older SDK line. Both were
+          unnecessary. `mcp/` and `server/` are separate package trees, so with NO `zod`
+          entry in `paths` each side resolves its own Zod by ordinary node resolution
+          (`mcp/` 4.4.3, `server/` 3.25.76) and the alias compiles clean. The self-pin is
+          the whole cause; `reviewer-core` carries it harmlessly only because it is *also*
+          Zod 3.
+Takeaway: when a cross-package alias fails across a dependency major, delete the self-pin
+          before dropping the alias — one tsconfig line versus a growing file of hand-copied
+          types. Verify BOTH directions rather than arguing: flip the line, re-run typecheck,
+          and prove the coupling still bites with a deliberate error (`a.slug` on `Agent`
+          must produce TS2339). That coupling is the only drift guard `mcp/` has, since no CI
+          workflow covers it.
+Evidence: mcp/tsconfig.json (paths — alias, no zod); server/src/vendor/shared/contracts/platform.ts:97;
+          mcp/CLAUDE.md § Gotchas
+Status:   resolved
 ### 2026-08-25 · A vendored skill can be written for a stack this repo does not have — correct it in a delta table, never by forking
 
 Trigger:  writing `security-reviewer` on top of `.claude/skills/security/`, which is vendored
