@@ -68,10 +68,16 @@ grep -rln "process\.env" src              # must print only src/config.ts
   `validateToolOutput` returns early when `isError` is true, so the unit lane
   never notices), a client does not: the MCP Inspector validates with ajv and
   rejects the **whole** result, so the caller gets a schema complaint instead of
-  the sentence naming `list_agents` or `./scripts/dev.sh`. `get_blast_radius` is
-  the single exception, because its declared shape IS its error shape. The rule is
-  pinned by `test/tool-surface.test.ts` § "error results never contradict their
-  own outputSchema".
+  the sentence naming `list_agents` or `./scripts/dev.sh`. There is no longer an
+  exception: `get_blast_radius` used to be one, because its declared shape WAS its
+  error shape, and that exemption disappeared when its `outputSchema` became the
+  success shape. The rule is pinned by `test/tool-surface.test.ts` § "error
+  results never contradict their own outputSchema".
+- **A degraded answer is not an error.** `get_blast_radius` returns
+  `isError: false` with `status: "degraded"` when DevDigest has no index to read.
+  Nothing failed, so an error would send a caller looking for a broken stack; what
+  the caller must not do is read the empty `downstream` as "this pull request
+  affects nothing", and that is what `status` and `reason` are for.
 - **Tool inputs are flat.** String, number, boolean or enum — no nested object.
   Shared fields (`repo`, `pr`, `agent`, `response_format`, `limit`) are declared
   once in `schemas.ts` and reused.

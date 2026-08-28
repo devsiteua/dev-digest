@@ -26,13 +26,16 @@ always `owner/name` and `pr` is always the number the hosting platform shows.
 | `run_agent_on_pr` | `repo`, `pr`, `agent`, `response_format?` | Starts one agent's review, **waits** for it, and returns the finished verdict, score and findings. One blocking call, no separate start/poll tool. **Spends a real model call.** |
 | `get_findings` | `repo`, `pr`, `agent?`, `response_format?`, `limit?` | Re-reads a review that already ran. Spends nothing, starts nothing. Omit `agent` for the most recent review, whose agent is named in the answer. |
 | `get_conventions` | `repo`, `response_format?`, `limit?` | Returns the **accepted** house rules the L02 extractor stored, each with its `file:line` evidence, plus the pending/rejected counts. Never runs the extractor (that spends money). |
-| `get_blast_radius` | `repo`, `pr` | **Not implemented.** Always returns an error with `status: "not_implemented"`. Declared now so its name and arguments stay stable; it fails loudly rather than returning an empty impact list. |
+| `get_blast_radius` | `repo`, `pr` | Returns what a pull request's diff can reach: the symbols its changed files declare, the call sites that reach them, and the endpoints and scheduled jobs downstream of those. Read from DevDigest's static index — no model call, no review started. `status`/`reason` say how far the map is to be trusted, so an empty `downstream` is never read as "this pull request affects nothing". |
 
 `response_format` is `"concise"` (default) or `"detailed"`. Concise findings carry
 `severity`, `file`, `line`, `title`; detailed adds `rationale`, `suggestion`,
 `confidence`, `category` and `id`, and is materially larger. Truncation is never
 silent: a response that dropped entries reports the untruncated total beside the
-list (`total_findings` for a review, `accepted` for conventions).
+list (`total_findings` for a review, `accepted` for conventions). `get_blast_radius`
+takes neither and truncates nothing — there is no field in its payload that could
+report a dropped caller, and the server already caps the map at 20 callers per
+changed symbol.
 
 Two behaviours worth knowing before an agent surprises you with them:
 
@@ -119,8 +122,13 @@ pnpm dlx @modelcontextprotocol/inspector -- pnpm --dir mcp exec tsx src/index.ts
 ```
 
 It should connect, list exactly five tools with their annotations and
-`outputSchema`, and run `list_agents`, `get_conventions` and `get_blast_radius`
-(that last one failing loudly — which is its pass condition).
+`outputSchema`, and run `list_agents`, `get_conventions` and `get_blast_radius`.
+Drive `get_blast_radius` twice: once against an indexed repository, where it must
+answer `status: "ok"` with callers and endpoints, and once against a repository
+with no index, where it must answer `status: "degraded"` and `isError: false` —
+"nothing was analysed" is a result, not a failure. Both runs also prove the
+`outputSchema` holds, because the Inspector's client validates with ajv and
+rejects the whole result when it does not.
 
 If the Inspector is happy and Claude Code is not, the problem is registration or
 approval, not the server.

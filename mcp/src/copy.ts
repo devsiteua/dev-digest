@@ -51,10 +51,10 @@ export const TOOL_DESCRIPTIONS = {
     "Example: get_conventions(repo: \"acme/payments-api\")",
   ].join('\n'),
 
-  /** `get_blast_radius` — 592 chars. */
+  /** `get_blast_radius` — 1056 chars. */
   get_blast_radius: [
-    "NOT IMPLEMENTED YET — this tool always returns an error. Blast radius is the map of what a pull request's changes can reach downstream: calling sites, dependent modules and the tests most at risk. It ships in a later DevDigest lesson and is declared now so its name and arguments stay stable.",
-    "It fails loudly and never returns an empty result: do not read its failure as \"this pull request affects nothing\". To judge impact today, run a reviewer agent with run_agent_on_pr and read its findings.",
-    "Example: get_blast_radius(repo: \"acme/payments-api\", pr: 482) -> error, status \"not_implemented\"",
+    "Read the blast radius of a pull request: what its diff can reach. Returns the symbols the changed files declare, the call sites that reach them, and the HTTP endpoints and scheduled jobs downstream of those call sites. It is computed from DevDigest's static index of the repository rather than by a model, so it costs nothing, starts no review and reflects the last index rather than this minute.",
+    "An empty map is never served as a bare empty list. `status` says how far the answer can be trusted (ok, partial, degraded) and `reason` says why it looks the way it does — read a degraded answer as \"DevDigest could not look\", never as \"this pull request affects nothing\". Every file:line was recorded at `indexed_sha`, the commit the index was built at, not the pull request's head.",
+    "Example: get_blast_radius(repo: \"acme/payments-api\", pr: 482) -> { changed_symbols: [{ name: \"rateLimit\", file: \"src/middleware/ratelimit.ts\" }], downstream: [{ symbol: \"rateLimit\", callers: [...], endpoints_affected: [\"GET /api/public/items\"] }], status: \"ok\", reason: null }",
   ].join('\n'),
 };

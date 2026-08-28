@@ -351,29 +351,104 @@ describe('list_agents', () => {
   });
 });
 
-describe('get_blast_radius — the honest stub', () => {
-  it('fails loudly, makes no HTTP request, and emits no empty impact lists', async () => {
-    let requests = 0;
-    const result = await callTool(
-      async () => {
-        requests += 1;
-        return jsonResponse(200, {});
+describe('get_blast_radius', () => {
+  const MAP = {
+    changed_symbols: [
+      { name: 'rateLimit', file: 'src/middleware/ratelimit.ts', kind: 'function' },
+    ],
+    downstream: [
+      {
+        symbol: 'rateLimit',
+        callers: [{ name: 'publicRouter', file: 'src/api/public/index.ts', line: 23 }],
+        endpoints_affected: ['GET /api/public/items'],
+        crons_affected: [],
+      },
+    ],
+    summary: '1 symbol changed → 1 caller, 1 endpoint, 0 cron/jobs, as indexed at b1a57ff.',
+    status: 'ok',
+    reason: null,
+    indexed_sha: 'b1a57ffe0000000000000000000000000000cafe',
+  };
+
+  /** The lookup answer `api/resolve.ts` turns owner/name + number into an id with. */
+  const LOOKUP = { id: 'pr-uuid', number: 482, title: 'Rate limit the public API' };
+
+  const serve: FetchLike = async (input) => {
+    const url = String(input);
+    if (url.includes('/pulls/lookup')) return jsonResponse(200, LOOKUP);
+    if (url.includes('/blast')) return jsonResponse(200, MAP);
+    return jsonResponse(404, { error: { code: 'not_found', message: 'no' } });
+  };
+
+  it('projects the server contract without renaming a single field', async () => {
+    const result = await callTool(serve, 'get_blast_radius', {
+      repo: 'acme/payments-api',
+      pr: 482,
+    });
+
+    expect(result.isError).toBeFalsy();
+    // The keys are the server's own — see `shape/blast.ts` for why inventing one
+    // here would open a drift front nothing in this package could catch.
+    expect(result.structuredContent).toEqual({
+      repo: 'acme/payments-api',
+      pr: 482,
+      status: 'ok',
+      reason: null,
+      indexed_sha: MAP.indexed_sha,
+      summary: MAP.summary,
+      changed_symbols: MAP.changed_symbols,
+      downstream: MAP.downstream,
+    });
+
+    // The JSON text block and the structured payload are the same answer.
+    const blocks = (result.content ?? []).map((block) => block.text ?? '');
+    expect(JSON.parse(blocks[1] ?? '{}')).toEqual(result.structuredContent);
+  });
+
+  it('reads only, and only twice: the lookup and the map', async () => {
+    const calls: string[] = [];
+    await callTool(
+      async (input, init) => {
+        calls.push(`${init?.method ?? 'GET'} ${String(input)}`);
+        return serve(input, init);
       },
       'get_blast_radius',
       { repo: 'acme/payments-api', pr: 482 },
     );
 
-    expect(requests, 'the stub must not call the API at all').toBe(0);
-    expect(result.isError).toBe(true);
-    expect(result.structuredContent).toEqual({
-      status: 'not_implemented',
-      implemented_in: 'L04 part two',
-      message: expect.stringContaining('not implemented yet') as unknown as string,
-    });
-    // D13: an empty array here would read as "this pull request affects nothing".
-    expect(Object.keys(result.structuredContent ?? {})).not.toContain('changed_symbols');
-    expect(Object.keys(result.structuredContent ?? {})).not.toContain('downstream');
-    expect(JSON.stringify(result)).not.toContain('changed_symbols');
+    expect(calls).toHaveLength(2);
+    expect(calls.every((call) => call.startsWith('GET '))).toBe(true);
+    expect(calls[1]).toContain('/pulls/pr-uuid/blast');
+  });
+
+  it('serves a degraded map as a RESULT, and says nothing was analysed', async () => {
+    const degraded = {
+      ...MAP,
+      changed_symbols: [],
+      downstream: [],
+      summary: 'This repository has no usable index, so nothing was analysed …',
+      status: 'degraded',
+      reason: 'index_missing',
+      indexed_sha: null,
+    };
+    const result = await callTool(
+      async (input) =>
+        String(input).includes('/blast')
+          ? jsonResponse(200, degraded)
+          : jsonResponse(200, LOOKUP),
+      'get_blast_radius',
+      { repo: 'acme/payments-api', pr: 482 },
+    );
+
+    // Nothing FAILED — DevDigest simply has no index to read — so an error here
+    // would send a caller looking for a broken stack.
+    expect(result.isError).toBeFalsy();
+    expect((result.structuredContent as { status: string }).status).toBe('degraded');
+    // And the warning the stub used to exist to deliver is still delivered —
+    // the server's own summary carries it, and the block adds the next step.
+    const text = result.content?.[0]?.text ?? '';
+    expect(text).toContain('nothing was analysed');
+    expect(text).toContain('re-analyze the repository');
   });
 });
 
@@ -390,8 +465,10 @@ describe('get_blast_radius — the honest stub', () => {
  *
  * The rule, and it is checkable rather than arguable: on an error result, either
  * carry no `structuredContent` at all, or carry one its own `outputSchema`
- * accepts. `get_blast_radius` is the only tool that takes the second branch,
- * because its declared shape IS its error shape.
+ * accepts. Every tool now takes the FIRST branch. `get_blast_radius` used to be
+ * the one exception — its declared shape was its error shape — and that
+ * exemption disappeared with the stub, because its schema is now the success
+ * shape and an error payload cannot satisfy it.
  */
 describe('error results never contradict their own outputSchema', () => {
   const DEAD_FETCH: FetchLike = () => Promise.reject(new Error('ECONNREFUSED'));

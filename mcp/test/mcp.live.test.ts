@@ -307,6 +307,62 @@ live('get_conventions against the running workspace', () => {
   );
 });
 
+live('get_blast_radius against the running workspace', () => {
+  it.skipIf(!seededPull)(
+    'answers with a map or with a reason, and never with an error',
+    async () => {
+      const recorded: RecordedRequest[] = [];
+      // Deliberately the wrong casing, for the reason `get_conventions` gives:
+      // the case-insensitive match lives in `api/resolve.ts`.
+      const result = await callTool(liveDeps(recorded), 'get_blast_radius', {
+        repo: SEEDED_REPO.toUpperCase(),
+        pr: SEEDED_PR,
+      });
+
+      // The point of the whole feature, asserted live: the answer is a RESULT
+      // whatever the index turned out to know. `acme/payments-api` is seeded
+      // with no clone and no index, so this is normally the degraded branch —
+      // and a degraded branch is still `isError: false`, because nothing failed.
+      expect(result.isError, textOf(result)).toBeFalsy();
+
+      const payload = result.structuredContent as {
+        repo: string;
+        pr: number;
+        status: string;
+        reason: string | null;
+        indexed_sha: string | null;
+        changed_symbols: unknown[];
+        downstream: Array<{ callers: unknown[] }>;
+      };
+      // DevDigest's own spelling, not the shouted one the caller passed.
+      expect(payload.repo).toBe(SEEDED_REPO);
+      expect(payload.pr).toBe(SEEDED_PR);
+      expect(['ok', 'partial', 'degraded']).toContain(payload.status);
+
+      // The invariant that outlived the stub: an empty map always carries a
+      // reason, so it can never be read as "this pull request affects nothing".
+      if (payload.changed_symbols.length === 0) {
+        expect(payload.reason, 'an empty map must say why').not.toBeNull();
+      }
+      if (payload.status === 'degraded') {
+        expect(textOf(result)).toContain('re-analyze the repository');
+        expect(payload.indexed_sha).toBeNull();
+      }
+
+      // GETs and nothing else: this tool must never trigger a review or an
+      // index. The wrong casing costs the extra `/repos` round-trip and a second
+      // lookup, which is `api/resolve.ts`'s documented fallback, so the shape
+      // asserted here is the TAIL — the map is always read through the pull id
+      // the lookup resolved.
+      expect(recorded.every((request) => request.method === 'GET')).toBe(true);
+      expect(recorded.map((request) => request.url.replace(baseUrl, '')).slice(-2)).toEqual([
+        `/pulls/lookup?repo=${encodeURIComponent(SEEDED_REPO)}&number=${SEEDED_PR}`,
+        `/pulls/${seededPull!.id}/blast`,
+      ]);
+    },
+  );
+});
+
 live('run_agent_on_pr — the timeout branch, live and unpaid', () => {
   /**
    * `DEVDIGEST_MCP_RUN_TIMEOUT_MS=1` makes the wait give up after its first

@@ -220,12 +220,53 @@ export const getConventionsOutput = z.object({
 });
 
 /**
- * The stub's shape, and deliberately the whole of it: no `changed_symbols`, no
- * `downstream`, not even as empty arrays (D13). An empty array is the exact lie
- * this tool exists to avoid — it reads as "this pull request affects nothing".
+ * A PROJECTION of `BlastRadiusResponse`, not a shape this package invented.
+ *
+ * Every key below is the server's own: `changed_symbols`, `downstream` with its
+ * four fields, `summary`, and the three the API adds to say how far the map is
+ * to be trusted. That is deliberate and it is a rule — `mcp/INSIGHTS.md`,
+ * 2026-08-28: the contract "is not `mcp/`'s to invent". A renamed field here
+ * would open a drift front against `server/src/vendor/shared/contracts` with
+ * nothing to catch it, since `pnpm typecheck` is this package's only guard.
+ *
+ * NOT truncated, unlike the findings and conventions payloads. Those take a
+ * `limit` and report the untruncated total beside the list; there is no field
+ * here that could report one, and dropping callers silently is the exact lie
+ * this tool exists to avoid. The bound comes from the server instead, which caps
+ * the map at 20 callers per changed symbol.
+ *
+ * `status` and `reason` are what keep an empty `downstream` from reading as
+ * "this pull request affects nothing" — the same claim D13's stub refused to
+ * make, now made checkable rather than avoided.
  */
 export const getBlastRadiusOutput = z.object({
-  status: z.literal('not_implemented'),
-  implemented_in: z.string(),
-  message: z.string(),
+  repo: z.string(),
+  pr: z.number().int(),
+  status: z.enum(['ok', 'partial', 'degraded']),
+  /** Null only when `status` is `ok` and the map is populated. */
+  reason: z.string().nullable(),
+  /** The commit the index was built at — where every file:line below is right. */
+  indexed_sha: z.string().nullable(),
+  summary: z.string(),
+  changed_symbols: z.array(
+    z.object({
+      name: z.string(),
+      file: z.string(),
+      kind: z.string(),
+    }),
+  ),
+  downstream: z.array(
+    z.object({
+      symbol: z.string(),
+      callers: z.array(
+        z.object({
+          name: z.string(),
+          file: z.string(),
+          line: z.number().int(),
+        }),
+      ),
+      endpoints_affected: z.array(z.string()),
+      crons_affected: z.array(z.string()),
+    }),
+  ),
 });

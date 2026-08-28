@@ -132,10 +132,17 @@ describe('the copy stays inside the limits the plan measured it against', () => 
     expect(description).toContain('Do NOT call this tool again');
   });
 
-  it('keeps get_blast_radius announcing itself as not implemented', () => {
-    // D13: the description has to carry the warning too, because a model that
-    // reads only the tool list must not plan around a tool that cannot answer.
-    expect(TOOL_DESCRIPTIONS.get_blast_radius).toContain('NOT IMPLEMENTED YET');
-    expect(TOOL_DESCRIPTIONS.get_blast_radius).not.toContain('changed_symbols');
+  it('keeps get_blast_radius telling a model how to read an empty answer', () => {
+    // D13's warning outlived the stub it was written for. The tool answers now,
+    // so the description no longer claims otherwise — but a model that reads
+    // only the tool list still has to be told that a degraded map is "we could
+    // not look" rather than "there is nothing downstream", because that is the
+    // one misreading this feature exists to prevent.
+    const description = TOOL_DESCRIPTIONS.get_blast_radius;
+    expect(description).not.toContain('NOT IMPLEMENTED');
+    expect(description).not.toContain('not_implemented');
+    expect(description).toContain('never as \"this pull request affects nothing\"');
+    expect(description).toContain('status');
+    expect(description).toContain('reason');
   });
 });
