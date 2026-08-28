@@ -7,11 +7,20 @@ import type { ApiErrorBody } from '@devdigest/shared';
  * The fetch implementation is injected rather than reached for, so the unit lane
  * drives every branch below with a scripted stub and needs no network at all.
  *
- * Response shapes are imported as TYPES ONLY, from `./types.ts`. Nothing here is
- * re-validated at runtime, and — since D14 fallback 1 dropped the
- * `@devdigest/shared` alias — nothing checks those shapes against the server at
- * compile time either. Read the header of `./types.ts` for why, and treat the live
- * lane as the guard.
+ * Response shapes are imported as TYPES ONLY, straight from `@devdigest/shared`
+ * (D2). Nothing here re-validates them at runtime — but `pnpm typecheck` DOES
+ * compile them against the server's own contract source, so a shape change breaks
+ * this package rather than reaching a tool at run time. That coupling is the only
+ * drift guard `mcp/` has, because no CI workflow covers this package.
+ *
+ * It survives the Zod major split — `mcp/` runs Zod 4 for the SDK, `server/` runs
+ * Zod 3 — because `tsconfig.json` keeps the `@devdigest/shared` path alias and
+ * declares NO `zod` self-pin: each package then resolves its own Zod by ordinary
+ * node resolution. That is neither of the two forks D14 anticipated; it is the
+ * third option, and it is what keeps the compile-time guard D14 fallback 1 would
+ * have spent. Do not add a `zod` entry to `paths` — that is precisely what makes
+ * the server's Zod 3 source fail to compile here
+ * (`contracts/platform.ts` — `z.record(enum, …).default({})`).
  */
 
 /** The subset of a `Response` this client uses. */
