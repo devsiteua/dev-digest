@@ -881,3 +881,144 @@ Closing step:   after Step 8 passes, run `/engineering-insights` and set this sp
 Deviation policy: stop at the step, report the divergence, finish the independent steps.
                   Step 3 is independent of Steps 1–2 and can proceed while `mcp/` is blocked.
                   Do not re-plan.
+
+# Round 2 — the mentor's review of L04
+
+Status: in-progress · opened 2026-08-28
+Packages touched: mcp · repo root (`.mcp.json`)
+
+## Context
+
+The lesson was submitted after Round 1 — both halves, the MCP server and Blast Radius — and
+reviewed. The verdict was that the package is architecturally right: `api/client.ts` split out,
+`createServer()` taking its `ServerDeps`, `config.ts` throwing at startup on a malformed value,
+`run_agent_on_pr` polling for real against a 120 s bound, `errorContent` and `errorResult` as
+shared helpers, the blast module closed from `routes.ts` to `helpers.ts`, and `mcp/INSIGHTS.md`
+carrying fourteen entries. Three things were named as worth fixing:
+
+> - `.mcp.json` has no `timeout` field — without it some clients treat `run_agent_on_pr` as
+>   hung; the value has to be greater than 120 000 ms.
+> - `list_agents` includes `provider` in its response — by the criterion it must not reach the
+>   model.
+> - `get_findings` serialises through `JSON.stringify(result, null, 2)` — pretty printed, where
+>   the criterion asks for a compact format with no indentation.
+
+All three hold. The third is true of four more files than the one it names, and the audit
+below says so before § In scope decides how wide to go — the same discipline Round 1 used on
+its own claims.
+
+### Audit — the three items against what Round 1 shipped
+
+| Item | Verdict | Evidence |
+|---|---|---|
+| `timeout` in `.mcp.json` | ❌ **missing**, and the docs deny it exists | The entry carries `type`, `command`, `args`, `env` and nothing else. Claude Code supports a per-server `timeout` in milliseconds (≥ 1000) that overrides `MCP_TOOL_TIMEOUT` for that server alone. One nuance the review's wording leaves out and this spec should not: Claude Code's own default tool timeout is hours long, so it is **not** the client that reads a 120 s wait as a hang — it is every client whose default request timeout is shorter, the Inspector included. The stronger reason to declare it is that the bound is currently implicit. Worse, `mcp/README.md:105` enumerates the stdio fields as `{ type, command, args, env, envHelper, envHelperTtlSec }` — a list that tells a reader the field does not exist |
+| `provider` in `list_agents` | ❌ **published, and never read** | `shape/agents.ts:17,53` mints it into `AgentSummary`, `schemas.ts:147` publishes it in `listAgentsOutput`, `copy.ts:28` promises it in the tool description, `README.md:25` tables it. Nothing in `mcp/` consumes it: `resolveAgent` matches on `name`, `slug` and `id` (`shape/agents.ts:83-96`), and `describeCandidate` prints `name (slug, id)`. `cli/render.ts:57` does print a provider, but from `WorkingReviewResponse` — a different contract on a human-facing surface, not this projection |
+| Pretty-printed JSON | ❌ **true, and true of all five tools** | `get_findings.ts:98` is the one named. The same `null, 2` is in `list-agents.ts:60`, `get-blast-radius.ts:83`, `get-conventions.ts:95` and `run-agent-on-pr.ts:200,261,316`, and in the shared `errorContent` at `get-findings.ts:135`. It is also a divergence from **this document**: the worked example at line 290 writes `JSON.stringify(output)`. So the fix is not a new opinion, it is the plan being honoured |
+
+## In scope
+
+- **A declared client-side bound.** `"timeout": 180000` in `.mcp.json`, documented in
+  `mcp/README.md` — in the field list that currently omits it, in the worked entry, and as the
+  rule tying it to `DEVDIGEST_MCP_RUN_TIMEOUT_MS` — and cross-referenced from `.env.example`,
+  which documents the same 120 000 from the other side. A unit test reads `.mcp.json` and
+  fails when the client bound is not strictly above `DEFAULT_RUN_TIMEOUT_MS`.
+- **`provider` off the model's surface.** Removed from the projection itself
+  (`shape/agents.ts`), from `listAgentsOutput`, from the tool description, from the README
+  table, and asserted absent in both the structured payload and the JSON text block.
+- **One compact JSON block per tool.** `JSON.stringify(payload)` in all five tools, in
+  `errorContent`, and in the two `run_agent_on_pr` payload helpers, with a test that asserts
+  compactness by re-serialising rather than by eyeballing whitespace.
+
+## Out of scope
+
+- **`DEFAULT_RUN_TIMEOUT_MS` itself.** The tool still waits 120 s and still answers
+  `still_running` at that point (D5/D6). This round declares the client bound that has to
+  tolerate that wait; it does not change the wait.
+- **The CLI's `--json` output** (`cli.ts:80`). A different process, and a surface for a human
+  or a shell script rather than for a model — the criterion is about what a tool result costs
+  in a model's context. Recorded here so a later pass does not "finish the job" by compacting
+  it.
+- **`model`, `enabled` and `id` in `list_agents`.** Only `provider` was named, and each of the
+  other three earns its place: `model` is the cost and capability signal, `enabled` carries the
+  D9 semantics the description spells out, and `id` is the third resolution tier and the token
+  `describeAmbiguousAgent` hands back.
+- **Round 1's prose.** § In scope's tool table (line 75) and Step 4 (line 577) describe what
+  Round 1 built and stay as written; `specs/README.md` rule 5 keeps a spec's history. The
+  Appendix is the one exception, and D18 says why.
+- **Blast Radius.** Untouched this round — all three items are on the MCP half.
+
+## Decisions
+
+**D15 — the client bound is 180 000 ms, and a test holds it above the server-side wait.**
+60 s of headroom over `DEFAULT_RUN_TIMEOUT_MS`, which is what the four HTTP calls around the
+poll can cost: `GET /agents`, the pull lookup, `POST /pulls/:id/review` and the closing
+`GET /pulls/:id/reviews`. The ordering matters more than the number — the tool's own
+`still_running` message is what stops a model starting a second paid run, and a client that
+gives up first replaces that sentence with a generic timeout. Two numbers that must stay
+ordered and live in different files are a drift front, so `test/config.test.ts` reads
+`.mcp.json` and compares them.
+
+**D16 — `provider` is removed from the projection, not just from the description.** Leaving
+the field in `AgentSummary` and dropping it from `listAgentsOutput` would put a value in
+`structuredContent` that the published schema does not declare, which is the failure mode
+`INSIGHTS.md` 2026-08-28 records for the error path: the SDK tolerates it, a validating client
+does not.
+
+**D17 — compact is a rule for every tool, not a patch to the one that was named.** The four
+other call sites are the same decision made in the same week by the same hand; fixing one is
+how a codebase ends up with two conventions and no reason for either. The prose block above
+the JSON (`describeReviewResult`, `describeBlastResult`, …) is what a human reads in the
+Inspector, so nothing legible is lost.
+
+**D18 — the Appendix is live code, so a closed spec is edited in place.** `test/copy.test.ts`
+re-reads `## Appendix` at test time and asserts every tool description byte for byte, plus the
+character count declared in its heading. Changing `copy.ts` alone turns that lane red. So the
+Appendix block for `list_agents` changes here and its heading goes from 632 to 622 chars, in
+the same commit as the code — the file's own rule is that the Appendix moves first and
+`copy.ts` follows. This is the one part of a `done` spec that is not history.
+
+## Acceptance criteria
+
+- [ ] `.mcp.json` carries `"timeout": 180000`, and `cd mcp && pnpm test` fails if that number
+      is ever lowered to or below `DEFAULT_RUN_TIMEOUT_MS`.
+- [ ] `mcp/README.md` lists `timeout` among the stdio entry's fields, shows it in the worked
+      entry, and states the rule against `DEVDIGEST_MCP_RUN_TIMEOUT_MS`; `.env.example` points
+      at it from the other side.
+- [ ] `list_agents` returns no `provider` — not in `structuredContent`, not in the JSON text
+      block, not in `listAgentsOutput`, not in the tool description a model reads. A test
+      asserts its absence rather than only asserting the six fields that remain.
+- [ ] The Appendix block and its declared character count match `copy.ts` byte for byte —
+      i.e. `test/copy.test.ts` is green without being edited.
+- [ ] Every tool's JSON text block is compact: `JSON.stringify(JSON.parse(text)) === text`,
+      asserted per tool over the wire, error paths included.
+- [ ] `cd mcp && pnpm test && pnpm typecheck` green after every one of the five commits, not
+      only after the last.
+
+## Commit plan
+
+**Five commits.** The three items are independent of each other and each is separately
+revertable; the round opens with the plan and closes with the journal, the way L03's rounds
+did.
+
+| # | Scope | Commit |
+|---|---|---|
+| 1 | this section + the index row | `docs(specs): plan Round 2 of the MCP server before writing any of it` |
+| 2 | `.mcp.json`, README, `.env.example`, the guard test | `fix(mcp): declare the wait the client has to tolerate` |
+| 3 | `provider` out of the projection, the Appendix, the tests | `fix(mcp): stop list_agents sending the provider to the model` |
+| 4 | compact JSON in five tools + `errorContent`, the test | `fix(mcp): compact the JSON block every tool hands the model` |
+| 5 | this Status, `mcp/INSIGHTS.md` | `docs(mcp): close Round 2 against the mentor's review, and record what it taught` |
+
+Rules carried over from Round 1's commit plan: documentation ships in the commit with the
+change it describes, a test ships with the code it guards, no commit leaves the tree red, and
+`/pr-self-review` runs once before the pull request rather than before each commit. The branch
+already has an open pull request, so this round pushes onto it and opens nothing new.
+
+## Handoff
+
+Entry point:    commit 2
+Verification:   `cd mcp && pnpm test && pnpm typecheck` before every commit
+                `cd mcp && pnpm test:live` (needs `./scripts/dev.sh`) before the last
+Closing step:   set this section's `Status:` to `implemented`, append to `mcp/INSIGHTS.md`
+                what the round taught, and leave `specs/README.md`'s L04 row naming it.
+Deviation policy: stop at the commit, report the divergence, finish the independent ones —
+                  commits 2, 3 and 4 touch disjoint code and no order is load-bearing.
