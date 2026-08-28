@@ -370,31 +370,3 @@ describe('get_blast_radius — the honest stub', () => {
     expect(JSON.stringify(result)).not.toContain('changed_symbols');
   });
 });
-
-// Shrinks by one as each step lands: Step 4 wired `get_findings`, Step 5 wired
-// `run_agent_on_pr` (its assertions live in `wait.test.ts`). When step 6 empties
-// the list, the whole block goes with it.
-describe('the tools whose handlers land in later steps', () => {
-  it.each(['get_conventions'])(
-    '%s answers that it is not wired up rather than returning an empty result',
-    async (name) => {
-      let requests = 0;
-      const result = await callTool(
-        async () => {
-          requests += 1;
-          return jsonResponse(200, {});
-        },
-        name,
-        { repo: 'acme/payments-api', pr: 482, agent: 'general-reviewer' },
-      );
-
-      expect(requests).toBe(0);
-      expect(result.isError).toBe(true);
-      expect(result.structuredContent).toMatchObject({ status: 'not_wired_yet' });
-      expect(result.content?.[0]?.text).toContain(name);
-      // Distinguishable from the declared gap: only get_blast_radius is
-      // "not_implemented".
-      expect(result.structuredContent?.status).not.toBe('not_implemented');
-    },
-  );
-});
