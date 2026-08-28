@@ -3,31 +3,27 @@ import { McpServer } from '@modelcontextprotocol/server';
 import type { ApiClient } from './api/client.js';
 import type { McpConfig } from './config.js';
 import { SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS } from './copy.js';
-import {
-  getConventionsInput,
-  getConventionsOutput,
-  runAgentOnPrInput,
-  runAgentOnPrOutput,
-} from './schemas.js';
+import { getConventionsInput, getConventionsOutput } from './schemas.js';
 import { registerGetBlastRadius } from './tools/get-blast-radius.js';
 import { registerGetFindings } from './tools/get-findings.js';
 import { registerListAgents } from './tools/list-agents.js';
+import { registerRunAgentOnPr } from './tools/run-agent-on-pr.js';
 
 /**
  * Delivery ring — the server itself: one `instructions` paragraph and exactly
  * five tools.
  *
  * "Exactly five" is a property of this file and is asserted over the wire in
- * `test/tool-surface.test.ts`. Two of them (`run_agent_on_pr`, `get_conventions`)
- * are still registered here with their **final** description, input schema,
- * output schema and annotations, and a handler that says it is not wired up yet
- * — steps 5 and 6 of `specs/L04-mcp-server.md` replace those handlers with
- * modules under `src/tools/`. Registering them now rather than later is what
- * keeps the published surface stable: a client that has already approved this
- * server does not see the tool list change under it, and a model that reads the
- * descriptions gets the real ones.
+ * `test/tool-surface.test.ts`. One of them (`get_conventions`) is still
+ * registered here with its **final** description, input schema, output schema
+ * and annotations, and a handler that says it is not wired up yet — step 6 of
+ * `specs/L04-mcp-server.md` replaces it with a module under `src/tools/`, the
+ * way step 5 just did for `run_agent_on_pr`. Registering it now rather than
+ * later is what keeps the published surface stable: a client that has already
+ * approved this server does not see the tool list change under it, and a model
+ * that reads the descriptions gets the real ones.
  *
- * The handler bodies say so out loud rather than returning an empty result,
+ * The handler body says so out loud rather than returning an empty result,
  * for the reason `get_blast_radius` exists to demonstrate: a tool that answers
  * "nothing" when it means "nobody looked" is worse than one that fails.
  */
@@ -47,7 +43,7 @@ export function createServer(deps: ServerDeps): McpServer {
   );
 
   registerListAgents(server, deps);
-  registerRunAgentOnPr(server);
+  registerRunAgentOnPr(server, deps);
   registerGetFindings(server, deps);
   registerGetConventions(server);
   registerGetBlastRadius(server);
@@ -56,26 +52,9 @@ export function createServer(deps: ServerDeps): McpServer {
 }
 
 // ---------------------------------------------------------------------------
-// The two tools whose handlers land in steps 5 and 6. Everything a client can
-// SEE about them is already final; only the body is missing.
+// The one tool whose handler lands in step 6. Everything a client can SEE about
+// it is already final; only the body is missing.
 // ---------------------------------------------------------------------------
-
-function registerRunAgentOnPr(server: McpServer): void {
-  server.registerTool(
-    'run_agent_on_pr',
-    {
-      title: 'Run a reviewer agent on a pull request',
-      description: TOOL_DESCRIPTIONS.run_agent_on_pr,
-      inputSchema: runAgentOnPrInput,
-      outputSchema: runAgentOnPrOutput,
-      // Not read-only: it starts a run that spends a real model call. Not
-      // destructive: it adds a review, it never removes or overwrites one. Open
-      // world: the reviewed pull request lives outside DevDigest.
-      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
-    },
-    () => notWiredYet('run_agent_on_pr', 'step 5'),
-  );
-}
 
 function registerGetConventions(server: McpServer): void {
   server.registerTool(
