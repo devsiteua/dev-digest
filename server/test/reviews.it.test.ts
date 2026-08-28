@@ -560,6 +560,102 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     await app.close();
   });
 
+  // ---- POST /reviews/working — a review with no pull request behind it ----
+
+  /**
+   * The extra task's server side.
+   *
+   * What is asserted here is the pair of properties that make it worth having:
+   * it reaches the SAME engine through the SAME input builders as a PR review
+   * (so it is not a second reviewer wearing the first one's name), and it
+   * persists nothing (so it is safe to run on a working tree on every save).
+   */
+  it('reviews a working diff synchronously, and writes no row anywhere', async () => {
+    const app = await appWith(REVIEW_FIXTURE);
+    const before = await pg.handle.db.select().from(t.reviews);
+    const runsBefore = await pg.handle.db.select().from(t.agentRuns);
+
+    const agent = (
+      await app.inject({
+        method: 'POST',
+        url: '/agents',
+        payload: {
+          name: 'Working Reviewer',
+          provider: 'openai',
+          model: 'gpt-4.1',
+          system_prompt: 'You are a reviewer.',
+        },
+      })
+    ).json();
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/reviews/working',
+      // By SLUG, which DevDigest does not own — the MCP server mints it from the
+      // name and a caller who read it there will type it back.
+      payload: { agent: 'working-reviewer', diff: DIFF },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    // Synchronous, unlike `POST /pulls/:id/review`: the findings are IN the
+    // response, because a CLI has nothing to subscribe to afterwards.
+    expect(body.agent_name).toBe('Working Reviewer');
+    expect(body.model).toBe('gpt-4.1');
+    expect(body.files_reviewed).toBe(1);
+    expect(body.verdict).toBe('request_changes');
+    // The same grounding gate: the line-11 finding survives, the line-999 one
+    // and the phantom file do not.
+    expect(body.findings.map((f: { id: string }) => f.id)).toEqual(['f-valid']);
+    expect(body.grounding).toBeTruthy();
+    expect(body.blocking).toBeGreaterThanOrEqual(1);
+
+    // Nothing was written. This is the property, not a side note.
+    expect(await pg.handle.db.select().from(t.reviews)).toHaveLength(before.length);
+    expect(await pg.handle.db.select().from(t.agentRuns)).toHaveLength(runsBefore.length);
+    expect(await pg.handle.db.select().from(t.findings)).toBeDefined();
+    expect(body.id).toBeUndefined();
+
+    await app.close();
+  });
+
+  it('names the agents that exist when the one asked for does not', async () => {
+    const app = await appWith(REVIEW_FIXTURE);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/reviews/working',
+      payload: { agent: 'no-such-reviewer', diff: DIFF },
+    });
+    expect(res.statusCode).toBe(404);
+    // A caller at a terminal cannot see the list, so the error carries it.
+    expect(res.json().error.message).toContain('Available:');
+    await app.close();
+  });
+
+  it('refuses text that is not a diff rather than reviewing an empty change', async () => {
+    const app = await appWith(REVIEW_FIXTURE);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/reviews/working',
+      payload: { agent: 'general-reviewer', diff: 'this is not a diff at all' },
+    });
+    // Otherwise it would come back approving a change nobody made.
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe('empty_diff');
+    await app.close();
+  });
+
+  it('rejects an empty diff at the edge, before any handler runs', async () => {
+    const app = await appWith(REVIEW_FIXTURE);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/reviews/working',
+      payload: { agent: 'general-reviewer', diff: '' },
+    });
+    expect(res.statusCode).toBe(422);
+    await app.close();
+  });
+
   it('run all enabled agents reviews with each enabled agent', async () => {
     const app = await appWith(REVIEW_FIXTURE);
     const { pr } = await setupRepoAndPr(pg.handle.db, workspaceId);

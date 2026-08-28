@@ -1,12 +1,13 @@
 import type { Container } from '../../platform/container.js';
-import type { Provider, Review, RunTrace, UnifiedDiff } from '@devdigest/shared';
+import type { Review, RunTrace, UnifiedDiff } from '@devdigest/shared';
 import { reviewPullRequest, countBlockers } from '@devdigest/reviewer-core';
 import { RunLogger } from '../../platform/run-logger.js';
 import * as schema from '../../db/schema.js';
 import type { AgentRow } from '../../db/rows.js';
 import type { ReviewRepository, FindingRow, PullRow, ReviewRow } from './repository.js';
 import { REVIEW_STRATEGY } from './constants.js';
-import { renderSkillBlocks, taskLine } from './helpers.js';
+import { taskLine } from './helpers.js';
+import { buildSkillBlocks, resolveAgentProvider } from './inputs.js';
 import { loadDiff } from './diff-loader.js';
 
 /** Thrown by a run when the user cancels it mid-flight (between map files). */
@@ -168,7 +169,7 @@ export class ReviewRunExecutor {
       // key is missing — caught below and persisted as a failed run.)
       const llm = await runLog.step(
         `Resolving ${agent.provider} provider`,
-        () => this.container.llm(agent.provider as Provider),
+        () => resolveAgentProvider(this.container, agent.provider),
         { kind: 'tool' },
       );
 
@@ -195,7 +196,7 @@ export class ReviewRunExecutor {
       // L02 — the agent's linked skills, resolved to bodies. Independent of the
       // repo-intel toggle: skills are the user's own configuration, not derived
       // repository context.
-      const skillBlocks = await this.buildSkillBlocks(agent.id, runLog);
+      const skillBlocks = await buildSkillBlocks(this.container, agent.id, runLog);
 
       const task = taskLine(pull) + rankNote;
 
@@ -387,55 +388,6 @@ export class ReviewRunExecutor {
       return { intent: result.intent, note: result.note };
     } catch (err) {
       runLog.info(`intent: unavailable, continuing without it — ${(err as Error).message}`);
-      return undefined;
-    }
-  }
-
-  /**
-   * Resolve the agent's linked skills into prompt blocks (L02).
-   *
-   * Two filters decide what an agent actually reviews with:
-   *   1. the link — `agent_skills`, ordered, edited in the agent's Skills tab;
-   *   2. `skills.enabled` — the global master switch on the Skills page.
-   * A skill must pass BOTH. Turning a skill off therefore removes it from every
-   * agent at once, without touching anyone's link list.
-   *
-   * Returns `undefined` when nothing survives, so the spread at the call site
-   * adds no key and the prompt stays byte-identical to the pre-L02 shape. Any
-   * failure degrades to `undefined` for the same reason the repo-intel builders
-   * do: an enrichment must never be able to fail a run.
-   */
-  private async buildSkillBlocks(
-    agentId: string,
-    runLog: RunLogger,
-  ): Promise<string[] | undefined> {
-    try {
-      const links = await this.container.agentsRepo.linkedSkills(agentId);
-      if (links.length === 0) return undefined;
-
-      const enabled = links.map((l) => l.skill).filter((s) => s.enabled);
-      const offCount = links.length - enabled.length;
-      if (enabled.length === 0) {
-        runLog.info(`skills: ${offCount} linked skill(s) are disabled — no skills block`);
-        return undefined;
-      }
-
-      const { blocks, included, dropped } = renderSkillBlocks(enabled);
-      if (blocks.length === 0) return undefined;
-
-      const tokens = this.container.tokenizer.count(blocks.join('\n\n'));
-      runLog.info(
-        `skills: ${blocks.length} skill(s), ${tokens} token(s) attached (${included.join(', ')})`,
-      );
-      // Never let a budget cut be invisible — a silently shortened prompt reads
-      // as "the model ignored my rule".
-      if (dropped.length > 0) {
-        runLog.info(`skills: dropped over budget — ${dropped.join(', ')}`);
-      }
-      if (offCount > 0) runLog.info(`skills: ${offCount} linked skill(s) skipped (disabled)`);
-      return blocks;
-    } catch (err) {
-      runLog.info(`skills: resolution failed — ${(err as Error).message}`);
       return undefined;
     }
   }

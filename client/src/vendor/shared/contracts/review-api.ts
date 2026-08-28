@@ -194,3 +194,52 @@ export const BlastExplainResponse = z.object({
   duration_ms: z.number().int(),
 });
 export type BlastExplainResponse = z.infer<typeof BlastExplainResponse>;
+
+/**
+ * Request of `POST /reviews/working` — review a diff with no pull request
+ * behind it.
+ *
+ * The whole input is what `git diff` printed and which agent to run. There is
+ * no repository id and no PR number, because there is no PR: this is the
+ * uncommitted working tree of whoever ran the CLI.
+ */
+export const WorkingReviewRequest = z.object({
+  /** The agent's name, its kebab-cased slug, or its id. */
+  agent: z.string().min(1),
+  /** A unified diff, exactly as `git diff` produced it. */
+  diff: z.string().min(1),
+});
+export type WorkingReviewRequest = z.infer<typeof WorkingReviewRequest>;
+
+/**
+ * Response of `POST /reviews/working`.
+ *
+ * `findings` are `Finding`s, not `FindingRecord`s, and that difference is the
+ * feature: nothing is persisted, so there is no row id to accept or dismiss.
+ * The review happened, was reported, and left no trace — which is what makes it
+ * safe to run on a working tree on every save.
+ *
+ * SYNCHRONOUS, deliberately unlike its neighbour `POST /pulls/:id/review`. That
+ * one is fire-and-forget and returns `reviews: []` on purpose, because a browser
+ * subscribes to the run over SSE afterwards. A CLI has nothing to subscribe
+ * with, and a fire-and-forget answer would leave it with nothing to print.
+ */
+export const WorkingReviewResponse = z.object({
+  agent_name: z.string(),
+  provider: Provider,
+  model: z.string(),
+  verdict: Verdict.nullable(),
+  score: z.number().int().nullable(),
+  summary: z.string().nullable(),
+  findings: z.array(Finding),
+  /** How many findings count as blocking under this agent's `ci_fail_on`. */
+  blocking: z.number().int(),
+  /** How the grounding gate judged the model's citations. */
+  grounding: z.string(),
+  files_reviewed: z.number().int(),
+  tokens_in: z.number().int(),
+  tokens_out: z.number().int(),
+  cost_usd: z.number().nullish(),
+  duration_ms: z.number().int(),
+});
+export type WorkingReviewResponse = z.infer<typeof WorkingReviewResponse>;
