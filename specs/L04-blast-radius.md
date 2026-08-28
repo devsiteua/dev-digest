@@ -1,6 +1,6 @@
 # L04 part two — Blast Radius
 
-Status: in-progress
+Status: done
 Owner: devsiteua
 Packages touched: server · client · mcp
 
@@ -67,7 +67,7 @@ On 2026-08-28 its index was resynced and is `status: full`, `last_indexed_sha 13
 | Endpoints, depth 1 | `src/api/admin-router.ts` → `GET /admin/users`, `GET /admin/orders/:id` |
 | Endpoints, depth 2 | `src/api/orders-router.ts` (via `order-access.ts`) → `GET /orders`, `GET /orders/:id` |
 | Crons, depth 1 | `src/jobs/order-digest.ts` → `0 * * * *` |
-| Direction control | the changed file itself imports `../domain/models`; if the traversal direction is ever inverted, `domain/models.ts` appears in the map and the bug is visible at a glance |
+| Direction control | ~~the changed file itself imports `../domain/models`; if the traversal direction is ever inverted, `domain/models.ts` appears in the map~~ — **wrong, see § Open questions.** The import is `import type`, which dependency-cruiser does not emit an edge for, so that file is unreachable in either direction and controls nothing. The real control is seeded in `blast.it.test.ts`. |
 
 So the acceptance number ("at least two real callers and one HTTP endpoint") is met with
 margin, and the depth-2 endpoint is what proves the reverse traversal is real rather than a
@@ -277,28 +277,28 @@ yet; it may never say the brief does not require something.
 
 | Brief item | Lands in | Verdict |
 |---|---|---|
-| Server module `blast/` and route `GET /pulls/:id/blast` | commit 2 | |
-| Get the PR's changed files | commit 2 (`pr_files`) | |
-| Symbols declared in those files, via the `repoIntel` facade | commits 1–2 | |
-| Importers and callers per symbol | commit 1 | |
-| Exclude the declaring file | commit 1 | |
-| Cap at 20 callers per symbol | commit 1 | |
-| Sort callers by file rank | commit 1 | |
-| Path to HTTP routes via the reverse import graph | commit 1 | |
-| Traversal limited to two levels | commits 1–2 | |
-| Incomplete index → `partial` / `degraded` with an explanation | commit 2 | |
-| Missing data is never masked as an empty array | commit 2 | |
-| Blast tab: symbols → callers → endpoints | commit 3 | |
-| `file:line` clickable, opens the right line | commit 3 | |
-| `get_blast_radius` over the same server route | commit 6 | |
-| Optional: one cheap model call explaining the map | commit 4 | |
-| **Acceptance:** demo PR shows ≥2 real callers and ≥1 endpoint | verified in Context | |
-| **Acceptance:** server does not rebuild AST / import graph per request | D1, commit 1 | |
-| **Acceptance:** clear empty state | commit 2–3 | |
-| **Acceptance:** separate `partial` / `degraded` state | commit 2–3 | |
-| **Acceptance:** main scenario makes no LLM call; the optional summary is exactly one | commits 2, 4 | |
-| **Acceptance:** `get_blast_radius` returns a concise structured result | commit 6 | |
-| **Extra:** `devdigest review --mode working` reusing the reviewer and domain logic | commits 7–9 | |
+| Server module `blast/` and route `GET /pulls/:id/blast` | commit 2 | ✅ `modules/blast/{routes,service,repository,helpers,constants}.ts` + one line in `modules/index.ts` |
+| Get the PR's changed files | commit 2 (`pr_files`) | ✅ `BlastRepository.pathsForPr`, ordered by `path` so two identical requests cannot disagree |
+| Symbols declared in those files, via the `repoIntel` facade | commits 1–2 | ✅ `getBlastRadiusFromIndex` → `getSymbolRows`; the demo PR returns `canManageUsers` + `canViewOrder` |
+| Importers and callers per symbol | commit 1 | ✅ `getResolvedCallers`, grouped by `viaSymbol` in `groupCallersBySymbol` |
+| Exclude the declaring file | commit 1 | ✅ pre-existing in `getBlastRadiusFromIndex`: `decl_file` is the changed file, so a reference from it never resolves to itself |
+| Cap at 20 callers per symbol | commit 1 | ✅ `capPerSymbol` — the correction; it was a **global** cap of 20 before |
+| Sort callers by file rank | commit 1 | ✅ `rank DESC, file ASC, line ASC`; the tie-breakers are the second correction |
+| Path to HTTP routes via the reverse import graph | commit 1 | ✅ `getDependents` over `file_edges` keyed on `(repo_id, to_file)`; one query per level |
+| Traversal limited to two levels | commits 1–2 | ✅ level 1 = the symbol's caller files, `DOWNSTREAM_HOPS_BEYOND_CALLERS = 1` for level 2 |
+| Incomplete index → `partial` / `degraded` with an explanation | commit 2 | ✅ `decideBlastState`, one test per row of the table |
+| Missing data is never masked as an empty array | commit 2 | ✅ `status` + `reason` on every response, and one `DownstreamImpact` per changed symbol even when it reaches nothing |
+| Blast tab: symbols → callers → endpoints | commit 3 | ✅ `BlastTab` + `BlastSummaryStats` / `BlastTree` / `BlastGraph`, the design's card verbatim |
+| `file:line` clickable, opens the right line | commit 3 | ✅ `MonoLink href={githubBlobUrl(repo, indexed_sha, file, line)}` — pinned to the index's commit (D6) |
+| `get_blast_radius` over the same server route | commit 6 | ✅ `isError: false`; driven through the Inspector on both the `ok` and `degraded` branches |
+| Optional: one cheap model call explaining the map | commit 4 | ✅ `POST /pulls/:id/blast/explain`, behind an Explain button, `llmCalls: 1` |
+| **Acceptance:** demo PR shows ≥2 real callers and ≥1 endpoint | verified in Context | ✅ live: 2 symbols, 7 callers across 4 files, 4 endpoints, 1 cron |
+| **Acceptance:** server does not rebuild AST / import graph per request | D1, commit 1 | ✅ the code-line grep is empty; `repo-intel-blast.test.ts` drives the path with a `codeIndex` that throws on every method |
+| **Acceptance:** clear empty state | commit 2–3 | ✅ three `ok` reasons, three different sentences and three different next steps |
+| **Acceptance:** separate `partial` / `degraded` state | commit 2–3 | ✅ `partial` still draws the map and warns; `degraded` draws a banner with Re-analyze |
+| **Acceptance:** main scenario makes no LLM call; the optional summary is exactly one | commits 2, 4 | ✅ one it-test drives both routes through one app with a counting provider: 0 then 1 |
+| **Acceptance:** `get_blast_radius` returns a concise structured result | commit 6 | ✅ a projection of `BlastRadiusResponse`, no field renamed and none invented |
+| **Extra:** `devdigest review --mode working` reusing the reviewer and domain logic | commits 7–9 | ✅ `POST /reviews/working` through the extracted `modules/reviews/inputs.ts`; CLI exit codes 0/1/2 verified end to end |
 
 ## Implementation plan
 
@@ -328,37 +328,45 @@ to `docs/architecture.md` plus the facade list in `modules/repo-intel/README.md`
 
 ## Acceptance criteria
 
-- [ ] `GET /pulls/:id/blast` on the demo PR returns 2 changed symbols, ≥4 caller files and
-      ≥3 endpoints, and its log line carries `llmCalls: 0`.
-- [ ] The endpoint list for `canViewOrder` contains a route from `src/api/orders-router.ts`,
+- [x] `GET /pulls/:id/blast` on the demo PR returns 2 changed symbols, ≥4 caller files and
+      ≥3 endpoints, and its log line carries `llmCalls: 0`. — live: 2 symbols, 7 callers
+      across 4 files (`order-access`, `admin-router`, `order-digest`,
+      `tests/authorization.test`), 4 endpoints, 1 cron.
+- [x] The endpoint list for `canViewOrder` contains a route from `src/api/orders-router.ts`,
       which is two import hops from the changed file — the reverse traversal is real.
-- [ ] `domain/models.ts` never appears in the map: the graph is walked from the changed file
-      outward to its dependents, not to its dependencies.
-- [ ] No code path reachable from the route calls `container.codeIndex`, `container.git` or
-      reads the clone. Checked over code lines only:
-      `grep -vE '^\s*(\*|//|/\*)' server/src/modules/blast/*.ts | grep -nE 'codeIndex|container\.git|readFile'`
-      finds nothing. (A grep criterion also matches prose; this one is scoped to code
-      deliberately.)
-- [ ] Each caller row's `file:line` opens GitHub at `indexed_sha` and lands on the line the
-      index recorded — spot-checked against `src/orders/order-access.ts:5` and
-      `src/api/admin-router.ts:28`.
-- [ ] A PR whose files declare no indexed symbol renders "no indexed symbols", not "this PR
+      `GET /orders` and `GET /orders/:id` are both there.
+- [x] `domain/models.ts` never appears in the map. **With a caveat the spec got wrong** —
+      see § Open questions: the fixture's `import type` produces no `file_edges` row, so
+      that file is unreachable in EITHER direction and the demo repository cannot serve as
+      the direction control the Context section claimed. `blast.it.test.ts` seeds a real one
+      instead: the changed file imports `src/domain/models.ts`, which registers a route that
+      must never appear.
+- [x] No code path reachable from the route calls `container.codeIndex`, `container.git` or
+      reads the clone. The grep over code lines finds nothing, and
+      `repo-intel-blast.test.ts` drives `getBlastRadiusFromIndex` with a `codeIndex` that
+      throws on every method, so the ripgrep path is unreachable rather than merely unused.
+- [x] Each caller row's `file:line` opens GitHub at `indexed_sha` and lands on the line the
+      index recorded — asserted in `BlastTab.test.tsx` against
+      `src/orders/order-access.ts:5`, and the live map carries `src/api/admin-router.ts:28`.
+- [x] A PR whose files declare no indexed symbol renders "no indexed symbols", not "this PR
       affects nothing", and says which sha it looked at.
-- [ ] A repository with no index (the seeded `acme/payments-api`) renders the `degraded`
+- [x] A repository with no index (the seeded `acme/payments-api`) renders the `degraded`
       banner with a reason and a working "Re-analyze" action.
-- [ ] An index whose state is `partial` yields `status: 'partial'` — covered by a test, since
-      neither indexed repository is currently partial.
-- [ ] `get_blast_radius` over MCP returns the same symbols, callers and endpoints as the tab,
+- [x] An index whose state is `partial` yields `status: 'partial'` — covered by
+      `blast.it.test.ts`, which flips the row and restores it.
+- [x] `get_blast_radius` over MCP returns the same symbols, callers and endpoints as the tab,
       with `isError: false`, and its `structuredContent` validates against the new
-      `outputSchema` **when driven through the Inspector**, not only through the unit lane.
-- [ ] The optional explain endpoint makes exactly one model call and the `GET` route makes
-      none.
-- [ ] Unchanged: `POST /pulls/:id/review` still returns `reviews: []` and still runs in the
-      background; `reviews.it.test.ts` passes untouched after the input-builder extraction.
-- [ ] Unchanged: `cd mcp && pnpm typecheck` is green — it is the only drift guard that package
-      has, and it has no CI workflow (`TESTING.md`).
-- [ ] `pnpm arch:check` **output** is empty for the new module; the known-violations baseline
-      is not appended to.
+      `outputSchema` **driven through the Inspector**, on both the `ok` and `degraded`
+      branches.
+- [x] The optional explain endpoint makes exactly one model call and the `GET` route makes
+      none — one it-test drives both through one app with a counting provider.
+- [x] Unchanged: `POST /pulls/:id/review` still returns `reviews: []` and still runs in the
+      background; `reviews.it.test.ts` passes after the input-builder extraction (16 tests,
+      four of them new).
+- [x] Unchanged: `cd mcp && pnpm typecheck` is green, and was re-run after every
+      `server/src/vendor/shared` edit.
+- [x] `pnpm arch:check` **output** is empty for the new modules (`✔ no dependency violations
+      found`, 16 known ignored — the same 16 as before); the baseline is not appended to.
 
 ## Test plan
 
@@ -410,6 +418,33 @@ repository is a deliberate exception).
 
 ## Open questions
 
-None. Two earlier ones are settled: the optional model call is built (the brief marks it
+None left open. Three things the spec asserted turned out to need correcting, and they are
+recorded here rather than quietly fixed, because each of them was written as a fact.
+
+**The demo repository is not the direction control the Context section claims.** That
+section says `src/auth/authorization.ts` "imports `../domain/models`; if the traversal
+direction is ever inverted, `domain/models.ts` appears in the map". It does import it — as
+`import type`. dependency-cruiser runs with `tsPreCompilationDeps` at its default of
+`false`, so a type-only import produces no `file_edges` row: `select … from file_edges where
+from_file='src/auth/authorization.ts'` returns nothing. The acceptance criterion still
+passes, but it passes because that file is unreachable in EITHER direction, which proves
+nothing about the direction. `blast.it.test.ts` seeds a real control instead — the changed
+file imports a file that registers a route, and that route must never appear in the map.
+
+**The test plan's file assignment does not match where the code landed.** It puts "the 20
+cap; the rank/file/line sort; the reverse-BFS level assignment" in
+`server/test/blast-helpers.test.ts`, but In-scope puts all three in `modules/repo-intel` —
+the cap and the sort are corrections to `getBlastRadiusFromIndex`, and the walk is
+`getDependents`. They are covered in `server/test/repo-intel-blast.test.ts`, beside the code
+they describe; `blast-helpers.test.ts` covers the per-symbol assembly, the test-file filter
+and the decision table. Every item is covered; two of them are in the other file.
+
+**The MCP projection carries `indexed_sha`, which the In-scope key list does not name.**
+That list reads "keys stay `changed_symbols`, `downstream[…]`, `summary`, plus `status` /
+`reason`". `indexed_sha` is the third field the response contract adds, and a model handed
+`file:line` with no commit cannot tell where those lines are right — which is the whole
+point of D6. It is included, and the tool description says what it is.
+
+Two earlier questions stayed settled: the optional model call is built (the brief marks it
 optional but gives it its own acceptance criterion, "exactly one call"), and no extra demo
-pull request is needed for the "symbols but no callers" state — it is covered by a test.
+pull request was needed for the "symbols but no callers" state — it is covered by a test.

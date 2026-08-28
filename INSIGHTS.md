@@ -46,6 +46,27 @@ entries pile up, move them to `docs/insights-archive.md`.
 
 ## What Works
 
+### 2026-08-28 · Unit-test a facade that builds its own repository by patching the FIELD, not the constructor
+
+Trigger:  the two new `repoIntel` methods L04 is built on had to be proven never to reach
+          `container.codeIndex` (the ripgrep path), which is a claim about a code path and
+          cannot be made against a database.
+Cause:    `RepoIntelService`'s constructor takes only a `Container` and builds
+          `new RepoIntelRepository(container.db)` itself, so there is no seam in the
+          signature. `repo-intel-facade-degraded.test.ts` had already solved it:
+          `(svc as unknown as { repo: … }).repo = { … }` after construction, with a `container`
+          literal carrying only `config`, `db: {} as never` and the ports the path touches.
+          The second half is what makes it worth copying — the stubbed `codeIndex` THROWS on
+          every method rather than returning `[]`. A returning stub lets the fallback run and
+          pass, so "the ripgrep path is unreachable" would still be a claim; a throwing one
+          makes it an assertion.
+Takeaway: for any facade method that must NOT take a fallback, stub the fallback's port to
+          throw. And when a service builds its own repository, patch the field — the pattern
+          is established, it needs no DI change, and it keeps the unit lane Docker-free.
+Evidence: server/test/repo-intel-blast.test.ts (EXPLODING_CODE_INDEX, buildService);
+          server/test/repo-intel-facade-degraded.test.ts (the original)
+Status:   resolved
+
 ### 2026-08-07 · A skills A/B lands on WHICH findings, not how many — count the demonstration wrong and it looks like nothing happened
 
 Trigger:  running the control experiment on PR #484 (API Contract Reviewer, deepseek-v4-flash),
@@ -72,6 +93,27 @@ Evidence: docs/skills-control-experiment.md § "Recorded result — 2026-08-07, 
 Status:   resolved — the recipe generalises to experiment 1 and to any future skill demo
 
 ## What Doesn't Work
+
+### 2026-08-28 · A constant whose name documents a rule the code does not implement — and no test can catch it while the method has no consumer
+
+Trigger:  wiring the first consumer of `repoIntel.getBlastRadius`. Its persistent path ended
+          with `callers.slice(0, MAX_CALLERS_PER_SYMBOL)` over the FLAT array, while
+          `constants.ts` documents that constant as "Caller fan-out cap per changed symbol".
+Cause:    the method had no consumer at all (`grep -rn "getBlastRadius" server/src` outside
+          `modules/repo-intel/` was empty), so nothing exercised the multi-symbol case and no
+          test pinned the behaviour. A global cap of 20 is invisible on a one-symbol diff and
+          only wrong on a PR touching several hot symbols — which then shows twenty rows
+          against the first and none against the rest, without saying so. The caller sort had
+          the same shape of defect: `b.rank - a.rank` alone, and two references from ONE file
+          carry the same `file_rank.rank` to the last bit.
+Takeaway: when you become the first consumer of a facade method, re-read what its constants
+          CLAIM before trusting what its code does — an unconsumed method's behaviour has
+          never been checked against its own documentation, and a green suite says nothing
+          about it. Both corrections were free precisely because there was no consumer to
+          break; a year later they would have been a behaviour change.
+Evidence: server/src/modules/repo-intel/constants.ts (MAX_CALLERS_PER_SYMBOL);
+          server/src/modules/repo-intel/service.ts (capPerSymbol, the caller sort)
+Status:   resolved
 
 ### 2026-08-28 · Shortening a wait does not make a review free — `POST /pulls/:id/review` is fire-and-forget
 
@@ -252,6 +294,32 @@ Status:   open — fix opportunistically when touching those files
 > resolved with L01's cost column) → [`docs/insights-archive.md`](docs/insights-archive.md).
 
 ## Codebase Patterns
+
+### 2026-08-28 · Three silent narrowings sit between a real call site and a row in the blast map
+
+Trigger:  the demo PR's map shows `tests/authorization.test.ts:34` as a caller of
+          `canViewOrder` — but the file also calls it at line 39, and that row is absent.
+Cause:    three independent filters, none of which announces itself.
+          (a) `resolveReferences` (`repository.ts`) sets `references.decl_file` only when a
+          `file_edges` row exists from referencing to declaring file, the declaring file
+          EXPORTS that exact name, and there is exactly one candidate (`HAVING count(*) = 1`)
+          — so a call through a barrel is never attributed and an ambiguous name is dropped
+          rather than guessed.
+          (b) `getResolvedCallers` INNER JOINs `file_rank`, so a caller file with no rank row
+          is invisible; that only bites on a partial index, which is what `status: 'partial'`
+          exists to say.
+          (c) the de-duplication key is `file|ENCLOSING SYMBOL|toSymbol`, and the enclosing
+          symbol falls back to the file's basename when the caller file has no `symbols`
+          rows. A test file the indexer never parsed therefore collapses ALL its references
+          to one row, whatever line they are on.
+Takeaway: the map is precision-first by construction: a row in it is a real call, but its
+          absence is not evidence of no call. Do not "fix" a missing caller downstream — the
+          three rules above are where the answer is, and (c) in particular means a caller
+          count from a symbol-less file is a count of FILES, not of call sites.
+Evidence: server/src/modules/repo-intel/repository.ts (resolveReferences, getResolvedCallers);
+          server/src/modules/repo-intel/service.ts (enclosingFromRows, the seenCaller key)
+Status:   open — (c) is a real under-count; correcting it means keying on the line when the
+          enclosing symbol is unknown, which no consumer needs yet
 
 ### 2026-08-23 · Seeded `patch` text is a contract with the CLIENT's parser — and nothing checks it
 
@@ -476,6 +544,48 @@ Status:   → promoted to `CLAUDE.md` (Gotchas) on 2026-08-06, after the L02 con
 > Every rule they produced is live in `CLAUDE.md` (Gotchas).
 
 ## Tool & Library Notes
+
+### 2026-08-28 · dependency-cruiser omits `import type` — so `file_edges` has no row for a type-only dependency
+
+Trigger:  L04's spec named a "direction control": the demo PR's changed file
+          `src/auth/authorization.ts` imports `../domain/models`, so an inverted traversal
+          would put `domain/models.ts` in the blast map. The criterion passed — and then
+          `select … from file_edges where from_file='src/auth/authorization.ts'` returned
+          NOTHING at all.
+Cause:    the file's one import is `import type { Order, User } from '../domain/models'`, and
+          `cruise()` runs with `tsPreCompilationDeps` at its default of `false`
+          (`server/src/adapters/depgraph/index.ts` sets `exclude`, `doNotFollow` and
+          `tsConfig`, and nothing else). Type-only imports vanish at compile time, so
+          dependency-cruiser does not report them. The edge is not filtered by our adapter —
+          it is never emitted.
+Takeaway: `file_edges` is the RUNTIME import graph, not the TypeScript one. Anything reading
+          it — blast, PageRank, `resolveReferences` — is blind to a type-only dependency, so
+          a file that is imported only for its types has no rank and no dependents. And a
+          test whose whole point is a graph edge must assert that the edge EXISTS before
+          trusting what its absence proves; here the control was vacuous and the criterion
+          still went green.
+Evidence: server/src/adapters/depgraph/index.ts (the cruise options);
+          server/test/blast.it.test.ts (the seeded direction control that replaced it)
+Status:   resolved — the control moved into a test that seeds its own edge
+
+### 2026-08-28 · The char count in an Appendix heading is load-bearing — `copy.test.ts` asserts it
+
+Trigger:  rewriting `get_blast_radius`'s tool description when the stub became real. The
+          fenced block and `mcp/src/copy.ts` were updated together, and `pnpm test` still
+          failed.
+Cause:    `mcp/test/copy.test.ts` parses `### \`<tool>\` — NNN chars` out of the heading and
+          asserts `block.text.length === NNN`, on top of the byte-for-byte comparison against
+          `copy.ts`. Changing a description therefore touches THREE places, and the heading is
+          the one that reads like decoration. A second assertion in the same file pinned the
+          old CONTENT ("keeps get_blast_radius announcing itself as not implemented"), which
+          is correct while the tool is a stub and has to be inverted when it stops being one.
+Takeaway: to change a tool description: edit the Appendix fence, recompute its length, update
+          the heading's count, mirror into `copy.ts`, then re-read `copy.test.ts` for an
+          assertion about that tool's WORDING. The guard is doing its job — it is just wider
+          than "the two copies agree".
+Evidence: mcp/test/copy.test.ts ("matches the character count each Appendix heading declares");
+          specs/L04-mcp-server.md § Appendix
+Status:   resolved
 
 ### 2026-08-28 · A cross-package `paths` alias does not force a Zod major — the `zod` SELF-PIN beside it does
 
