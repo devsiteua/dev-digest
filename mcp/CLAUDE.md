@@ -130,8 +130,6 @@ grep -rln "process\.env" src              # must print only src/config.ts
 ## Read when
 
 - You are starting anything in this package → read `INSIGHTS.md`, then the root one
-- You need the whole design and the decision behind a rule above → read
-  `../specs/L04-mcp-server.md` (§ Decisions taken is where each rule's evidence is)
 - You need how to run, register or debug the server → read `README.md`
 - You are deciding which skills a change here routes to → read
   `../.claude/skills/pr-self-review/SKILL.md` § 3, the repo's one path → skills table.

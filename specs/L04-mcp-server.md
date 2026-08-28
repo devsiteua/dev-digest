@@ -1,6 +1,6 @@
 # L04 — `devdigest-mcp`: a local MCP server over the DevDigest API
 
-Status: in-progress
+Status: done
 Owner: devsiteua
 Packages touched: mcp (new) · server
 
