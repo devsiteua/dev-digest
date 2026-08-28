@@ -111,6 +111,64 @@ simply disappear. "Missing context" is not an error state.
 `countBlockers(findings, agent.ciFailOn)` — computed from finding severities, not from the
 model's `verdict` field.
 
+## Blast radius — a read that must not parse the repository
+
+`GET /pulls/:id/blast` answers "what else can this diff reach" **entirely from the
+pre-built index**: no AST parse, no import-graph build, no clone read and no model call.
+That is a property of the code path rather than a budget note, and it is why
+`modules/blast` calls `repoIntel.getBlastRadiusFromIndex` rather than `getBlastRadius` —
+the latter falls back to a ripgrep pass over the clone when the index cannot answer, which
+is exactly the request-time parse this feature must not do. A `null` from the index-only
+method is rendered as a degraded state with a reason.
+
+Endpoint attribution is per SYMBOL, and each symbol's traversal is seeded from its own
+callers. A single traversal from the changed file would hand every symbol declared in that
+file the same list of routes.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as client (Blast tab)
+    participant R as blast/routes.ts
+    participant S as blast/service.ts
+    participant I as repoIntel facade
+    participant PG as Postgres
+
+    C->>R: GET /pulls/:id/blast
+    R->>S: forPull(workspaceId, prId)
+    S->>PG: reviewRepo.getPull — the one workspace-scoped PR query
+    S->>PG: pr_files → changed paths
+    S->>I: getIndexState(repoId)
+    I-->>S: status + last_indexed_sha
+    S->>I: getBlastRadiusFromIndex(repoId, paths)
+    I->>PG: symbols · references.decl_file · file_rank · file_facts
+    I-->>S: BlastResult, or null when the index cannot answer
+    loop per distinct caller-file set (memoised)
+        S->>I: getDependents(repoId, callerFiles, 1)
+        I->>PG: file_edges keyed on (repo_id, to_file)
+        I-->>S: level-2 files + their file_facts
+    end
+    S-->>R: BlastRadiusResponse + status/reason/indexed_sha
+    R-->>C: 200, log line carrying llmCalls: 0
+```
+
+**The two levels.** A symbol's resolved callers are, by construction, direct importers of
+the changed file — level 1. One further reverse hop over `file_edges` reaches level 2, which
+is the total depth of two the feature promises. Endpoints and crons are read from
+**production files only**: a test file can register routes that exist nowhere else, though
+its *calls* are kept, because those are real calls of real code.
+
+**Six answers, never a bare empty array.** `status` (`ok | partial | degraded`) says how far
+the map is to be trusted and `reason` says why it looks the way it does. Three reasons are
+degraded — the index cannot speak; one is partial; and three are `ok` with nothing to draw
+(`no_changed_files`, `no_indexed_symbols`, `no_callers`). Index health is decided first,
+because it is the precondition for every other statement the response makes.
+
+**One optional model call.** `POST /pulls/:id/blast/explain` turns the already-computed map
+into one paragraph, behind an explicit button. Nodes and edges are passed in and the model
+is forbidden from naming anything else; nothing is persisted. The two routes log
+`llmCalls: 0` and `llmCalls: 1` as literals, which is what makes the claim checkable.
+
 ## Two background mechanisms, not one
 
 - **`JobRunner`** (`server/src/platform/jobs.ts`) — clone, index, poll. A p-queue with

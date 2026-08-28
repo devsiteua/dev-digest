@@ -74,8 +74,16 @@ injected into the prompt as `## Repo skeleton`.
 **File rank** — PageRank over the import graph combined with git hotness. A changed file in
 the top 5% earns a "high blast risk" note in the task line.
 
-**Blast radius** — the set of symbols and callers impacted by a change. Facade method exists;
-the product feature arrives in L04.
+**Blast radius** — what a pull request's diff can reach: the symbols its changed files
+declare, the call sites that reach them, and the HTTP endpoints and scheduled jobs
+downstream of those call sites. Served by `GET /pulls/:id/blast` from the pre-built index —
+no AST parse, no import-graph build and no model call — and rendered on the PR's **Blast**
+tab. See `architecture.md` § "Blast radius".
+
+**Blast status / reason** — the two fields that keep an empty map from reading as "this
+pull request affects nothing". `status` is `ok | partial | degraded`; `reason` names which
+of the six answers it is. An emptiness is `ok` with a reason (`no_changed_files`,
+`no_indexed_symbols`, `no_callers`), because nothing failed.
 
 **Degraded** — a `repoIntel` answer returned when the feature is off or the repo is not
 indexed. Empty result, no exception, prompt section omitted.
