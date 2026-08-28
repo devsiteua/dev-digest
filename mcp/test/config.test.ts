@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -293,5 +295,31 @@ describe('the injected fetch', () => {
     // the MCP handshake, on stderr, in a client that shows no server.
     const platformFetch: FetchLike = globalThis.fetch;
     expect(typeof platformFetch).toBe('function');
+  });
+});
+
+/**
+ * The client's bound and the server's wait live in two files and must stay
+ * ordered, which is exactly the shape of a drift that nothing notices: raising
+ * `DEVDIGEST_MCP_RUN_TIMEOUT_MS` past the client's `timeout` costs nothing at
+ * startup and only shows up as a tool call that dies before it can say
+ * `still_running`.
+ *
+ * `.mcp.json` is read from disk rather than restated here — a second copy of the
+ * number would agree with itself and with nothing else.
+ */
+describe("the client's timeout in .mcp.json", () => {
+  const entry = JSON.parse(
+    readFileSync(new URL('../../.mcp.json', import.meta.url), 'utf8'),
+  ).mcpServers.devdigest as { timeout?: unknown };
+
+  it('is declared, so a client does not fall back to its own default', () => {
+    expect(typeof entry.timeout, '.mcp.json → mcpServers.devdigest.timeout').toBe('number');
+  });
+
+  it('leaves room above the wait run_agent_on_pr performs on purpose', () => {
+    // Strictly above: at parity the client can still win the race, and the race
+    // is over which of the two messages the model reads.
+    expect(entry.timeout as number).toBeGreaterThan(DEFAULT_RUN_TIMEOUT_MS);
   });
 });

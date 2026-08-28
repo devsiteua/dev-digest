@@ -74,7 +74,7 @@ environment (the `env` block of `.mcp.json`, or an inline assignment).
 | Variable | Default | Meaning |
 |---|---|---|
 | `DEVDIGEST_API_URL` | `http://localhost:3001` | Where the DevDigest API is listening. A malformed value fails at startup rather than falling back. |
-| `DEVDIGEST_MCP_RUN_TIMEOUT_MS` | `120000` | How long `run_agent_on_pr` waits before reporting the run as still running. Set it to `1` to exercise the timeout branch. |
+| `DEVDIGEST_MCP_RUN_TIMEOUT_MS` | `120000` | How long `run_agent_on_pr` waits before reporting the run as still running. Set it to `1` to exercise the timeout branch. The client's own `timeout` in `.mcp.json` must stay above it — see below. |
 
 ## Registering it with Claude Code
 
@@ -88,7 +88,8 @@ committed, so anyone who clones the course repo gets the server:
       "type": "stdio",
       "command": "pnpm",
       "args": ["--dir", "mcp", "exec", "tsx", "src/index.ts"],
-      "env": { "DEVDIGEST_API_URL": "http://localhost:3001" }
+      "env": { "DEVDIGEST_API_URL": "http://localhost:3001" },
+      "timeout": 180000
     }
   }
 }
@@ -102,10 +103,19 @@ committed, so anyone who clones the course repo gets the server:
 
 Notes on that entry, because both are easy to get wrong:
 
-- A stdio entry is `{ type, command, args, env, envHelper, envHelperTtlSec }` —
+- A stdio entry is `{ type, command, args, env, timeout, envHelper, envHelperTtlSec }` —
   **there is no `cwd` field**, and `command` must be a bare name or an absolute
   path (no `~`, no `..`). The relative `--dir mcp` therefore relies on the spawn
   working directory being the project root.
+- **`timeout` is how long the CLIENT will wait for one tool call**, in
+  milliseconds, and it overrides `MCP_TOOL_TIMEOUT` for this server alone. It has
+  to stay **strictly above** `DEVDIGEST_MCP_RUN_TIMEOUT_MS` (below), because
+  `run_agent_on_pr` waits that long on purpose and then answers `still_running`
+  with the run id and a next step. A client that gives up first replaces that
+  sentence with a generic timeout — and that sentence is the thing that stops a
+  model starting a second paid run. 180 000 leaves 60 s over the 120 000 default
+  for the four HTTP calls around the poll. Raise one number and you raise the
+  other; `test/config.test.ts` fails if you do not.
 - If that ever stops holding, do not commit a broken entry: register it locally
   with an absolute path instead —
   `claude mcp add devdigest --scope local --env DEVDIGEST_API_URL=http://localhost:3001 -- pnpm --dir /absolute/path/to/dev-digest/mcp exec tsx src/index.ts`.
