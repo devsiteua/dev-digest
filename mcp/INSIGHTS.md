@@ -11,6 +11,43 @@ _None yet._
 
 ## What Doesn't Work
 
+### 2026-08-28 · Asserting a response instead of parsing it makes a GATE fail open — `undefined > 0` is `false`, and `false` means "clean"
+
+Trigger:  self-review of `devdigest review`, whose exit code is a documented contract a CI
+          step branches on.
+Cause:    this package takes API responses as `api.post<WorkingReviewResponse>(…)` — an
+          assertion, by a deliberate package-wide decision (`mcp/CLAUDE.md` § Conventions),
+          guarded by `pnpm typecheck` against the contract source IN THIS REPOSITORY. That
+          guard covers drift between the two packages; it does not cover a differently
+          versioned API answering on a user-set `DEVDIGEST_API_URL`, which is precisely what
+          a CLI meets. `exitCodeFor` read `result.blocking > 0`, and a missing field makes
+          that `false` — exit 0, "the review ran and found nothing blocking".
+Takeaway: the no-runtime-validation stance is fine for text a model reads and wrong for any
+          single field a CONTRACT is computed from. Narrow it per field, not per package:
+          one `Number.isInteger` guard returning the failure code costs three lines and is
+          unit-testable. A gate may report anything except "clean" about an answer it did
+          not understand.
+Evidence: mcp/src/cli/render.ts (exitCodeFor); mcp/test/cli.test.ts ("is 2, never 0, when
+          the count cannot be read")
+Status:   resolved
+
+### 2026-08-28 · A limit restated across the type-only boundary drifted 20× — and the far side turned an actionable error into a wrong one
+
+Trigger:  `MAX_DIFF_BYTES = 8 MiB` in the CLI against a server that accepts 400k characters.
+Cause:    `mcp/` imports the contracts as TYPES ONLY, so a runtime constant physically cannot
+          cross the boundary and every shared number is a hand copy. Nothing failed loudly:
+          diffs between the two limits passed the CLI's own guard, were posted, came back
+          413, and `classifyStatus` rendered them as "DevDigest rejected the request as
+          invalid — check the arguments against the tool's description", which is not true
+          and names something a terminal user cannot see.
+Takeaway: when a number is copied across that boundary, write the OWNER's name into the
+          comment beside it and set the copy to the owner's value, not to what the local
+          mechanism could survive. The local guard's job is to produce the good error
+          message first, not to be generous.
+Evidence: mcp/src/cli/git.ts (MAX_DIFF_BYTES); server/src/vendor/shared/contracts/review-api.ts
+          (MAX_WORKING_DIFF_CHARS)
+Status:   resolved
+
 ### 2026-08-28 · The SDK skips `outputSchema` validation when `isError` is true — the CLIENT does not, and drops the whole result
 
 Trigger:  every unit test green (197), then the MCP Inspector — the first gate, run before any
