@@ -11,6 +11,27 @@ _None yet._
 
 ## What Doesn't Work
 
+### 2026-08-28 · A hand-rolled copy of `errorContent` survived a mechanical sweep and 224 green tests
+
+Trigger:  compacting every tool's JSON text block (`JSON.stringify(payload, null, 2)` →
+          `JSON.stringify(payload)`) by replacing the literal `, null, 2)` across
+          `src/tools/`. Eight call sites changed, the whole lane stayed green, and one tool
+          was still pretty-printing.
+Cause:    `list-agents.ts` did not call `errorContent`. It built the same two-block error
+          result inline, and its `JSON.stringify(` was wrapped across four lines by the
+          formatter, so the literal being swept never appeared. Nothing else noticed because
+          no test looked at the SHAPE of a JSON block — every assertion in the package parses
+          it, and `JSON.parse` is indifferent to whitespace.
+Takeaway: two things, and the second is the general one. (a) In this package, an error result
+          is `errorContent(code, message)`; a second construction of the same shape is a
+          latent divergence, not a style choice. (b) A rule about SERIALISATION cannot be
+          tested through `JSON.parse` — assert `text === JSON.stringify(JSON.parse(text))`,
+          which is the canonical compact form and survives payloads whose string values
+          contain newlines. That assertion is what caught this, immediately.
+Evidence: mcp/src/tools/list-agents.ts (now `return errorContent(...)`);
+          mcp/test/tool-surface.test.ts § "every JSON text block is compact"
+Status:   resolved
+
 ### 2026-08-28 · Asserting a response instead of parsing it makes a GATE fail open — `undefined > 0` is `false`, and `false` means "clean"
 
 Trigger:  self-review of `devdigest review`, whose exit code is a documented contract a CI

@@ -295,6 +295,30 @@ Status:   open — fix opportunistically when touching those files
 
 ## Codebase Patterns
 
+### 2026-08-28 · A `done` spec can be live code — `mcp/test/copy.test.ts` asserts the L04 Appendix byte for byte, character count included
+
+Trigger:  a mentor review asked for `provider` to be dropped from `list_agents`. The tool
+          description naming it lives in `mcp/src/copy.ts`, so the edit looked like one line
+          in one package.
+Cause:    `mcp/test/copy.test.ts` re-reads `specs/L04-mcp-server.md` § Appendix AT TEST TIME,
+          parses its fenced blocks, and asserts each tool description matches byte for byte —
+          plus the character count declared in the block's own `### … — NNN chars` heading.
+          Editing `copy.ts` alone turns that lane red; editing the Appendix without
+          recomputing the count does too. `specs/README.md` rule 5 ("never delete a spec;
+          history explains why the code looks the way it does") reads as though every closed
+          spec is inert, and for this one section it is the opposite.
+Takeaway: before changing any string in `mcp/src/copy.ts`, `grep -n "chars" specs/L04-mcp-server.md`
+          and move the Appendix first — the file's own rule is "the Appendix changes first and
+          `copy.ts` follows". Recompute the count mechanically rather than by eye (632 → 622
+          for a ten-character deletion). More generally: before assuming a `specs/` file is
+          history, grep the test suites for its path — a spec a test reads is a source file.
+          A round that edits a closed spec still appends its own `# Round N` section and
+          leaves the prose as written; the Appendix is the one part that moves in place, and
+          the round says why it had to.
+Evidence: mcp/test/copy.test.ts:22 (SPEC_PATH), :98-107 (the character-count assertion);
+          specs/L04-mcp-server.md § Appendix, § Round 2 D18
+Status:   resolved
+
 ### 2026-08-28 · Three silent narrowings sit between a real call site and a row in the blast map
 
 Trigger:  the demo PR's map shows `tests/authorization.test.ts:34` as a caller of
@@ -544,6 +568,30 @@ Status:   → promoted to `CLAUDE.md` (Gotchas) on 2026-08-06, after the L02 con
 > Every rule they produced is live in `CLAUDE.md` (Gotchas).
 
 ## Tool & Library Notes
+
+### 2026-08-28 · `.mcp.json` takes a per-server `timeout`, and it is one half of a pair that nothing else keeps ordered
+
+Trigger:  a mentor review: `.mcp.json` declares no `timeout`, so a client can give up while
+          `run_agent_on_pr` is still legitimately waiting.
+Cause:    Claude Code supports a per-server `timeout` in milliseconds (≥ 1000) in each
+          `.mcp.json` entry; it overrides `MCP_TOOL_TIMEOUT` for that server alone, and
+          `claude mcp get devdigest` prints it back as `Timeout: 180000ms`. The reason it had
+          never bitten locally is worth knowing before diagnosing one: Claude Code's own
+          default tool timeout is hours long, so it is other clients — the Inspector included
+          — whose defaults are shorter than a 120 s review. The real hazard is that the bound
+          was implicit, and that the two numbers that must stay ordered
+          (`.mcp.json` `timeout` > `DEVDIGEST_MCP_RUN_TIMEOUT_MS`) sit in different files with
+          nothing between them. If the client wins that race, the model never sees the
+          `still_running` sentence naming `get_findings`, and its next move is a second paid
+          run.
+Takeaway: declare `timeout` explicitly for any tool that blocks on purpose, keep it strictly
+          above the server's own wait, and pin the ordering with a test that READS
+          `.mcp.json` rather than restating the number — `mcp/test/config.test.ts` does, and
+          it was verified by lowering the value to parity and watching the lane go red. A
+          guard for an invariant nobody has seen fail is worth one deliberate failure.
+Evidence: .mcp.json (timeout: 180000); mcp/src/config.ts (DEFAULT_RUN_TIMEOUT_MS);
+          mcp/test/config.test.ts § "the client's timeout in .mcp.json"
+Status:   resolved
 
 ### 2026-08-28 · dependency-cruiser omits `import type` — so `file_edges` has no row for a type-only dependency
 

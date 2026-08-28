@@ -884,7 +884,7 @@ Deviation policy: stop at the step, report the divergence, finish the independen
 
 # Round 2 — the mentor's review of L04
 
-Status: in-progress · opened 2026-08-28
+Status: implemented · opened 2026-08-28 · closed 2026-08-28
 Packages touched: mcp · repo root (`.mcp.json`)
 
 ## Context
@@ -979,19 +979,19 @@ the same commit as the code — the file's own rule is that the Appendix moves f
 
 ## Acceptance criteria
 
-- [ ] `.mcp.json` carries `"timeout": 180000`, and `cd mcp && pnpm test` fails if that number
+- [x] `.mcp.json` carries `"timeout": 180000`, and `cd mcp && pnpm test` fails if that number
       is ever lowered to or below `DEFAULT_RUN_TIMEOUT_MS`.
-- [ ] `mcp/README.md` lists `timeout` among the stdio entry's fields, shows it in the worked
+- [x] `mcp/README.md` lists `timeout` among the stdio entry's fields, shows it in the worked
       entry, and states the rule against `DEVDIGEST_MCP_RUN_TIMEOUT_MS`; `.env.example` points
       at it from the other side.
-- [ ] `list_agents` returns no `provider` — not in `structuredContent`, not in the JSON text
+- [x] `list_agents` returns no `provider` — not in `structuredContent`, not in the JSON text
       block, not in `listAgentsOutput`, not in the tool description a model reads. A test
       asserts its absence rather than only asserting the six fields that remain.
-- [ ] The Appendix block and its declared character count match `copy.ts` byte for byte —
+- [x] The Appendix block and its declared character count match `copy.ts` byte for byte —
       i.e. `test/copy.test.ts` is green without being edited.
-- [ ] Every tool's JSON text block is compact: `JSON.stringify(JSON.parse(text)) === text`,
+- [x] Every tool's JSON text block is compact: `JSON.stringify(JSON.parse(text)) === text`,
       asserted per tool over the wire, error paths included.
-- [ ] `cd mcp && pnpm test && pnpm typecheck` green after every one of the five commits, not
+- [x] `cd mcp && pnpm test && pnpm typecheck` green after every one of the five commits, not
       only after the last.
 
 ## Commit plan
@@ -1012,6 +1012,21 @@ Rules carried over from Round 1's commit plan: documentation ships in the commit
 change it describes, a test ships with the code it guards, no commit leaves the tree red, and
 `/pr-self-review` runs once before the pull request rather than before each commit. The branch
 already has an open pull request, so this round pushes onto it and opens nothing new.
+
+## Deviations from the plan as written
+
+**One, in commit 4, and it widened the commit by six lines.** § In scope named the five tools,
+`errorContent` and the two `run_agent_on_pr` helpers. `list_agents` turned out to build its
+error result inline instead of calling `errorContent` — a hand-rolled copy of the shared
+helper, formatted across four lines, which is exactly why the mechanical sweep for
+`, null, 2)` missed it and why the new test caught it. Compacting the copy would have left the
+divergence that produced the bug in place, so the copy is gone and the tool calls
+`errorContent` like the other four. Recorded here rather than quietly: it is a behaviour-
+preserving simplification, and the resulting payload is byte-identical to what the inline
+version now would have produced.
+
+Everything else landed as planned, including the two the audit added: the Appendix moved with
+`copy.ts` in commit 3 (D18) and `.env.example` picked up the cross-reference in commit 2.
 
 ## Handoff
 
