@@ -538,7 +538,6 @@ describe('run_agent_on_pr — start, wait, collect', () => {
     }),
     reviews: [reviewRow({ id: 'review-new' })],
   };
-
   it('returns the verdict, the findings and the run it watched', async () => {
     const { result } = callRunAgent(routes);
     const answer = await result;
@@ -675,5 +674,39 @@ describe('run_agent_on_pr — 429', () => {
     // forbids by name.
     expect(calls.filter((call) => call.method === 'POST')).toHaveLength(1);
     expect(calls.some((call) => call.url.endsWith('/runs'))).toBe(false);
+  });
+});
+
+/**
+ * The compact-JSON rule, on the three shapes only this tool produces: the
+ * finished review, the timeout answer, and a run that ended `failed`.
+ *
+ * `test/tool-surface.test.ts` § "every JSON text block is compact" owns the rule
+ * and covers the other four tools plus every error path; it cannot reach these
+ * three without driving a whole poll loop, which is what this file already has a
+ * stubbed clock for.
+ */
+describe('run_agent_on_pr — the JSON block it hands the model is compact', () => {
+  const cases: ReadonlyArray<[string, ToolRoutes]> = [
+    [
+      'a finished review',
+      {
+        runs: runsScript(['done'], { duration_ms: 41_000, cost_usd: 0.0031, findings_count: 1 }),
+        reviews: [reviewRow({ id: 'review-new' })],
+      },
+    ],
+    ['the timeout answer', { runs: runsScript(['running']) }],
+    ['a failed run', { runs: runsScript(['failed']) }],
+  ];
+
+  it.each(cases)('%s', async (_label, routes) => {
+    const answer = await callRunAgent(routes).result;
+    const block = (answer.content ?? [])
+      .filter((entry) => 'text' in entry)
+      .map((entry) => String((entry as { text: unknown }).text))
+      .find((text) => text.startsWith('{'));
+
+    expect(block, 'no JSON text block at all').toBeDefined();
+    expect(block, 'a pretty-printed block').toBe(JSON.stringify(JSON.parse(block!) as unknown));
   });
 });

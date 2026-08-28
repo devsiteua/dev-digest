@@ -92,7 +92,7 @@ export async function runGetConventions(
     return {
       content: [
         { type: 'text', text: describeConventionsResult(result) },
-        { type: 'text', text: JSON.stringify(result, null, 2) },
+        { type: 'text', text: JSON.stringify(result) },
       ],
       structuredContent: result as unknown as Record<string, unknown>,
     };

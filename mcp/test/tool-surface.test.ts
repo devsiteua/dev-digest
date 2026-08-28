@@ -522,3 +522,91 @@ describe('error results never contradict their own outputSchema', () => {
     }
   });
 });
+
+/**
+ * The JSON text block a tool hands back is read by a MODEL, and indentation is
+ * whitespace it pays for on every call. The rule is `JSON.stringify(payload)`
+ * with no space argument, in all five tools and on both paths — the criterion
+ * this round answers, and what `specs/L04-mcp-server.md`'s own worked example at
+ * line 290 wrote in the first place.
+ *
+ * Asserted by RE-SERIALISING rather than by hunting for two spaces: `JSON.parse`
+ * then `JSON.stringify` is the canonical compact form, so a block that differs
+ * from it by so much as a newline fails, and a payload that happens to contain
+ * indented text inside a string value does not.
+ *
+ * The prose block above the JSON is untouched by any of this — that is what a
+ * human reads in the Inspector, and it stays a sentence.
+ */
+describe('every JSON text block is compact', () => {
+  /** Answers every read the four non-spending tools make, with empty results. */
+  const SERVE_EMPTY: FetchLike = async (input) => {
+    const url = String(input);
+    if (url.includes('/conventions')) return jsonResponse(200, []);
+    if (url.includes('/pulls/lookup')) {
+      return jsonResponse(200, { id: 'pr-uuid', number: 482, title: 'Rate limit the public API' });
+    }
+    if (url.includes('/reviews')) return jsonResponse(200, []);
+    if (url.includes('/blast')) {
+      return jsonResponse(200, {
+        changed_symbols: [],
+        downstream: [],
+        summary: 'Nothing was analysed: this repository has no index.',
+        status: 'degraded',
+        reason: 'index_missing',
+        indexed_sha: null,
+      });
+    }
+    if (url.endsWith('/agents')) return jsonResponse(200, []);
+    if (url.endsWith('/repos')) {
+      return jsonResponse(200, [
+        { id: 'repo-uuid', owner: 'acme', name: 'payments-api', full_name: 'acme/payments-api' },
+      ]);
+    }
+    return jsonResponse(404, { error: { code: 'not_found', message: 'no' } });
+  };
+
+  const DEAD_FETCH: FetchLike = () => Promise.reject(new Error('ECONNREFUSED'));
+
+  const CALLS: ReadonlyArray<[string, Record<string, unknown>]> = [
+    ['list_agents', {}],
+    ['get_findings', { repo: 'acme/payments-api', pr: 482 }],
+    ['get_conventions', { repo: 'acme/payments-api' }],
+    ['get_blast_radius', { repo: 'acme/payments-api', pr: 482 }],
+  ];
+
+  // `run_agent_on_pr` is absent from the success list on purpose: reaching its
+  // success path means driving a whole poll loop, which `test/wait.test.ts`
+  // already does against a stubbed clock — and it asserts compactness there, on
+  // all three of its outcomes. Its error path is covered below with the rest.
+  it.each(CALLS)('%s, on the success path', async (name, args) => {
+    const result = await callTool(SERVE_EMPTY, name, args);
+    expect(result.isError, `${name}: ${result.content?.[0]?.text}`).toBeFalsy();
+    expectCompactJson(result, name);
+  });
+
+  it.each([...CALLS, ['run_agent_on_pr', { repo: 'acme/payments-api', pr: 482, agent: 'x' }]] as ReadonlyArray<
+    [string, Record<string, unknown>]
+  >)('%s, on the error path', async (name, args) => {
+    const result = await callTool(DEAD_FETCH, name, args);
+    expect(result.isError, `${name} should have failed with a dead API`).toBe(true);
+    // This is the one that covers the SHARED helper: every error payload in the
+    // package rides through `errorContent`.
+    expectCompactJson(result, name);
+  });
+});
+
+/** Every JSON-looking text block on a result, re-serialised and compared. */
+function expectCompactJson(result: CallToolResult, label: string): void {
+  const texts = (result.content ?? [])
+    .filter((block) => 'text' in block)
+    .map((block) => String((block as { text: unknown }).text));
+  const json = texts.filter((text) => text.startsWith('{') || text.startsWith('['));
+
+  expect(json.length, `${label} carries no JSON text block at all`).toBeGreaterThan(0);
+  for (const text of json) {
+    expect(text, `${label} hands the model a pretty-printed block`).toBe(
+      JSON.stringify(JSON.parse(text) as unknown),
+    );
+  }
+}

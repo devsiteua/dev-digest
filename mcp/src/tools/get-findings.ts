@@ -95,7 +95,7 @@ export async function runGetFindings(
     return {
       content: [
         { type: 'text', text: describeReviewResult(result) },
-        { type: 'text', text: JSON.stringify(result, null, 2) },
+        { type: 'text', text: JSON.stringify(result) },
       ],
       structuredContent: result as unknown as Record<string, unknown>,
     };
@@ -132,7 +132,7 @@ export function errorContent(code: string, message: string): CallToolResult {
   return {
     content: [
       { type: 'text', text: message },
-      { type: 'text', text: JSON.stringify({ status: 'error', code, message }, null, 2) },
+      { type: 'text', text: JSON.stringify({ status: 'error', code, message }) },
     ],
     isError: true,
   };

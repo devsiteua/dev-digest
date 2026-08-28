@@ -197,7 +197,7 @@ export async function runRunAgentOnPr(
     return {
       content: [
         { type: 'text', text: describeReviewResult(payload) },
-        { type: 'text', text: JSON.stringify(payload, null, 2) },
+        { type: 'text', text: JSON.stringify(payload) },
       ],
       structuredContent: payload as unknown as Record<string, unknown>,
     };
@@ -258,7 +258,7 @@ function stillRunningResult(args: {
   return {
     content: [
       { type: 'text', text: message },
-      { type: 'text', text: JSON.stringify(payload, null, 2) },
+      { type: 'text', text: JSON.stringify(payload) },
     ],
     // No `structuredContent` on an error path — see `errorContent` in
     // `get-findings.ts`. A validating client would reject the whole result
@@ -313,7 +313,7 @@ function runNotDoneResult(
   return {
     content: [
       { type: 'text', text: message },
-      { type: 'text', text: JSON.stringify(payload, null, 2) },
+      { type: 'text', text: JSON.stringify(payload) },
     ],
     // No `structuredContent` on an error path — see `errorContent` in
     // `get-findings.ts`. A validating client would reject the whole result

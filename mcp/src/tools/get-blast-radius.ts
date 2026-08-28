@@ -80,7 +80,7 @@ export async function runGetBlastRadius(
     return {
       content: [
         { type: 'text', text: describeBlastResult(result) },
-        { type: 'text', text: JSON.stringify(result, null, 2) },
+        { type: 'text', text: JSON.stringify(result) },
       ],
       structuredContent: result as unknown as Record<string, unknown>,
     };

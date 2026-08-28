@@ -78,6 +78,13 @@ grep -rln "process\.env" src              # only src/config.ts and src/cli.ts (w
   and answer the next call even with nothing on `:3001`.
 - **Every tool declares an `outputSchema`**, and every **successful** result
   carries `structuredContent` plus the same payload as a JSON text block.
+- **That JSON text block is compact** — `JSON.stringify(payload)`, never
+  `null, 2`. It is read by a model, and indentation is whitespace a caller pays
+  for on every call; the prose block above it is what a human reads in the
+  Inspector. The rule covers error payloads too, and
+  `test/tool-surface.test.ts` § "every JSON text block is compact" re-serialises
+  each one rather than looking for spaces. `src/cli.ts --json` is NOT bound by
+  it: different process, and its reader is a terminal or a shell script.
 - **An error result carries no `structuredContent`** — its payload rides in a
   second JSON text block instead. An error shape cannot satisfy the success
   `outputSchema` the tool advertises, and while the SDK lets that pass (

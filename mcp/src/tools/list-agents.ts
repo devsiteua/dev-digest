@@ -4,6 +4,7 @@ import type { Agent } from '@devdigest/shared';
 import type { ApiClient } from '../api/client.js';
 import { TOOL_DESCRIPTIONS } from '../copy.js';
 import { isDevDigestApiError } from '../errors.js';
+import { errorContent } from './get-findings.js';
 import { log } from '../log.js';
 import { listAgentsInput, listAgentsOutput } from '../schemas.js';
 import { toAgentSummary } from '../shape/agents.js';
@@ -38,27 +39,16 @@ export function registerListAgents(server: McpServer, deps: { readonly api: ApiC
         // with nothing listening on :3001.
         if (!isDevDigestApiError(error)) throw error;
         log('list_agents failed', error);
-        return {
-          content: [
-            { type: 'text', text: error.message },
-            {
-              type: 'text',
-              text: JSON.stringify(
-                { status: 'error', code: error.code, message: error.message },
-                null,
-                2,
-              ),
-            },
-          ],
-          // No `structuredContent` on an error path — see `errorContent` in
-          // `get-findings.ts` for why a validating client makes that mandatory.
-          isError: true,
-        };
+        // Through the shared helper, not a second copy of it. The copy that used
+        // to live here is how this file kept its pretty-printed payload when
+        // every other tool lost one: a hand-rolled duplicate drifts silently,
+        // and `errorContent` already carries the rule about `structuredContent`.
+        return errorContent(error.code, error.message);
       }
 
       const payload = { agents: agents.map(toAgentSummary) };
       return {
-        content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(payload) }],
         structuredContent: payload,
       };
     },
