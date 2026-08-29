@@ -1,7 +1,7 @@
 # L05 — Project Context Folder
 
 Spec ID: L05-PROJECT-CONTEXT-FOLDER
-Status: in-progress
+Status: done
 Supersedes: none
 Owner: devsiteua
 Packages touched: server, client
