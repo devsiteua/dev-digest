@@ -26,6 +26,15 @@ const EnvSchema = z.object({
   // Note: even when on, sections only populate once the repo is indexed; an
   // unindexed repo degrades gracefully. Per-agent override: agents.repo_intel.
   REPO_INTEL_ENABLED: z.string().optional(),
+  // Project Context (L05). Default ON — a review prompt gets the repo's
+  // project documents in the `## Project context` slot. Set
+  // PROJECT_CONTEXT_ENABLED=false to opt out, in which case NO agent gets the
+  // section whatever its own `agents.project_context` says.
+  // A second flag rather than a reuse of REPO_INTEL_ENABLED: repo-intel is
+  // derived from the user's CODE by the indexer, this is text the user wrote
+  // and uploaded, and someone turning off an index they did not ask for should
+  // not thereby withdraw the documents they did.
+  PROJECT_CONTEXT_ENABLED: z.string().optional(),
   API_PORT: z.coerce.number().int().default(3001),
   WEB_PORT: z.coerce.number().int().default(3000),
   DEVDIGEST_CLONE_DIR: z.string().optional(),
@@ -59,6 +68,14 @@ export type AppConfig = {
    * EXACTLY like the ripgrep-only baseline.
    */
   repoIntelEnabled: boolean;
+  /**
+   * Project-context documents in the review prompt (L05). Default ON — set
+   * PROJECT_CONTEXT_ENABLED=false to opt out, in which case the section is
+   * absent for every agent regardless of `agents.project_context`, and the run
+   * log says which of the two gates was shut. Per-agent override:
+   * agents.project_context.
+   */
+  projectContextEnabled: boolean;
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -77,5 +94,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     webOrigin: `http://localhost:${parsed.WEB_PORT}`,
     embeddingsEnabled: parsed.EMBEDDINGS_ENABLED === 'true',
     repoIntelEnabled: parsed.REPO_INTEL_ENABLED !== 'false',
+    projectContextEnabled: parsed.PROJECT_CONTEXT_ENABLED !== 'false',
   };
 }

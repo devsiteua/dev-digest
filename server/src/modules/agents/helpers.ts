@@ -31,6 +31,7 @@ export function toAgentDto(row: AgentRow, skillCount?: number): Agent {
     strategy: row.strategy as ReviewStrategy,
     ci_fail_on: row.ciFailOn as CiFailOn,
     repo_intel: row.repoIntel,
+    project_context: row.projectContext,
   };
 }
 
@@ -60,6 +61,7 @@ export interface ConfigChangePatch {
   strategy?: ReviewStrategy;
   ciFailOn?: CiFailOn;
   repoIntel?: boolean;
+  projectContext?: boolean;
 }
 
 /**
@@ -77,6 +79,7 @@ export function isConfigChange(
     | 'strategy'
     | 'ciFailOn'
     | 'repoIntel'
+    | 'projectContext'
   >,
   patch: ConfigChangePatch,
 ): boolean {
@@ -89,6 +92,7 @@ export function isConfigChange(
     (patch.strategy !== undefined && patch.strategy !== existing.strategy) ||
     (patch.ciFailOn !== undefined && patch.ciFailOn !== existing.ciFailOn) ||
     (patch.repoIntel !== undefined && patch.repoIntel !== existing.repoIntel) ||
+    (patch.projectContext !== undefined && patch.projectContext !== existing.projectContext) ||
     patch.outputSchema !== undefined
   );
 }

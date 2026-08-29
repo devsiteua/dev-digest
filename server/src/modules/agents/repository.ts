@@ -25,6 +25,7 @@ export interface InsertAgent {
   strategy?: ReviewStrategy;
   ciFailOn?: CiFailOn;
   repoIntel?: boolean;
+  projectContext?: boolean;
   enabled?: boolean;
   createdBy?: string | null;
 }
@@ -39,6 +40,7 @@ export interface UpdateAgent {
   strategy?: ReviewStrategy;
   ciFailOn?: CiFailOn;
   repoIntel?: boolean;
+  projectContext?: boolean;
   enabled?: boolean;
 }
 
@@ -96,6 +98,7 @@ export class AgentsRepository {
         ...(values.strategy !== undefined ? { strategy: values.strategy } : {}),
         ...(values.ciFailOn !== undefined ? { ciFailOn: values.ciFailOn } : {}),
         ...(values.repoIntel !== undefined ? { repoIntel: values.repoIntel } : {}),
+        ...(values.projectContext !== undefined ? { projectContext: values.projectContext } : {}),
         enabled: values.enabled ?? true,
         version: INITIAL_AGENT_VERSION,
         createdBy: values.createdBy ?? null,
@@ -135,6 +138,7 @@ export class AgentsRepository {
         ...(patch.strategy !== undefined ? { strategy: patch.strategy } : {}),
         ...(patch.ciFailOn !== undefined ? { ciFailOn: patch.ciFailOn } : {}),
         ...(patch.repoIntel !== undefined ? { repoIntel: patch.repoIntel } : {}),
+        ...(patch.projectContext !== undefined ? { projectContext: patch.projectContext } : {}),
         ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
         ...(configChanged ? { version: nextVersion } : {}),
       })
@@ -160,6 +164,7 @@ export class AgentsRepository {
           strategy: row.strategy,
           ci_fail_on: row.ciFailOn,
           repo_intel: row.repoIntel,
+          project_context: row.projectContext,
           skills,
         },
       })
