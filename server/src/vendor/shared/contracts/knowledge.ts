@@ -375,6 +375,10 @@ export const Agent = z.object({
   // Inject repo-intel context (repo skeleton + callers + rank note) into this
   // agent's review prompt. Default on; gated again by the global flag.
   repo_intel: z.boolean().default(true),
+  // Inject the repo's project-context documents into this agent's review
+  // prompt (the `## Project context` slot). Default on; gated again by the
+  // global PROJECT_CONTEXT_ENABLED flag.
+  project_context: z.boolean().default(true),
   /**
    * How many skills are linked to this agent, counted server-side so the agent
    * cards can show it without one `GET /agents/:id/skills` per card. DERIVED —
@@ -396,9 +400,10 @@ export type AgentSkillLink = z.infer<typeof AgentSkillLink>;
 
 // The immutable config snapshot captured in `agent_versions` whenever an agent's
 // config changes (everything but `enabled`). Mirrors the shape written by the
-// agents repository — provider/model/prompt/output_schema/strategy/gate/repo_intel
-// plus the ordered skill ids linked at snapshot time. Used for reproducibility
-// (eval replays a past version) and for surfacing an agent's edit history.
+// agents repository — provider/model/prompt/output_schema/strategy/gate/repo_intel/
+// project_context plus the ordered skill ids linked at snapshot time. Used for
+// reproducibility (eval replays a past version) and for surfacing an agent's
+// edit history.
 export const AgentVersionConfig = z.object({
   provider: Provider,
   model: z.string(),
@@ -407,6 +412,18 @@ export const AgentVersionConfig = z.object({
   strategy: ReviewStrategy,
   ci_fail_on: CiFailOn,
   repo_intel: z.boolean(),
+  // The snapshot of `Agent.project_context` — what the agent was set to when
+  // this version was cut. Gated again at run time by PROJECT_CONTEXT_ENABLED,
+  // which is config and therefore deliberately not part of the snapshot.
+  //
+  // `.default(true)` unlike its neighbours, and NOT cosmetic: `toAgentVersionDto`
+  // runs `AgentVersionConfig.parse(row.configJson)` and throws on a malformed
+  // snapshot rather than leak an unvalidated blob. Every row written before this
+  // change has no `project_context` key, so a bare `z.boolean()` turns
+  // `GET /agents/:id/versions` into a 500 on any database with history. Reading a
+  // pre-existing snapshot as "on" is the reading `run-executor` already gives a
+  // missing flag (`agent.repoIntel !== false`).
+  project_context: z.boolean().default(true),
   skills: z.array(z.string()),
 });
 export type AgentVersionConfig = z.infer<typeof AgentVersionConfig>;

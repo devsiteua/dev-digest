@@ -71,6 +71,7 @@ const AGENT: Agent = {
   strategy: "single-pass",
   ci_fail_on: "critical",
   repo_intel: true,
+  project_context: true,
   enabled: false,
   version: 1,
 };
