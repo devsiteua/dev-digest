@@ -45,6 +45,9 @@ export const NAV: NavGroup[] = [
       { key: "skills", label: "Skills", icon: "Sparkles", href: "/skills", gKey: "s" },
       { key: "agents", label: "Agents", icon: "Cpu", href: "/agents", gKey: "a" },
       { key: "conventions", label: "Conventions", icon: "ListChecks", href: "/repos/:repoId/conventions", gKey: "c" },
+      // Deliberately no `gKey`: "c" is Conventions', and reshuffling a shipped
+      // shortcut is a worse change than one nav entry without one (AC-25).
+      { key: "context", label: "Project Context", icon: "FileText", href: "/repos/:repoId/context" },
     ],
   },
 ];

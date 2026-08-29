@@ -5,6 +5,7 @@ export * from "./core";
 export * from "./agents";
 export * from "./skills";
 export * from "./conventions";
+export * from "./context";
 export * from "./intent";
 export * from "./smart-diff";
 export * from "./blast";
