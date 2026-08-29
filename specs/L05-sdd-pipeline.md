@@ -1,7 +1,7 @@
 # L05 — The spec-driven development pipeline
 
 Spec ID: L05-SDD-PIPELINE
-Status: in-progress
+Status: done
 Supersedes: none
 Owner: devsiteua
 Packages touched: none — repository tooling only (`.claude/`, `specs/`, `docs/`, root `CLAUDE.md`)
@@ -295,6 +295,26 @@ That is checked by running it, and the retro ledger is where the evidence is kep
 | Two sessions editing `.claude/` at once | conflicting edits in `git status` | one session owns this branch at a time — this already happened once during this lesson |
 
 ## Open questions
+
+**Closed 2026-08-29 by the first real run.** The behavioural half of this spec — the criteria
+that can only be observed, never read — was exercised end to end against the Project Context
+Folder feature, and the run is recorded in `docs/retro/ledger.md`:
+
+| Observed | What the run showed |
+|---|---|
+| AC-03, AC-35 | `spec-creator` returned 13 questions across 5 categories (3·3·2·2·3, under the 4-per-category ceiling) and wrote **zero** files until answered |
+| AC-09 | it returned research questions and spawned nothing |
+| AC-12, AC-14, AC-16 | the plan opened with `Requirements review` naming three gaps the spec had made without knowing, tagged every step `Covers:`, and closed with `Recommendations` |
+| AC-13 | a red gate went back to the **planner**, and the spec was never edited to accommodate it |
+| AC-17 | `plan-verifier` returned 26 AC rows in an `AC → task → test → commit` matrix, 0 NOT MET |
+| AC-20, AC-22 | `/implement` refused nothing (a path was given) and spent **0** fix iterations: the review returned 0 CRITICAL |
+| **AC-23** | measured, not assumed — `message.model` reads `claude-sonnet-5` on all 204 reviewer and verifier turns while both agent files still declare `model: opus` |
+| AC-28…AC-31 | the retro printed to chat and appended exactly one ledger entry, with five proposals each naming a file; `deep` read from disk |
+
+**One defect the run found in this spec's own product.** `/workflow-retro` § Modes claimed
+subagent turns carry `isSidechain: true` in the session transcript. They do not — that
+transcript held zero. Fixed in the same commit that closes this spec; the ledger's proposal 3
+is what surfaced it.
 
 **None open.** The five questions this spec raised were answered on 2026-08-29, before any
 implementation started. They are recorded here with their reasons, because a decision without

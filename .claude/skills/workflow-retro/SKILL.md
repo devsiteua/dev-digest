@@ -34,19 +34,31 @@ spending has answered its own question badly.
 | default | **this session's context only** — the agents you saw launched, their reports, the commands you watched run | the run just happened, in this session |
 | `deep` | the above **plus the run logs on disk** | the run was in another session, or the numbers matter more than the recollection |
 
-`deep` reads the transcripts under
-`~/.claude/projects/<cwd-slug>/*.jsonl` — one JSON object per line. What is actually in
-there, verified rather than assumed:
+`deep` reads two different places, and **the session transcript is not where the agents are.**
+That was this skill's first mistake, corrected on its first real run: the transcript under
+`~/.claude/projects/<cwd-slug>/*.jsonl` carried **zero** turns with `isSidechain: true` for a
+run of eight subagent launches. Every subagent number came from the task files instead.
+
+| Read | Where | Carries |
+|---|---|---|
+| the main session | `~/.claude/projects/<cwd-slug>/*.jsonl`, one JSON object per line | the session's own turns — its `usage` is the orchestration cost, not the agents' |
+| **each subagent** | the task output files this session wrote, one per launch — the path is named in the tool result that launched the agent | that agent's whole run |
+
+Both files carry the same per-turn shape, verified rather than assumed:
 
 | Field | Carries |
 |---|---|
 | `message.usage` | `input_tokens`, `output_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens` per assistant turn |
 | `message.model` | which model that turn ran on — this is how a `sonnet` override is proved, not assumed |
-| `isSidechain: true` | the turn belongs to a subagent rather than the main session |
 | `timestamp`, `sessionId`, `gitBranch`, `cwd` | when, where, on which branch |
 
+**Never read a task file into your context** — it is a full transcript and it will not fit.
+Aggregate it with a script that prints only numbers. Sum per file, because one file is one
+agent launch; summing the directory hides which agent spent the money.
+
 Cache reads are not the same money as fresh input; report them as their own number and say
-so. Sum per sidechain, not per session, or one agent's cost disappears into the total.
+so. Sum per agent, not per session, or one agent's cost disappears into the total — on the
+first run one agent held 66% of all cache reads and that was the entry's leading proposal.
 
 **A retro with no run to analyse says so.** No agents in context and no `deep` on disk is a
 one-line answer — "nothing to analyse; run `deep` to read from disk, or point me at a plan" —
