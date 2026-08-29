@@ -11,7 +11,7 @@ one plan file drives it, and nothing in it decides *what* to build.
 
 Invoke as `/implement <path-to-plan> [--steps 1-4] [--tests] [--no-review]`.
 
-**What this is not.** Not a planner and not a spec writer — both of those are agents a human
+**What this is not.** It neither plans nor specifies — both of those are agents a human
 launches separately, before this. Not a pull-request gate: `/pr-self-review` is that, and it
 runs after this, not inside it. Not an autonomous loop — it stops at a red command and hands
 back rather than re-planning around it.
