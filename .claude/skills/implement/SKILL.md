@@ -32,9 +32,9 @@ specification and the one that writes the plan. Both stages are typed by a human
 would defeat the reason a plan is approved before it runs. If a requirement is missing, this
 command stops and says so; it does not go and get one.
 
-The mechanical form of that rule: **§4's launch table is the complete list of agents this
-skill may start**, and it has five rows naming four agents. A reviewer checks it by reading
-that table, not by grepping the prose — this section has to name what it forbids in order to
+The mechanical form of that rule: **the table above is the complete list of agents this skill
+may start**, and it has five rows naming four agents. A reviewer checks it by reading that
+table, not by grepping the prose — this section has to name what it forbids in order to
 forbid it.
 
 **The reviewers' own files stay `model: opus`.** The downgrade is an override passed at the
@@ -65,7 +65,7 @@ Nothing is launched until all of this passes. Every refusal below costs zero age
    `/implement` runs an approved plan and needs its path — `specs/plans/<slug>.md`.
    No agent has been launched.
 
-   Plans I can see: <ls specs/plans/ *//specs/plans/>
+   Plans I can see: <the result of `ls specs/plans/` and `ls */specs/plans/`>
    If none of these is it, the plan does not exist yet: run `implementation-planner`
    against the spec first.
    ```
