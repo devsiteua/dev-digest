@@ -13,13 +13,81 @@ Not to be confused with:
 ## Rules
 
 1. One file per lesson or feature: `L0X-kebab-case-name.md`. Non-lesson work: `kebab-case.md`.
+   The `Spec ID` in the header is that slug, upper-cased — `L05-SDD-PIPELINE`. A spec that
+   replaces an earlier one names it in `Supersedes:`; a `done` spec is never rewritten.
 2. Copy `TEMPLATE.md`. Every section stays, even if the answer is "none".
 3. **`Out of scope` is the most valuable section.** It is what stops an agent from
    redesigning half the codebase on the way to a small feature.
-4. Acceptance criteria must be checkable by a human or a test — not aspirations.
+4. Acceptance criteria must be checkable by a human or a test — not aspirations. Every
+   criterion carries an **`AC-NN`** id, numbered from `AC-01` in one flat sequence across the
+   whole file, and exactly one of the five EARS patterns below. The id is the thing that
+   survives: the plan tags each step `Covers: AC-NN`, and `plan-verifier` returns a row per id.
+   Ids are never renumbered once a plan cites them — a dropped criterion leaves its number
+   behind, struck through.
 5. Status transitions: `draft` → `in-progress` → `done` | `dropped`. Never delete a spec;
-   history explains why the code looks the way it does.
+   history explains why the code looks the way it does. **A spec stays `draft` while a single
+   `[NEEDS CLARIFICATION: …]` marker remains anywhere in it** — that marker is how an agent
+   records an unanswered question instead of guessing, and an unanswered question is not an
+   approved requirement. Where other write-ups say `approved`, read `in-progress`; where they
+   say `implemented`, read `done`.
 6. When a spec closes, remove its pointer from the relevant `CLAUDE.md` **Read when** list.
+
+## Where plans live
+
+A spec says *what*; a plan says *how*. They are two files, never one:
+
+| Artefact | Path | Written by |
+|---|---|---|
+| spec | `specs/<slug>.md`, or `<pkg>/specs/<slug>.md` for single-package work | `spec-creator` |
+| implementation plan | `specs/plans/<slug>.md`, or `<pkg>/specs/plans/<slug>.md` | `implementation-planner` |
+
+The plan keeps the same slug as its spec and links back to it in its header. It carries the
+four sections a spec does not: `Constraints in force`, `Implementation plan`, `Commit plan`
+and `Handoff`.
+
+The separation is a rule, not a preference: `implementation-planner` may never write or edit
+a spec (a gap in the requirements goes back to `spec-creator`), so a plan living inside its
+spec file would make planning impossible without breaking that rule. Specs written before
+L05 carry their plan inline; they are a record of what was true then, not a pattern to copy.
+
+## EARS — the shape every acceptance criterion takes
+
+**EARS** — *Easy Approach to Requirements Syntax* — is a way of phrasing a requirement that
+separates the condition from the system's response. Alistair Mavin, Philip Wilkinson, Adrian
+Harwood and Mark Novak, then at Rolls-Royce, presented it at the 17th IEEE International
+Requirements Engineering Conference (RE'09) in 2009.
+
+Five patterns. The trigger words are Ukrainian and `shall` stays in brackets as the marker of
+an obligation — that pairing is this course's local convention, not part of EARS itself:
+
+| Pattern | When to use it | Example |
+|---|---|---|
+| **Ubiquitous** | the requirement always holds | Система повинна (shall) журналювати кожну спробу автентифікації. |
+| **Event-driven** | a response to something that happens | КОЛИ користувач надсилає форму входу, система повинна (shall) перевірити облікові дані. |
+| **State-driven** | behaviour that holds while a state lasts | ПОКИ триває синхронізація, система повинна (shall) показувати прогрес. |
+| **Unwanted behaviour** | a response to an undesirable condition | ЯКЩО перевірка тричі не вдалася за 60 секунд, ТОДІ система повинна (shall) тимчасово заблокувати обліковий запис. |
+| **Optional feature** | behaviour that exists only behind an enabled option | ДЕ увімкнено MFA, система повинна (shall) вимагати TOTP-код після пароля. |
+
+What the patterns are for, in one line: a criterion that names its trigger can be failed by a
+test, and one that does not can only be argued about.
+
+| Vague | Checkable |
+|---|---|
+| «має нормально працювати на великих репозиторіях» | КОЛИ репозиторій перевищує поріг індексації, система повинна (shall) будувати огляд лише з детермінованих фактів, не читаючи всі файли повністю. |
+| «не має падати, якщо модель недоступна» | ЯКЩО структурований виклик моделі не вдався, ТОДІ система повинна (shall) показати детермінований огляд із причиною деградації. |
+| «має підказувати, з чого почати читати» | Система повинна (shall) впорядкувати reading path за рангом файлів у графі імпортів. |
+
+**Citation to carry across.** Alistair Mavin, Philip Wilkinson, Adrian Harwood, Mark Novak,
+*Easy Approach to Requirements Syntax (EARS)*, 17th IEEE International Requirements
+Engineering Conference (RE'09), Atlanta GA, 31 August – 4 September 2009, pp. 317–322. Record:
+<https://research.manchester.ac.uk/en/publications/easy-approach-to-requirements-syntax-ears/>.
+EARS came out of Rolls-Royce, where the authors were analysing airworthiness regulations for a
+jet engine control system — which is why its patterns are built around conditions and
+obligations rather than around user stories.
+
+**The one language exception in this repository.** The acceptance-criteria table is written in
+Ukrainian; every other line of a spec, and every other repo file, is English (root
+`CLAUDE.md` § Conventions).
 
 ## Lesson index
 

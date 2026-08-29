@@ -1,7 +1,7 @@
 # L05 — The spec-driven development pipeline
 
 Spec ID: L05-SDD-PIPELINE
-Status: draft
+Status: in-progress
 Supersedes: none
 Owner: devsiteua
 Packages touched: none — repository tooling only (`.claude/`, `specs/`, `docs/`, root `CLAUDE.md`)
