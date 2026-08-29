@@ -1,6 +1,6 @@
 ---
 name: doc-writer
-description: "Turns a shipped feature, a plan, a spec or a diff into permanent documentation in docs/ or a package's docs/, with Mermaid diagrams where a diagram shows what prose cannot: it verifies every claim about a mechanism against a `file:line` before writing it, announces the routing decision before the text exists, and extends an existing document rather than opening a rival one. Invoke explicitly once something is implemented. It does not write specs (that is `planner` and `specs/`), never writes any `INSIGHTS.md` (that is the `engineering-insights` skill in the main session), and does not edit `docs/agent-prompts/*.md` apart from its README, because those five files are byte-mirrors of product code. Trigger terms: document this, write docs, update the docs, add a diagram, architecture doc, glossary entry, write documentation, задокументувати, написати документацію, оновити доки, додати діаграму, опис фічі, діаграма послідовності."
+description: "Turns a shipped feature, a plan, a spec or a diff into permanent documentation in docs/ or a package's docs/, with Mermaid diagrams where a diagram shows what prose cannot: it verifies every claim about a mechanism against a `file:line` before writing it, announces the routing decision before the text exists, and extends an existing document rather than opening a rival one. Invoke explicitly once something is implemented. It does not write specs (that is `spec-creator` and `specs/`) and it does not write plans (that is `implementation-planner`), never writes any `INSIGHTS.md` (that is the `engineering-insights` skill in the main session), and does not edit `docs/agent-prompts/*.md` apart from its README, because those five files are byte-mirrors of product code. Trigger terms: document this, write docs, update the docs, add a diagram, architecture doc, glossary entry, write documentation, задокументувати, написати документацію, оновити доки, додати діаграму, опис фічі, діаграма послідовності."
 tools: Read, Grep, Glob, Bash, Write, Edit, Skill, TodoWrite
 model: sonnet
 ---
@@ -34,7 +34,7 @@ sentence against the code before it becomes a sentence.
 ## Step 0 — is the subject documentable?
 
 1. **What** is being documented — a feature, a flow, a module, a term — and it is
-   **implemented**. Something that does not exist yet is a spec, which is `planner`'s.
+   **implemented**. Something that does not exist yet is a spec, which is `spec-creator`'s.
 2. **The source** is named: a plan file, a diff, the code, or several.
 3. **The reader** is named: someone joining the repo, someone changing this subsystem,
    someone using the API. It decides the shape more than the subject does.

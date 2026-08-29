@@ -15,7 +15,7 @@ here, and do not let this table become a second source of truth.
 
 | Agent | Responsibility | Model | Invoked |
 |---|---|---|---|
-| [`planner`](planner.md) | Turns a task into a Development Plan grounded in this repo's constraints | `opus` | proactively, or "plan X" |
+| [`implementation-planner`](implementation-planner.md) | Turns an approved spec into a Development Plan grounded in this repo's constraints | `opus` | **explicitly**, with a spec path |
 | [`implementer`](implementer.md) | Executes an approved plan across `server/` and `client/` | `inherit` | **explicitly only** |
 | [`researcher`](researcher.md) | Investigates and reports — repository, external docs, or both | `sonnet` | proactively, or "research X" |
 | [`test-writer`](test-writer.md) | Writes tests as the deliverable, across `client/`, `server/` and `reviewer-core/` | `inherit` | **explicitly only** |
@@ -26,23 +26,24 @@ here, and do not let this table become a second source of truth.
 
 `model: inherit` means the agent runs on whatever the session runs on, so its output quality
 tracks the model you chose — `implementer` and `test-writer` both write code, so both take it.
-`planner` is pinned to `opus` because planning is where reasoning buys the most;
+`implementation-planner` is pinned to `opus` because planning is where reasoning buys the most;
 `architecture-reviewer`, `plan-verifier` and `security-reviewer` are pinned there too,
 because none of them produces code and all three fail by being lazy rather than by being
 uninformed.
 
-Only `planner` and `researcher` are invited to run proactively. Everything that writes to the
-tree, and every agent that returns a verdict someone might act on, is invoked by name.
+Only `researcher` is invited to run proactively. Everything that writes to the tree, and
+every agent that returns a verdict someone might act on, is invoked by name — including
+`implementation-planner`, which now needs a spec path and cannot usefully be guessed into.
 
 ## Permissions
 
 `tools` is an allowlist. **Omitting it inherits every tool**, so every agent here lists its
-tools explicitly — the absence of `Edit` from `planner` is a property of the process, not a
-promise in prose.
+tools explicitly — the absence of `Edit` from `implementation-planner` is a property of the
+process, not a promise in prose.
 
 | Agent | Has | Deliberately lacks | Why |
 |---|---|---|---|
-| `planner` | `Read` `Grep` `Glob` `Bash`* `Write` `Skill` `TodoWrite` | `Edit` | a planner that can edit code will edit code |
+| `implementation-planner` | `Read` `Grep` `Glob` `Bash`* `Write` `Skill` `TodoWrite` | `Edit` | a planner that can edit code will edit code |
 | | | `WebSearch` `WebFetch` | external facts are `researcher`'s job |
 | `implementer` | `Read` `Edit` `Write` `Grep` `Glob` `Bash` `Skill` `TodoWrite` | `WebSearch` `WebFetch` | implementation does not browse; unknowns come back as questions |
 | `researcher` | `Read` `Grep` `Glob` `Bash`* `WebSearch` `WebFetch` `TodoWrite` | `Write` `Edit` | reports never mutate the tree |
@@ -61,7 +62,7 @@ itself cannot be narrowed in the frontmatter. Argument-level control lives in
 apply inside a subagent exactly as they do in the main session — which is why
 `scripts/pr-self-review-gate.sh` still blocks `gh pr create` from inside `implementer`. If you
 ever need to gate *which agents may run at all*, that is a permission rule too:
-`Agent(planner)`, `Agent(implementer)`.
+`Agent(implementation-planner)`, `Agent(implementer)`.
 
 For the four read-only agents the asterisk is now a **boundary, not an instruction**.
 `scripts/readonly-agent-guard.sh` is registered once, on `PreToolUse` / `Bash`, and filters by
@@ -90,7 +91,7 @@ agent file because no tool boundary expresses them.
 
 | Agent | Takes | Produces on disk | Returns to the caller |
 |---|---|---|---|
-| `planner` | a task, plus the packages it touches | one plan file: `specs/<slug>.md`, or `<pkg>/specs/<slug>.md` for single-package work, following `specs/TEMPLATE.md` plus `Constraints in force` · `Implementation plan` · `Handoff` | path, step count, skills the implementer will need, risks, blocking questions |
+| `implementation-planner` | **a path to a spec file** | one plan file: `specs/plans/<slug>.md`, or `<pkg>/specs/plans/<slug>.md` for single-package work, carrying `Requirements review` · `Constraints in force` · `Implementation plan` · `Coverage` · `Commit plan` · `Handoff` · `Recommendations` | plan path, step count, coverage of the spec's criteria, skills the implementer will need, risks, blocking questions |
 | `implementer` | **a path to a plan file** + which steps to run | the code changes themselves | changes table, every command with its real output, deviations, blocked steps, what was not checked, insight candidates |
 | `researcher` | a concrete question | nothing | a fixed-template report: conclusion, evidence with `file:line` or URL, and an explicit "Not found" |
 | `test-writer` | what to cover, and the regression the test must catch | test files, fixtures and test helpers — nothing else | files table, every command with its real output and test count, what is deliberately not covered, whether production code stayed untouched |
@@ -100,7 +101,7 @@ agent file because no tool boundary expresses them.
 | `security-reviewer` | **a scope that resolves to a file list** — a diff, paths, a package, or a named surface | nothing | findings that each name a source, a sink and the `file:line` between them, `Checked and clean` with what made it safe, `Not checked`, assumptions |
 
 ```
-task ─► planner ─► specs/<slug>.md ─► implementer ─► code + report
+task ─► implementation-planner ─► specs/plans/<slug>.md ─► implementer ─► code + report
                          │                                │
                          │       ┌────────────────────────┤
                          │       ├─► test-writer           ─► tests + report
@@ -112,7 +113,7 @@ task ─► planner ─► specs/<slug>.md ─► implementer ─► code + repo
                                  └─  /pr-self-review       a skill, not an agent
 ```
 
-`plan-verifier` is drawn from both ends because it takes two inputs: the plan `planner` wrote
+`plan-verifier` is drawn from both ends because it takes two inputs: the plan `implementation-planner` wrote
 and the code `implementer` produced. Nothing in this picture spawns anything else in it.
 
 ## What is deliberately not here
@@ -157,7 +158,7 @@ Internal, this repository:
 | `server/INSIGHTS.md` 2026-08-06 | `arch:check` exits 0 on a `warn` — why the reviewer reads output, not exit codes |
 | `specs/README.md` rule 3 | why `plan-verifier` sweeps `Out of scope` as a negative check |
 
-**One thing the sources do not settle.** Whether splitting `planner → implementer` is itself
+**One thing the sources do not settle.** Whether splitting `implementation-planner → implementer` is itself
 an anti-pattern is genuinely open: one community writeup calls role-based handoff a
 "telephone game", another recommends exactly this pipeline, and no official Anthropic page
 says either. The design takes the split and pays for it with two guards — the plan is a file

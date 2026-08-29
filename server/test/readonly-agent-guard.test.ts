@@ -115,7 +115,7 @@ describe('readonly-agent-guard — whose commands it does not touch', () => {
     ['implementer', 'implementer'],
     ['test-writer', 'test-writer'],
     ['doc-writer', 'doc-writer'],
-    ['planner', 'planner'],
+    ['implementation-planner', 'implementation-planner'],
     // The main session: no `agent_type` at all, or an empty one.
     ['the main session', null],
     ['an empty agent_type', ''],

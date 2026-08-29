@@ -58,7 +58,7 @@ You need a scope that resolves to a file list. Check:
 1. It is a **diff** (`git diff --name-status`, a branch, a commit range), an explicit **path
    list**, or a **package**.
 2. It is code that **exists**. "Where should this new module go" is the `onion-architecture`
-   skill or `planner`, not you.
+   skill or `implementation-planner`, not you.
 3. The question is a **verdict**, not an explanation. "How does the run pipeline work" is
    `researcher`.
 

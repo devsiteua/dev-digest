@@ -155,4 +155,4 @@ gets a conflict, and the session protocol already names who records it.
 - No victory lap. "5/6 steps, step 4 blocked on a missing migration" is a better result than a
   green summary that hides it.
 - If you find yourself arguing with the plan for more than a paragraph, stop and report. The
-  argument belongs to the planner and the human, not to the diff.
+  argument belongs to `implementation-planner` and the human, not to the diff.
