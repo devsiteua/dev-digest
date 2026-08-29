@@ -158,10 +158,20 @@ What already exists and is therefore not built again.
 - **The legacy `PrBrief` composite contract.** Left exactly as it is, unused. It models a
   different thing — a bundle of four already-served responses — and rewriting a contract with
   no consumers on the way past is how a small change becomes a mirror-edit sweep.
-- **Widening `FeatureModelId` to a sixth value, and a Settings row for the brief's model.**
-  `modules/blast/constants.ts` already argues this case: two `vendor/shared` mirror edits, the
-  client's duplicate registry and a Settings row, for one call behind a button. Module-local
-  constant instead.
+- **Widening `FeatureModelId`, and adding a Settings row for the brief's model.** Neither is
+  needed: **`risk_brief` is already the third member of that enum**
+  (`server/src/vendor/shared/contracts/platform.ts:15-21`), its registry entry exists
+  (`Risk Brief`, defaulting to `openai / gpt-4.1`), the client's duplicate registry carries it
+  (`client/src/lib/feature-models.ts`), and the Settings row is rendered today pointing at
+  nothing. So the slot is claimed rather than created: the module reads
+  `container.featureModelOverride(workspaceId, 'risk_brief')` and falls back to a module-local
+  `BRIEF_MODEL`, the shape `modules/intent/service.ts:236-237` and
+  `modules/conventions/service.ts:124-126` both use — and deliberately **not**
+  `resolveFeatureModel`, which would silently buy the registry's `gpt-4.1` instead of this
+  module's own cheap model. That is the trap root `INSIGHTS.md` (2026-08-06) records: the
+  registry's defaults promise to "mirror each module's constants", a promise it cannot keep for
+  a module written after it, and `risk_brief` mirrors nothing for exactly the reason
+  `conventions` does. AC-41.
 - **Making the brief an input to the reviewing prompt.** The intent layer already occupies
   that slot. Feeding a second model's prose into every agent's context is a decision with its
   own blast radius and belongs to whoever needs it.
@@ -245,6 +255,7 @@ English. Five patterns and the reference: `README.md` § EARS.
 | AC-38 | optional | ДЕ у репозиторії увімкнено документи Project Context, вони повинні (shall) входити у вхід брифу в порядку користувача і бути ПЕРШИМИ, що відкидається при перевищенні бюджету. | unit-тест першої сходинки; `brief.it.test.ts` з увімкненим і вимкненим документом |
 | AC-39 | ubiquitous | Сід повинен (shall) створювати для демо-PR #482 два записи `pr_brief` з `state_key`, який ніколи не може дорівнювати обчисленому SHA-256, тож картка завжди показує їх як несвіжі. | `pnpm db:seed` двічі + `brief.it.test.ts`; e2e-крок перевіряє банер несвіжості й засіяні літерали |
 | AC-40 | ubiquitous | Кожен файл `vendor/shared`, який змінює ЦЯ робота — `contracts/brief.ts`, `contracts/review-api.ts` і ті реекспорти `index.ts`, яких потребують нові контракти — повинен (shall) бути байт-ідентичним у серверній і клієнтській копіях; решта дерева, що розійшлася раніше, до цього критерію не належить. | `cmp -s` окремо по кожному з цих файлів (`server/src/vendor/shared/<f>` проти `client/src/vendor/shared/<f>`); `pnpm typecheck` у `server/` і в `client/` — саме він ловить звуження `Risk.kind`, що приїхало лише в одну копію; `scripts/pr-self-review-checks.sh` (`check:contract-mirror`), який порівнює `cmp -s` тільки ті дзеркальні файли, що є в цьому дифі |
+| AC-41 | optional | ДЕ у Settings робочого простору обрано модель для функції `risk_brief`, генерація брифу повинна (shall) використати саме її; інакше вона повинна (shall) використати модуль-локальний `BRIEF_MODEL` — і в жодному випадку не реєстровий типовий `openai / gpt-4.1`. | `brief.it.test.ts` двома прогонами: без запису в налаштуваннях (очікується `BRIEF_MODEL`) і з обраною моделлю (очікується вона) — форма, яку вже перевіряє інтеграційний лан для `review_intent`; збережений запис несе `provider` і `model`, тож перевірка читається з нього |
 
 ## Edge cases
 
@@ -386,8 +397,8 @@ Each of these is a **proposal**, not a requirement, and none of them has an `AC-
 | Risks and focus rows per brief | a stated cap in `modules/brief/constants.ts` for each | The card is a card. `EXPLAIN_MAX_SYMBOLS` and friends are the precedent: a cap stated in the prompt keeps the model from implying it enumerated everything |
 | `POST` rate limit | `{ max: 10, timeWindow: '1 minute' }` | The same budget as `POST /pulls/:id/intent`, `POST /pulls/:id/blast/explain` and the conventions scan: a held-down button is a bill |
 | `POST` request ceiling | a module-local timeout constant, honoured by the OpenAI and Anthropic adapters | The request is synchronous, so this is also how long a human stares at a spinner. Note it does **not** bind on OpenRouter, the default provider, which fixes its timeout at construction (90 s) — root `INSIGHTS.md`, 2026-08-06. Say so where the constant is, do not "fix" it here |
-| `GET` cost | zero model calls, one query for the newest row plus one for the timeline | The claim AC-02 and AC-07 are read against |
-| Model | a module-local `BRIEF_MODEL` constant, the same cheap structured-output model the other small features here default to | `FeatureModelId` is a closed five-value enum, and `modules/blast/constants.ts` already wrote out why a sixth entry is not worth two mirror edits, a duplicated client registry and a Settings row |
+| `GET` cost | **zero model calls**, plus a full re-assembly of the input to recompute `state_key` | Zero model calls is the claim AC-02 and AC-07 are read against, and it is the only claim that matters for cost. It is not otherwise free: AC-04 defines `stale` against a key recomputed from current inputs and AC-05 fixes that key as the hash of the fully assembled, fully trimmed input, so a `GET` reads the intent row, the blast map, `pr_files`, the stored brief and the enabled Project Context documents — and, only when `extractLinkedIssue` finds a number in the PR body, makes one deadline-bounded GitHub call. Most pull requests link no issue, and the seeded demo PR #482 links none (its seeded `sources` are `pr_title, commits, branch, file_paths`), so the common `GET` makes no network call at all |
+| Model | the workspace's `risk_brief` choice when it has made one, otherwise a module-local `BRIEF_MODEL` constant — the same cheap structured-output model the other small features here default to | The `risk_brief` slot already exists in `FeatureModelId` and in Settings, so the override is read (`container.featureModelOverride`) and the module-local constant is the fallback, never `resolveFeatureModel` — whose registry default for this slot is `openai / gpt-4.1`, a model no part of this feature chose. Root `INSIGHTS.md`, 2026-08-06. AC-41 |
 
 ## Inputs and provenance
 
@@ -460,6 +471,7 @@ reading the card.
 | `Risk.kind` narrowing breaks a literal somewhere | `pnpm typecheck` red in one or both packages | Expected, and cheap: `Risk` has zero consumers today. The root `INSIGHTS.md` entry of 2026-08-29 is the discipline — sweep the *other* contract files for member names, not for the symbol, because shapes are re-declared inline in `vendor/shared` (root `CLAUDE.md` § Gotchas) |
 | The seeded rows drift from what the assembler would produce, as `seed.ts` renames always do | The card shows a shape the code can no longer generate | The seeded rows are explicitly **stale** by construction (AC-39): their `state_key` is a sentinel that can never equal a SHA-256 hex, so the product never claims freshness it cannot prove, and the first real generation supersedes them without a conflict |
 | `pr_brief`'s primary key change loses the existing table | Nothing today — it has zero rows and zero writers | Stated here so the migration review does not have to rediscover it. Generated with `pnpm db:generate`; `server/src/db/migrations/**` is never hand-edited |
+| A GitHub outage makes the recomputed `state_key` differ from the stored one, so a fresh brief reads `stale: true` until GitHub answers | Briefs on issue-linking PRs go stale together, and recover together, with no commit behind it | Accepted, and it is over-reporting rather than under-reporting: the reader is told to regenerate something that was current, never told something stale is current. The same trade this table already takes on `state_key` sensitivity — the cost is a banner, not a bill. It is also rare by construction: the fetch happens only when `extractLinkedIssue` returns a number, which most pull requests, and the seeded demo PR #482, do not |
 | `OpenRouterProvider` ignores the per-request timeout, so the synchronous POST can hang for 90 s × retries | A spinner that outlives the stated constant | Documented at the constant (root `INSIGHTS.md`, 2026-08-06). Not fixed here — the fix belongs where the container builds the provider |
 
 ## Open questions
