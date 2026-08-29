@@ -2,6 +2,23 @@
 
 Spec: [`../L05-project-context-folder.md`](../L05-project-context-folder.md) · Spec ID `L05-PROJECT-CONTEXT-FOLDER` · Branch: `lesson-05`
 
+> **Revised 2026-08-29, after `/implement` stopped at Step 2.** The implementation was right and
+> the plan was wrong: Step 2's `Verify` ran a whole-package gate over files Step 2 did not own.
+> What changed is recorded in Requirements review (last three bullets) and in `Gate discipline`
+> below. **No `Covers:` moved and the coverage table is unchanged** — nothing here is a spec gap,
+> and no criterion became unsatisfiable.
+>
+> **State on disk — closed 2026-08-29.** All nine steps are **done** and committed as the nine
+> commits in `Commit plan`, `3fd2e2a`…`3f1772b`. Migration `0014_busy_roxanne_simpson.sql` is
+> generated and applied to the local database. Verified at the close: server typecheck clean,
+> 436 unit tests, `arch:check` with the same 16 known violations as before this work; client
+> typecheck clean, 303 tests; 142 integration tests. `plan-verifier` returned 26 of 26 criteria,
+> 0 NOT MET, 0 NOT VERIFIED.
+>
+> This block said "Steps 3–9 are untouched" while all nine had shipped, and `plan-verifier`
+> caught it as a finding against the plan. It is corrected here rather than left as a trap for
+> the next reader — the `Covers:` table stayed true throughout; only this prose went stale.
+
 ## Requirements review
 
 Every claim below was checked against the tree at `8576224`, not remembered.
@@ -76,6 +93,37 @@ Every claim below was checked against the tree at `8576224`, not remembered.
   emits one file per invocation and migrations are applied by hand
   (root `CLAUDE.md` § Commands). Both schema edits therefore land in Step 1, before the contract
   that describes them.
+- **Defect in this plan, found by executing it — Step 2's gate asserted what Step 2 could not
+  deliver.** `Agent.project_context: z.boolean().default(true)` is optional on *input* and
+  **required on `z.infer`**, so the moment the contract lands every producer of an `Agent`
+  literal stops compiling. Step 2's `Verify` nevertheless ended with
+  `cd server && pnpm typecheck && cd ../client && pnpm typecheck`. Four files broke, and none of
+  them appeared in any step's file list: `server/src/modules/agents/helpers.ts:18`
+  (`toAgentDto`, the row → DTO mapper) and the three client fixtures at
+  `AgentCard.test.tsx:11`, `AgentEditor.test.tsx:25`, `SkillsTab.test.tsx:63`, each an explicit
+  `const AGENT: Agent = { … }`. **Decision:** the three fixtures move **into Step 2** — a
+  contract edit owns the sweep of every pure literal it invalidates, in the same commit, for the
+  same reason the two mirrors are one step. `toAgentDto` stays in **Step 4**, because filling it
+  in is literally Step 4's first line of threading and two steps editing one function is worse
+  than one known-red line. Step 2's gate is narrowed accordingly and Step 4's is where server
+  typecheck goes green. Verified by sweep: `grep -rn ": Agent = " server/src server/test
+  client/src` returns exactly those three client files and nothing on the server.
+- **Trap the spec does not state, closed by decision — old `agent_versions` snapshots.**
+  `toAgentVersionDto` runs `AgentVersionConfig.parse(row.configJson)` and its doc comment says a
+  malformed snapshot **throws here** (`server/src/modules/agents/helpers.ts:42-48`). Every
+  snapshot written before this change lacks `project_context`, so a bare
+  `project_context: z.boolean()` turns `GET /agents/:id/versions` into a 500 on any database
+  with history — including a seeded dev DB. No AC catches it: `agents-versions.it.test.ts`
+  starts from an empty database. **Taken:** `AgentVersionConfig.project_context:
+  z.boolean().default(true)`, mirrored, which reads an old snapshot as "on" — the same reading
+  `run-executor` gives a missing flag (`agent.repoIntel !== false`). AC-18 is unaffected: the
+  requirement is that the two copies match, not that the field is bare.
+- **Verified — `server/src/db/schema.ts` is load-bearing and was missing from Step 1.** It is not
+  only an `export *` barrel: it also builds the `schema` object handed to
+  `drizzle(sql, { schema })`. `drizzle-kit` reads the domain files, so the migration generates
+  correctly without it and **nothing fails** — the new table is simply absent from the relational
+  query surface until a `db.query.*` caller exists. A silent gap of exactly the kind this plan is
+  supposed to close. Added to Step 1's file list.
 - **Verified — the `NAV` edit AC-25 requires touches a do-not-touch file.**
   `client/src/vendor/ui/nav.ts` is under `client/src/vendor/ui/**`, *"edit only on explicit
   request"* (root and `client/CLAUDE.md`). AC-25 is that explicit request. Root `INSIGHTS.md`
@@ -108,10 +156,30 @@ Every claim below was checked against the tree at `8576224`, not remembered.
 
 ## Implementation plan
 
-### Step 1 — the table and the agent column, in one migration   ·   package: server
+### Gate discipline
+
+Two rules this plan broke once and now states, because a `Verify` line that cannot go green is
+worse than no `Verify` line at all — it stops a correct implementation and sends the implementer
+looking for a bug in its own work:
+
+1. **A step whose `Verify` runs a whole-package gate (`pnpm typecheck`, `pnpm arch:check`,
+   `pnpm test`) must own, in its `Files:`, everything that gate covers.** If it does not, the
+   gate is narrowed to what the step can actually satisfy, and the step says in one line which
+   file stays red and which later step closes it.
+2. **Editing a shared contract obliges a producer sweep inside the same step.** Before writing
+   the field: `grep -rn ": <Type> = \{" server/src server/test client/src`, plus the member-name
+   grep root `CLAUDE.md` § Gotchas requires for shapes re-declared inline. Every pure literal it
+   finds is that step's file; a producer that is a *mapper* may be deferred to the step that
+   fills it in, named explicitly.
+
+### Step 1 — the table and the agent column, in one migration   ·   package: server   ·   **DONE**
 Files:   `server/src/db/schema/context.ts` (edit — add `projectContextDocs`) ·
          `server/src/db/schema/agents.ts` (edit — add `projectContext`) ·
-         `server/src/db/migrations/0014_*.sql` + journal (generated, never hand-edited)
+         `server/src/db/schema.ts` (edit — the barrel is also the `schema` object passed to
+         `drizzle(sql, { schema })`; a table added only to the domain file generates its
+         migration but is absent from the relational query surface) ·
+         `server/src/db/migrations/0014_busy_roxanne_simpson.sql` + journal + snapshot
+         (generated, never hand-edited)
 Skills:  drizzle-orm-patterns, postgresql-table-design
 Do:      Add `project_context_docs`: `id` uuid pk, `workspace_id` → `workspaces` cascade,
          `repo_id` → `repos` cascade (AC-26), `title` text, `path_label` text, `body` text,
@@ -122,21 +190,27 @@ Do:      Add `project_context_docs`: `id` uuid pk, `workspace_id` → `workspace
          `repo_intel` comment two lines above it (`schema/agents.ts:28-31`). One
          `pnpm db:generate`, then `pnpm db:migrate` by hand. `code_chunks` is not touched.
 Verify:  `cd server && pnpm db:generate` adds exactly one `.sql` · `grep -c "cascade" the new
-         migration` ≥ 2 · `cd server && pnpm db:migrate` · `cd server && pnpm typecheck`
+         migration` ≥ 2 · `cd server && pnpm db:migrate` · `cd server && pnpm typecheck` — legal
+         here because this step touches no contract and breaks no producer
 Covers:  AC-01, AC-26
 Depends: none
 Commit:  `feat(db): the project-context document table, and the agent switch that reads it`
 
-### Step 2 — the contract, in both copies at once   ·   package: server + client
-Files:   `server/src/vendor/shared/contracts/knowledge.ts` (edit) ·
-         `client/src/vendor/shared/contracts/knowledge.ts` (mirror) ·
-         `server/src/vendor/shared/contracts/platform.ts` (edit) ·
-         `client/src/vendor/shared/contracts/platform.ts` (mirror)
-Skills:  zod, onion-architecture
+### Step 2 — the contract, both copies, and every literal it invalidates   ·   package: server + client   ·   **PARTLY DONE**
+Files:   `server/src/vendor/shared/contracts/knowledge.ts` (edit — **written**) ·
+         `client/src/vendor/shared/contracts/knowledge.ts` (mirror — **written**) ·
+         `server/src/vendor/shared/contracts/platform.ts` (edit — **written**) ·
+         `client/src/vendor/shared/contracts/platform.ts` (mirror — **written**) ·
+         `client/src/app/agents/_components/AgentCard/AgentCard.test.tsx:11` (fixture) ·
+         `client/src/app/agents/[id]/_components/AgentEditor/AgentEditor.test.tsx:25` (fixture) ·
+         `client/src/app/agents/[id]/_components/AgentEditor/_components/SkillsTab/SkillsTab.test.tsx:63`
+         (fixture)
+Skills:  zod, onion-architecture, react-testing-library (the three fixtures only)
 Do:      In `knowledge.ts`: `Agent.project_context: z.boolean().default(true)` and
-         `AgentVersionConfig.project_context: z.boolean()`, each carrying the comment that says
-         it is gated again by `PROJECT_CONTEXT_ENABLED`, mirroring `repo_intel` at `:375-377`
-         and `:409`. In `platform.ts`, under the existing `// ---- Project Context ----` heading
+         `AgentVersionConfig.project_context: z.boolean().default(true)` (see the correction
+         below — the version snapshot field carries a default on purpose, unlike `repo_intel`),
+         each carrying the comment that says it is gated again by `PROJECT_CONTEXT_ENABLED`,
+         mirroring `repo_intel` at `:375-377` and `:409`. In `platform.ts`, under the existing `// ---- Project Context ----` heading
          at `:254`: `ProjectContextDoc` (`id`, `title`, `path_label`, `body` nullish for the
          list projection, `enabled`, `order`, `size_bytes`, `updated_at`),
          `ProjectContextUpload` (`filename`, `content`, `title` optional),
@@ -145,11 +219,24 @@ Do:      In `knowledge.ts`: `Agent.project_context: z.boolean().default(true)` a
          file is new — it is not, so nothing changes in `index.ts`. `SpecFile` and `IndexStatus`
          stay exactly as they are. **Two packages in one step deliberately**: split across two,
          the tree is broken in between and the mirror gotcha is exactly what AC-18 tests.
+         **Correction to the written contract:** `AgentVersionConfig.project_context` becomes
+         `z.boolean().default(true)`, not a bare `z.boolean()` — `toAgentVersionDto` parses
+         stored snapshots strictly and throws, so a bare field 500s
+         `GET /agents/:id/versions` on every database that has history. Mirror the correction.
+         **Then the producer sweep, in this step:** `grep -rn ": Agent = " server/src server/test
+         client/src` finds three `const AGENT: Agent = { … }` fixtures under
+         `client/src/app/agents/`; add `project_context: true` to each. That is the whole client
+         sweep — the server has no `Agent` literal, only the `toAgentDto` mapper, which is
+         Step 4's.
 Verify:  `diff server/src/vendor/shared/contracts/knowledge.ts client/src/vendor/shared/contracts/knowledge.ts`
          → empty · same diff for `contracts/platform.ts` → empty ·
          `grep -rn "repo_intel" server/src/vendor/shared/ client/src/vendor/shared/` re-read to
          confirm no other file re-declares `Agent`'s members inline ·
-         `cd server && pnpm typecheck && cd ../client && pnpm typecheck`
+         `grep -rn ": Agent = " server/src server/test client/src` → the three fixtures, each
+         now carrying `project_context` · `cd client && pnpm typecheck && pnpm test`
+         **Not run here:** `cd server && pnpm typecheck`. It is red at exactly one known line —
+         `modules/agents/helpers.ts:18`, `toAgentDto` missing the new key — and Step 4 owns that
+         file and is where it goes green. Asserting it here is the defect this revision fixes.
 Covers:  AC-18
 Depends: Step 1
 Commit:  `feat(shared): project-context documents, and the per-agent switch — both mirrors`
@@ -199,10 +286,13 @@ Do:      `PROJECT_CONTEXT_ENABLED: z.string().optional()` in `EnvSchema` and
          travels: `helpers.ts:33` (row → contract), `:62`/`:79`/`:91` (the version-snapshot
          patch shape and the "did the config change" test), `repository.ts:27/41/98/137/162`,
          `service.ts:35/48/94/117`, `routes.ts:42/55/100`. No secret goes near `AppConfig`
-         (root `CLAUDE.md` § Conventions).
+         (root `CLAUDE.md` § Conventions). **`toAgentDto` (`helpers.ts:18`) is the line that has
+         been red since Step 2** — one added `project_context: row.projectContext`. This step is
+         where `cd server && pnpm typecheck` becomes an honest gate again, so run it last and
+         treat a red as this step's, not as a leftover.
 Verify:  `cd server && pnpm exec vitest run --exclude '**/*.it.test.ts'` ·
          `grep -c "project_context" server/src/modules/agents/*.ts` matches the `repo_intel` count
-         per file · `cd server && pnpm typecheck && pnpm arch:check`
+         per file · `cd server && pnpm typecheck` — **green from here on** · `pnpm arch:check`
 Covers:  none — enabling work for AC-16 and AC-17
 Depends: Step 2
 Commit:  `feat(agents): the per-agent project-context switch and its global gate`
@@ -383,6 +473,12 @@ All 26 ids in the spec appear. No step's `Covers:` names an id the spec does not
 clone-untouched clause is covered structurally by AC-02's grep rather than by a test — see
 Requirements review.
 
+**Unchanged by the 2026-08-29 revision.** The three client fixtures that moved into Step 2 and
+the `schema.ts` line that joined Step 1 are both enabling work: they make existing gates
+reachable, they cover no criterion of their own, and no `Covers:` line moved. This table is the
+same table it was before the revision, re-checked against the spec's ids rather than against the
+steps.
+
 ## Commit plan
 
 **One commit per step, nine at the ceiling.** Every step above ends in a command that passes or
@@ -403,9 +499,15 @@ committed.
 
 Rules that make those boundaries defensible:
 
-- **The mirror is never split.** Step 2 edits four files across two packages in one commit. Split,
-  the tree is broken between them and AC-18 fails in the gap — which is the whole point of the
-  gotcha it comes from.
+- **The mirror is never split, and neither is the sweep it invalidates.** Step 2 edits four
+  contract files across two packages **plus the three `Agent` fixtures the contract breaks**, in
+  one commit. Split, the tree is broken between them and AC-18 fails in the gap — which is the
+  whole point of the gotcha it comes from.
+- **One commit may leave one *named* line red, never an unnamed one.** Step 2's commit ships with
+  `modules/agents/helpers.ts:18` not compiling, because `toAgentDto` is Step 4's to fill and
+  duplicating it would mean two steps editing one function. That is a stated, single, closing-step
+  known red — not the same thing as a commit whose breakage nobody enumerated. If a second such
+  line ever appears, the steps are wrong, not the rule.
 - **The migration is its own commit**, so a bad `db:generate` is revertible without dragging the
   module with it. `pnpm db:migrate` is manual and is **not** part of any commit.
 - **Step 6 is where dead code dies.** Deleting `useContextFiles` in the same commit that adds its
@@ -423,7 +525,15 @@ Rules that make those boundaries defensible:
 ## Handoff
 
 Plan file:      `specs/plans/L05-project-context-folder.md`
-Entry point:    Step 1
+Entry point:    **Step 2, at its remainder.** Step 1 is done, applied and green — do not re-plan
+                or re-run it, and in particular do not re-run `pnpm db:generate`, which would
+                emit a second migration for a schema that is already migrated. Step 2's four
+                contract files are written and their mirror diffs are empty; what is left in it
+                is the `AgentVersionConfig` default correction (both copies) and the three
+                `Agent` fixtures. Steps 3–9 are untouched and unchanged.
+Satisfied:      AC-01 and AC-26 structurally (Step 1: table, cascade, migration applied).
+                AC-18 once Step 2's mirror diffs are re-run after the correction. Everything
+                else is ahead.
 Execution mode: **single-agent pass through `/implement`** — I agree with the caller, and the
                 dependency graph says the same thing. 1 → 2 → {3, 4} → 5 → 8 → 9 is a chain:
                 the schema must exist before the contract that describes it, the contract before
