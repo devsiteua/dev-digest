@@ -1,0 +1,56 @@
+import type { CSSProperties } from "react";
+
+/** Co-located styles for ProjectContextView (design screen `project-context`). */
+export const s = {
+  page: { padding: "20px 28px 40px", maxWidth: 980, margin: "0 auto" } satisfies CSSProperties,
+  header: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 12,
+    marginBottom: 18,
+  } satisfies CSSProperties,
+  headerText: { flex: 1, minWidth: 0 } satisfies CSSProperties,
+  h1: { fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em" } satisfies CSSProperties,
+  repoName: { color: "var(--accent-text)", marginLeft: 8 } satisfies CSSProperties,
+  subtitle: { fontSize: 13, color: "var(--text-secondary)", marginTop: 3 } satisfies CSSProperties,
+  agentCounter: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    fontSize: 11.5,
+    color: "var(--text-muted)",
+    marginTop: 8,
+  } satisfies CSSProperties,
+  alert: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 9,
+    padding: "10px 12px",
+    borderRadius: 8,
+    border: "1px solid var(--danger)",
+    background: "var(--bg-surface)",
+    marginBottom: 14,
+  } satisfies CSSProperties,
+  alertIcon: { color: "var(--danger)", flexShrink: 0, marginTop: 1 } satisfies CSSProperties,
+  alertTitle: { fontSize: 12.5, fontWeight: 650 } satisfies CSSProperties,
+  alertBody: { fontSize: 12, color: "var(--text-secondary)", marginTop: 2 } satisfies CSSProperties,
+  body: { display: "flex", gap: 20, alignItems: "flex-start" } satisfies CSSProperties,
+  listPane: { width: 320, flexShrink: 0 } satisfies CSSProperties,
+  list: { display: "flex", flexDirection: "column", gap: 6 } satisfies CSSProperties,
+  skeletons: { display: "flex", flexDirection: "column", gap: 6 } satisfies CSSProperties,
+  footer: {
+    marginTop: 12,
+    paddingTop: 10,
+    borderTop: "1px solid var(--border)",
+    fontSize: 11.5,
+    color: "var(--text-muted)",
+    lineHeight: 1.6,
+  } satisfies CSSProperties,
+  emptyBlock: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 4,
+  } satisfies CSSProperties,
+  previewPane: { flex: 1, minWidth: 0 } satisfies CSSProperties,
+} as const;
