@@ -15,6 +15,28 @@ _None yet._
 
 ## What Doesn't Work
 
+### 2026-08-29 · The L05 scaffold did not merely sit unused — it was WRONG, and three of its four pieces would have shipped a lie
+
+Trigger:  building Project Context, expecting the dormant-scaffold pattern the root
+          `INSIGHTS.md` 2026-08-02 entry describes. What was in the tree was worse than dormant.
+Cause:    `useContextFiles` (`lib/hooks/core.ts:123`) called the real route
+          `GET /repos/:repoId/context` and typed its answer `SpecFile[]` — the route returns
+          `ProjectContextDoc[]`, so the hook was type-safe and factually wrong. `useReindexContext`
+          (`:131`) called `/context/reindex`, an endpoint the approved spec rules out ever
+          existing. `messages/en/context.json` was written in full around chunk counts, an
+          `indexStatus`, a `mode` toggle and a `Preview | Edit` editor, and its empty state
+          promised documents live "under `.devdigest/specs/`" — a filesystem path the spec's AC-03
+          explicitly forbids from existing. Only the styles were harmless.
+Takeaway: the 2026-08-02 rule ("grep for the feature's vocabulary before building") finds this
+          scaffold but under-rates it. Extend the grep to `messages/<locale>/*.json` and read the
+          copy for **promises about behaviour and about the filesystem**, not just for vocabulary
+          — a message file is the only place in the tree where a removed feature can still make a
+          factual claim to the user. And check a scaffold hook's declared type against the route
+          it calls: a hook can be green under `tsc` and still describe an endpoint that never
+          answered that shape.
+Evidence: client/src/lib/hooks/core.ts:123,131 (both deleted); client/messages/en/context.json (rewritten)
+Status:   resolved — deleted in the same commit that added their replacement (`7685882`)
+
 ### 2026-08-07 · "The model proposed N rules" is derived, not measured — and a re-scan inflates it by every previously-decided row
 
 Trigger:  the first live scan's summary line read "read 12 files. The model proposed 22 rules:

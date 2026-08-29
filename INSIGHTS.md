@@ -85,6 +85,45 @@ Status:   open — fix opportunistically when touching those files
 
 ## Codebase Patterns
 
+### 2026-08-29 · `.default()` on a Zod contract field is optional on input and REQUIRED on `z.infer` — a "purely additive" mirror edit breaks every literal in both packages
+
+Trigger:  adding `project_context: z.boolean().default(true)` to `Agent` in
+          `vendor/shared/contracts/knowledge.ts` and its mirror. The edit looked additive; the
+          next `pnpm typecheck` was red in **both** packages with four `TS2741 Property
+          'project_context' is missing` — one server mapper and three client test fixtures.
+Cause:    `.default()` makes a field optional for `.parse()` **input** and required on the
+          inferred output type. Every place that builds the object as a literal — rather than
+          parsing one — must gain the key in the same breath.
+Takeaway: before adding any field to a shared contract, sweep the producers:
+          `grep -rn ": <Type> = {" server/src server/test client/src`. Every pure literal it
+          finds belongs to the same step and the same commit as the contract edit; a *mapper*
+          may be deferred only if a later step is named for it out loud. A plan step whose
+          `Verify` runs `pnpm typecheck` but whose `Files:` omits those literals asserts a gate
+          it cannot pass, and stops a correct implementation dead.
+Evidence: server/src/vendor/shared/contracts/knowledge.ts:381; server/src/modules/agents/helpers.ts:20;
+          client/src/app/agents/_components/AgentCard/AgentCard.test.tsx:11
+Status:   resolved — the sweep is now a rule in `specs/plans/L05-project-context-folder.md` § Gate discipline
+
+### 2026-08-29 · `wrapUntrusted` is applied by `assemblePrompt`, not by its callers — and it escapes, so a server-side pre-wrap corrupts what the user sees
+
+Trigger:  a plan step said "every body through `wrapUntrusted()`" before handing documents to
+          `PromptParts.specs`. Doing that would have been wrong.
+Cause:    `assemblePrompt` already wraps each `parts.specs[i]` as `spec-N`
+          (`reviewer-core/src/prompt.ts:149-151`), and `wrapUntrusted` **escapes** any
+          `</untrusted>` inside its input (`:29-32`). A pre-wrap therefore does not merely
+          double-delimit — the outer wrap escapes the inner one, and the mangled `<\/untrusted>`
+          is persisted into `run_traces.prompt_assembly`, which the Run Trace drawer renders to
+          the user. `renderSkillBlocks` **does** wrap, correctly, because the engine does *not*
+          wrap `parts.skills`. The two renderers look symmetrical and are not.
+Takeaway: check which slots `assemblePrompt` wraps before wrapping anything yourself. Today:
+          `specs`, `repoMap`, `callers` and `diff` are wrapped by the engine; `skills` is not.
+          Pin the decision with a test that asserts the block leaves the server unwrapped **and**
+          that exactly one delimiter reaches the assembled prompt, so a later well-meaning wrap
+          fails loudly instead of quietly corrupting a trace.
+Evidence: reviewer-core/src/prompt.ts:29-32,149-151,161-162; server/src/modules/reviews/helpers.ts:181-207;
+          server/test/context-prompt.test.ts:88-116
+Status:   resolved
+
 ### 2026-08-28 · Three silent narrowings sit between a real call site and a row in the blast map
 
 Trigger:  the demo PR's map shows `tests/authorization.test.ts:34` as a caller of

@@ -35,6 +35,15 @@ Evidence: server/test/skills.it.test.ts:767 (runAndReadAssembly); server/test/he
           server/test/helpers/runs.ts (waitForPrRuns)
 Status:   open — not fixed; `skills.it.test.ts` was outside the L04 spec's file list
 
+> **Correction, 2026-08-29.** The diagnostic in Takeaway gives a false negative, because the
+> failure is not caused by the new file. Adding a 14th file (`project-context.it.test.ts`) and
+> running the lane nine times: 2 failures. Running it five times with that file **excluded** —
+> back to 13 containers: 1 failure, same test, same `TypeError`. The race is ~20% at both 13 and
+> 14, so "remove the new file and re-run" passing once proves nothing; at that rate a single
+> clean run happens 80% of the time by luck. Re-run the reduced lane **at least five times**
+> before concluding the new file caused anything. The load reading still holds; the attribution
+> to the newest file does not.
+
 ### 2026-08-07 · The first live extraction spent 3 of 20 rules on formatting a Prettier config already enforces — offering the configs did not stop it
 
 Trigger:  first real scan of `devsiteua/dev-digest` (12 files, deepseek-v4-flash): 20 rules
@@ -82,6 +91,42 @@ Status:   open — deliberately not fixed in L02; the spec sentence is the thing
 > 2026-08-01. What stays here is `open`, plus any resolved entry an open one points at.
 
 ## Codebase Patterns
+
+### 2026-08-29 · A new key in a PERSISTED-SNAPSHOT contract needs `.default()`, or every existing row 500s — and no test in this repo can see it
+
+Trigger:  adding `project_context: z.boolean()` to `AgentVersionConfig`, exactly as a live-row
+          DTO field would be added.
+Cause:    `toAgentVersionDto` parses the stored blob strictly — `AgentVersionConfig.parse(row.configJson)`
+          — and its own doc comment says a drifted snapshot "throws here rather than leaking an
+          unvalidated blob to the client". Every snapshot written before the migration lacks the
+          new key, so `GET /agents/:id/versions` throws on any database with history. Measured on
+          the live dev DB: `select count(*), count(config_json->'project_context'),
+          count(config_json->'repo_intel') from agent_versions` → `1|0|1`.
+Takeaway: split the rule by what the schema parses. A field on a **live-row DTO** may be bare; a
+          field on a contract that `.parse()`s **persisted JSON** carries `.default()`, or its
+          step owns a backfill. The check is one SQL line — `select count(*),
+          count(config_json->'<key>') from agent_versions`. Do not expect a test to catch it:
+          `agents-versions.it.test.ts` seeds an empty database, so the lane stays green while the
+          endpoint is broken for every real user.
+Evidence: server/src/modules/agents/helpers.ts:42-48; server/src/vendor/shared/contracts/knowledge.ts:407-419;
+          server/test/agents-versions.it.test.ts
+Status:   resolved — shipped with `.default(true)`, which reads an old snapshot as "on", matching `run-executor`'s `!== false`
+
+### 2026-08-29 · A Zod route schema can only ever answer 422, so an acceptance criterion naming any other status moves the check into the service
+
+Trigger:  AC-05 to AC-08 of the project-context spec demand 400, 413, 409 and 400. `server/CLAUDE.md:37`
+          says invalid input is rejected with **422 before the handler runs**. Both cannot hold.
+Cause:    the route schema is the 422 boundary; it validates or it does not, and it has no
+          vocabulary for "too large" versus "too many" versus "wrong extension".
+Takeaway: when a criterion names a status other than 422, the body schema goes deliberately
+          loose (shape only) and the named rejections are thrown from the service as
+          `AppError(code, message, statusCode)`. Draw the exception tightly: document it in the
+          route, in the service class comment and in the plan, and keep sibling routes on
+          ordinary validation — otherwise the next module reaches for `AppError` in place of a
+          schema for convenience and the 422 convention quietly dies.
+Evidence: server/src/modules/context/service.ts:110-142; server/src/modules/context/routes.ts:20-29;
+          server/src/vendor/shared/contracts/platform.ts:299-303
+Status:   resolved
 
 ### 2026-08-23 · A test file may sit in any module — the onion cruise never sees it
 
@@ -150,6 +195,19 @@ Status:   open — the service that builds that map lands next session
 > plus any resolved entry an open one points at.
 
 ## Tool & Library Notes
+
+### 2026-08-29 · `pnpm typecheck` does not see `server/test/**`, so a broken server fixture surfaces only at vitest runtime
+
+Trigger:  sweeping the producers of a changed contract, and wondering why only *client* test
+          fixtures appeared in the typecheck output.
+Cause:    `server/tsconfig.json` has `include: ["src/**/*.ts"]`. The client's `tsc --noEmit` has
+          no such narrowing and does check its tests, which is why three client fixtures went red
+          and a server one would not have.
+Takeaway: after a contract change, `grep` the server's test tree by hand — the typecheck gate
+          will not do it for you. A green `pnpm typecheck` on the server says nothing about
+          whether `server/test/**` still compiles.
+Evidence: server/tsconfig.json
+Status:   open
 
 _None yet._
 
