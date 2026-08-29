@@ -15,6 +15,7 @@ here, and do not let this table become a second source of truth.
 
 | Agent | Responsibility | Model | Invoked |
 |---|---|---|---|
+| [`spec-creator`](spec-creator.md) | Turns a task and its design sources into a specification: what must be true when this is done, and why | `opus` | **explicitly**, at the start of a feature |
 | [`implementation-planner`](implementation-planner.md) | Turns an approved spec into a Development Plan grounded in this repo's constraints | `opus` | **explicitly**, with a spec path |
 | [`implementer`](implementer.md) | Executes an approved plan across `server/` and `client/` | `inherit` | **explicitly only** |
 | [`researcher`](researcher.md) | Investigates and reports — repository, external docs, or both | `sonnet` | proactively, or "research X" |
@@ -26,10 +27,12 @@ here, and do not let this table become a second source of truth.
 
 `model: inherit` means the agent runs on whatever the session runs on, so its output quality
 tracks the model you chose — `implementer` and `test-writer` both write code, so both take it.
-`implementation-planner` is pinned to `opus` because planning is where reasoning buys the most;
-`architecture-reviewer`, `plan-verifier` and `security-reviewer` are pinned there too,
-because none of them produces code and all three fail by being lazy rather than by being
-uninformed.
+`spec-creator` and `implementation-planner` are pinned to `opus` because deciding what to
+build and in what order is where reasoning buys the most; `architecture-reviewer`,
+`plan-verifier` and `security-reviewer` are pinned there too, because none of them produces
+code and all three fail by being lazy rather than by being uninformed. `/implement` overrides
+the last two down to `sonnet` **at the call**, which is why the `model:` lines here still read
+`opus` — the reason they are pinned holds everywhere except inside that one run.
 
 Only `researcher` is invited to run proactively. Everything that writes to the tree, and
 every agent that returns a verdict someone might act on, is invoked by name — including
@@ -43,6 +46,9 @@ process, not a promise in prose.
 
 | Agent | Has | Deliberately lacks | Why |
 |---|---|---|---|
+| `spec-creator` | `Read` `Grep` `Glob` `Bash`* `Write` `Edit` `Skill` `TodoWrite` + four read-only MCP tools | `run_agent_on_pr` | the fifth MCP tool starts a review; reading the product is grounding, driving it is not |
+| | | `WebSearch` `WebFetch` | external facts come back as research questions for the main session |
+| | | `Task` | the registry forbids agent chains; the fan-out to `researcher` happens one level up |
 | `implementation-planner` | `Read` `Grep` `Glob` `Bash`* `Write` `Skill` `TodoWrite` | `Edit` | a planner that can edit code will edit code |
 | | | `WebSearch` `WebFetch` | external facts are `researcher`'s job |
 | `implementer` | `Read` `Edit` `Write` `Grep` `Glob` `Bash` `Skill` `TodoWrite` | `WebSearch` `WebFetch` | implementation does not browse; unknowns come back as questions |
@@ -91,30 +97,48 @@ agent file because no tool boundary expresses them.
 
 | Agent | Takes | Produces on disk | Returns to the caller |
 |---|---|---|---|
+| `spec-creator` | a task, its design sources, and the caller's answers to the blocking round | one spec file: `specs/<slug>.md`, or `<pkg>/specs/<slug>.md` for single-package work, following `specs/TEMPLATE.md` | spec path and id, criteria count, what it commits us to, `[NEEDS CLARIFICATION]` still open, research questions for the main session |
 | `implementation-planner` | **a path to a spec file** | one plan file: `specs/plans/<slug>.md`, or `<pkg>/specs/plans/<slug>.md` for single-package work, carrying `Requirements review` · `Constraints in force` · `Implementation plan` · `Coverage` · `Commit plan` · `Handoff` · `Recommendations` | plan path, step count, coverage of the spec's criteria, skills the implementer will need, risks, blocking questions |
 | `implementer` | **a path to a plan file** + which steps to run | the code changes themselves | changes table, every command with its real output, deviations, blocked steps, what was not checked, insight candidates |
 | `researcher` | a concrete question | nothing | a fixed-template report: conclusion, evidence with `file:line` or URL, and an explicit "Not found" |
 | `test-writer` | what to cover, and the regression the test must catch | test files, fixtures and test helpers — nothing else | files table, every command with its real output and test count, what is deliberately not covered, whether production code stayed untouched |
 | `architecture-reviewer` | **a scope that resolves to a file list** — a diff, paths, or a package | nothing | findings with a severity and a `file:line` each, pre-existing debt kept separate, `Checked and clean`, `Not checked` |
-| `plan-verifier` | **a path to a plan file** + what counts as the finished code | nothing | `Items extracted: N` and a table with exactly N rows, each `MET`/`PARTIAL`/`NOT MET`/`NOT VERIFIED` with evidence, plus scope creep and out-of-scope sweeps |
+| `plan-verifier` | **a path to the spec and a path to the plan** + what counts as the finished code | nothing | an `AC → task → test → commit` row per criterion and an item row per everything else, each `MET`/`PARTIAL`/`NOT MET`/`NOT VERIFIED` with evidence, plus scope creep and out-of-scope sweeps. Given only a plan it degrades and says so: the AC column stays, empty |
 | `doc-writer` | the subject, its source material, and who will read it | markdown at the addresses in `docs/README.md`, plus its pointer lines | routing decision, every claim with the `file:line` that verified it, diagrams and why each earned its place, contradictions found |
 | `security-reviewer` | **a scope that resolves to a file list** — a diff, paths, a package, or a named surface | nothing | findings that each name a source, a sink and the `file:line` between them, `Checked and clean` with what made it safe, `Not checked`, assumptions |
 
 ```
-task ─► implementation-planner ─► specs/plans/<slug>.md ─► implementer ─► code + report
-                         │                                │
-                         │       ┌────────────────────────┤
-                         │       ├─► test-writer           ─► tests + report
-                         │       ├─► architecture-reviewer ─► findings
-                         └───────┼─► plan-verifier         ─► N items, N verdicts
-                                 ├─► doc-writer            ─► docs/ + pointers
-                                 ├─► security-reviewer     ─► findings
-                                 │
-                                 └─  /pr-self-review       a skill, not an agent
+task + design sources ─► spec-creator ─► specs/<slug>.md
+                                              │
+                                              ▼
+                       implementation-planner ─► specs/plans/<slug>.md
+                                              │
+                              /implement ─────┤
+                                              ▼
+                                         implementer ─► code + report
+                                              │
+                              ┌───────────────┤
+                              ├─► test-writer            ─► tests + report   (only --tests)
+                              ├─► architecture-reviewer  ─► findings ──┐
+                              │            ▲                            │
+                              │            └──── fix iteration ◄────────┘
+                              ├─► plan-verifier          ─► AC → task → test → commit
+                              ├─► doc-writer             ─► docs/ + pointers
+                              ├─► security-reviewer      ─► findings
+                              │
+                              ├─  /pr-self-review        a skill, not an agent
+                              └─  /workflow-retro        a skill; manual, after the run
 ```
 
-`plan-verifier` is drawn from both ends because it takes two inputs: the plan `implementation-planner` wrote
-and the code `implementer` produced. Nothing in this picture spawns anything else in it.
+`plan-verifier` is drawn from both ends because it takes three inputs: the spec `spec-creator`
+wrote, the plan `implementation-planner` wrote, and the code `implementer` produced. Nothing
+in this picture spawns anything else in it — the boxes that look like a chain are three
+commands a human types, and `/implement` starts only the agents in its own launch table.
+
+**Every arrow is a file on disk.** A subagent returns a summary, so a requirement that lives
+in a chat message is gone by the time the next agent runs. That is why `spec-creator` writes
+a file rather than reporting requirements, and why every agent downstream of it takes a
+**path**.
 
 ## What is deliberately not here
 
@@ -128,7 +152,12 @@ and the code `implementer` produced. Nothing in this picture spawns anything els
 - **`engineering-insights` is nobody's subagent.** `implementer` returns insight *candidates*;
   the main session records them. Two agents appending to one `INSIGHTS.md` is a conflict
   waiting to happen.
-- **No agent chains further.** None of the eight can spawn another.
+- **No agent chains further.** None of the nine can spawn another. `spec-creator` returns a
+  list of research questions instead of fanning out `researcher` itself; the main session
+  does the fan-out, which gets the same parallelism without giving an agent the `Task` tool.
+- **`/implement` is a skill, not an orchestrator agent.** It is typed by a human, and the
+  launch table in `.claude/skills/implement/SKILL.md` § Scope is the complete list of what it
+  may start. The two stages it never starts are the two that decide *what* to build.
 
 ## Where these agents' rules come from
 
@@ -149,7 +178,8 @@ Internal, this repository:
 |---|---|
 | root `CLAUDE.md` § Session protocol | both agents read `INSIGHTS.md` before code, and the wrap-up belongs to the session |
 | `.claude/skills/pr-self-review/SKILL.md` §3 | the canonical path → skills routing table. Both agents **point at it**; neither copies it |
-| `specs/README.md`, `specs/TEMPLATE.md` | where a plan lives, its sections, and why `Out of scope` carries the most weight |
+| `specs/README.md` § EARS, § Where plans live | the five criterion patterns, the `AC-NN` rule, and why a plan is a separate file from its spec |
+| `specs/TEMPLATE.md` | the fifteen sections a spec carries, and why `Out of scope` carries the most weight |
 | `docs/agent-prompts/README.md` § Skills / rules | a rule copied between two prompts wanted to be a skill — the reason the routing table is single-sourced |
 | `INSIGHTS.md` 2026-08-21 entry | the routing table's location, and the three implementation-time deltas to it |
 | `docs/README.md` | the index `doc-writer` routes by, so the routing table is not copied into an agent file |

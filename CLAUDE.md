@@ -76,6 +76,9 @@ cd e2e && pnpm e2e:hermetic       # isolated stack on ports 5433/3101/3100
 
 - **Before touching code:** read the `INSIGHTS.md` of the package the task names, and the root
   one. Treat entries as high-confidence guidance unless the code contradicts them.
+- **Starting a feature:** `spec-creator` writes `specs/<slug>.md`, `implementation-planner`
+  turns it into `specs/plans/<slug>.md`, `/implement <plan>` runs it, and `/workflow-retro`
+  records what it cost. Three human approvals, four files, no step chains itself.
 - **Before wrapping up:** run `/engineering-insights`. Skip only when the session produced
   nothing that is not already written down — that is a normal outcome, not a failure.
 - **Before opening a pull request:** run `/pr-self-review`. A PreToolUse hook blocks
