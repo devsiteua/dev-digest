@@ -7,6 +7,7 @@ import workspace from './workspace/routes.js';
 import agents from './agents/routes.js';
 import skills from './skills/routes.js';
 import conventions from './conventions/routes.js';
+import context from './context/routes.js';
 import intent from './intent/routes.js';
 import smartDiff from './smart-diff/routes.js';
 import blast from './blast/routes.js';
@@ -35,6 +36,7 @@ export const modules: Record<string, FastifyPluginAsync> = {
   agents,
   skills,
   conventions,
+  context,
   intent,
   smartDiff,
   blast,

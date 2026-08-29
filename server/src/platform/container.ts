@@ -31,6 +31,11 @@ import { SkillsService } from '../modules/skills/service.js';
 import { ReviewRepository } from '../modules/reviews/repository.js';
 import { ConventionsService, type ConventionsApi } from '../modules/conventions/service.js';
 import { IntentService, type IntentApi } from '../modules/intent/service.js';
+import {
+  ProjectContextService,
+  type ProjectContextApi,
+} from '../modules/context/service.js';
+import { ProjectContextRepository } from '../modules/context/repository.js';
 import { getFeatureModelOverride } from '../modules/settings/feature-models.js';
 import type { RepoIntel } from '../modules/repo-intel/types.js';
 import { RepoIntelService } from '../modules/repo-intel/service.js';
@@ -71,6 +76,13 @@ export interface ContainerOverrides {
    * browser flow render the Intent card without reaching a model.
    */
   intent?: IntentApi;
+  /**
+   * Project Context (L05). Injected as the verb set rather than the class, for
+   * the reason `conventions` and `intent` are: a review run reads documents
+   * through this, and a test that must not depend on a populated table stands
+   * in a stub here.
+   */
+  projectContext?: ProjectContextApi;
 }
 
 export class Container {
@@ -95,6 +107,7 @@ export class Container {
   private _skillsService?: SkillsService;
   private _conventions?: ConventionsApi;
   private _intent?: IntentApi;
+  private _projectContext?: ProjectContextApi;
   private _reviewRepo?: ReviewRepository;
   private _repoIntel?: RepoIntel;
   private _depgraph?: DepGraph;
@@ -152,6 +165,23 @@ export class Container {
     if (this.overrides.intent) return this.overrides.intent;
     this._intent ??= new IntentService(this);
     return this._intent;
+  }
+
+  /**
+   * The project-context layer (L05), brokered for the same reason `conventions`
+   * and `intent` are: the review run reads a repo's documents, and
+   * `modules/reviews/` reaching into `modules/context/` is the cross-module
+   * import the onion guard warns about — a warning that does NOT fail
+   * `arch:check`, so the discipline has to come from here.
+   *
+   * The repository is constructed HERE rather than inside the service: this is
+   * the composition root, and a service that needs nothing but its own store is
+   * better off taking it than taking the whole container.
+   */
+  get projectContext(): ProjectContextApi {
+    if (this.overrides.projectContext) return this.overrides.projectContext;
+    this._projectContext ??= new ProjectContextService(new ProjectContextRepository(this.db));
+    return this._projectContext;
   }
 
   get reviewRepo(): ReviewRepository {
