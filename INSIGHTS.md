@@ -500,6 +500,40 @@ Status:   open — harmless as long as nothing enumerates the UI type
 
 ## Tool & Library Notes
 
+### 2026-08-30 · A whole-PR model call is 39-92 s, so the 60 s default was clipping the distribution — and two runs of the SAME prompt still disagree
+
+Trigger:  the first two live eval runs over the seeded eight-case set, on
+          `deepseek-v4-flash`. Both came back `partial`: 6 of 8, then 7 of 8.
+Cause:    two different things wearing the same clothes, and only one is a fault.
+          (a) `reviewer-core`'s `DEFAULT_TIMEOUT_MS` is 60 s and `ReviewInput` had no
+          way to override it, while a case replays the WHOLE PR diff and measured
+          39-92 s per call — the budget was sitting on top of the distribution, not
+          above it, so it clipped whatever landed in the tail. That is NOT the honest
+          failure AC-14 is for: it drops a random quarter of the set on every run, so
+          two runs of one set measure two different populations and stop being
+          comparable, which is the single property an eval exists to provide.
+          (b) With the budget at 180 s one case still died, at exactly 180 021 ms —
+          a genuine OpenRouter stall, the shape the 2026-08-06 entry recorded. That
+          one IS AC-14 working, and leaving it is correct.
+Takeaway: size a wall-clock budget from a measured distribution, never from the
+          "healthy call" figure — the 14-28 s in the 2026-08-06 entry was measured on
+          smaller inputs and does not transfer to a whole-PR call. And separate the
+          two readings before touching anything: a budget below the tail is a
+          measurement defect, a budget above it that still trips is a provider stall.
+          **Expect one stalled case per eight-case run**; both runs had one.
+          Second, harder finding: two runs on the BYTE-IDENTICAL prompt disagreed
+          per case — `src/middleware/ratelimit.ts:19` passed in one and failed in the
+          other. Same-prompt variance is real and is not small, so any prompt
+          experiment on a set this size needs a BLUNT intervention; a subtle edit
+          cannot be distinguished from noise at n=1, and the honest read of a single
+          pair of runs is "this moved" only when the move is large.
+Evidence: reviewer-core/src/llm/openrouter.ts:28 (DEFAULT_TIMEOUT_MS);
+          server/src/modules/evals/constants.ts (EVAL_CASE_TIMEOUT_MS);
+          reviewer-core/src/review/run.ts (ReviewInput.timeoutMs)
+Status:   resolved for (a) — `ReviewInput.timeoutMs` added, absent by default so no
+          ordinary review changes, and the eval executor passes 180 s. (b) and the
+          variance finding stay open: neither is fixable, both are facts to plan around
+
 ### 2026-08-30 · Three ways `evals/` prints a number that is not the measurement
 
 Trigger:  the L06 lab. Each one produced a confident, plausible, wrong result.
