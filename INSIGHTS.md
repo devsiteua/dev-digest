@@ -410,6 +410,34 @@ Status:   open — harmless as long as nothing enumerates the UI type
 
 ## Tool & Library Notes
 
+### 2026-08-30 · A per-lesson worktree boots its web UI on the one port its own API refuses
+
+Trigger:  preparing the L06 implementation handoff and checking what `./scripts/dev.sh` would
+          actually do in the `dev-digest-l06` worktree, whose `server/.env` sets
+          `API_PORT=3061` / `WEB_PORT=3060`.
+Cause:    the two halves read the port from different places and only one of them reads `.env`.
+          The API does: `config.ts:38-39` parses `API_PORT`/`WEB_PORT`, so Fastify listens on
+          3061 — `scripts/dev.sh:104` printing "starting API on :3001" is hard-coded prose that
+          has never been true in a worktree with an override. The client does NOT:
+          `client/package.json:6` is `next dev -p 3000`, a literal that neither `WEB_PORT` nor
+          `PORT` can move. And CORS is a strict single-origin allow-list built from the value
+          the client ignores — `app.ts:90` registers `origin: [config.webOrigin]` where
+          `webOrigin` is `http://localhost:${WEB_PORT}` (`config.ts:94`). Net effect: web on
+          3000, API on 3061, allow-list holding 3060 — every browser request is blocked, while
+          `client/.env`'s `NEXT_PUBLIC_API_BASE=http://localhost:3061` is correct and makes the
+          setup look right. Nothing logs a mismatch; the failure appears only in the browser.
+Takeaway: in a worktree with a `WEB_PORT` override, start the client as
+          `cd client && pnpm exec next dev -p $WEB_PORT` — `pnpm dev` is the wrong command
+          there, whatever `dev.sh` says. Two durable fixes if this bites twice: make
+          `client/package.json`'s script read the variable, or widen `app.ts:90` to accept both
+          origins in development. Do NOT "fix" it by setting `WEB_PORT=3000`, which is what
+          every parallel lesson worktree would then collide on. `scripts/e2e.sh:32-41` is the
+          one place that already does this correctly — it exports both ports because "the API
+          derives its origin from WEB_PORT", which is the same trap, solved.
+Evidence: client/package.json:6; server/src/app.ts:90; server/src/platform/config.ts:38-39,94;
+          scripts/dev.sh:104,109; scripts/e2e.sh:32-41
+Status:   open
+
 ### 2026-08-06 · `seed.ts` never converges on rename: a skill dropped from `SEED_SKILLS` survives, still linked, and its checklist is still in the prompt
 
 Trigger:  splitting the seeded `api-contract-compat` skill into `breaking-change` /
