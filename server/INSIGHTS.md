@@ -289,6 +289,30 @@ _None yet._
 
 ## Recurring Errors & Fixes
 
+### 2026-08-30 · The `.it.test` race scales with the container COUNT, and "it was already flaky" needs re-measuring at the true baseline
+
+Trigger:  L06 added four integration files. Every whole-lane run then lost a test, always in
+          `skills.it.test.ts` or `project-context.it.test.ts` — files the change never touched.
+          The first report of this called it pre-existing and unrelated.
+Cause:    measured instead of argued, since every file in the lane starts its OWN Postgres
+          container (`test/helpers/pg.ts`), so a file IS a container. Three runs at the
+          baseline composition (15 files, the change's own new files excluded): **1** run lost
+          a test. Three runs at 19 files: **3 of 3**. The defect is genuinely old — it is the
+          2026-08-07 entry below, `waitForPrRuns` returning its rows when the budget expires —
+          but the container count is what sets its rate, and this change moved it from
+          occasional to routine. Both halves are true at once, and only the second is anyone's
+          to repair.
+Takeaway: two things. (1) Adding integration files is a load change with a measurable price;
+          budget for it rather than discovering it. (2) When a red lane is reported as
+          "pre-existing, not caused by this diff", re-measure at the TRUE baseline composition
+          — the new test files excluded, the rest of the change kept — before accepting the
+          attribution. The claim here was internally inconsistent (it named one excluded file
+          while quoting the count of four) and the re-measurement disagreed with it.
+Evidence: server/test/helpers/runs.ts; server/test/helpers/pg.ts; server/test/skills.it.test.ts
+Status:   resolved — the helper now THROWS with the counts and statuses it saw, and its budget
+          is 30s rather than 10s. Five whole-lane runs after the change: one lost test, back to
+          the rate the baseline composition shows. The residual is the old race, untouched.
+
 ### 2026-08-07 · `waitForPrRuns` gives up silently, so a loaded `.it.test` lane fails in an assertion nowhere near the cause
 
 Trigger:  `pnpm exec vitest run .it.test` failed once on `skills.it.test.ts:552`
@@ -309,6 +333,12 @@ Takeaway: before debugging a `.it.test` failure about run OUTPUT, re-run that fi
           this session's diff does not touch it.
 Evidence: test/helpers/runs.ts (waitForPrRuns); test/skills.it.test.ts:502-553
 Status:   open — flaky under full-lane load only; both lanes are green on a repeat run
+
+> **Closed 2026-08-30.** The helper now throws with the counts and statuses it saw, and its
+> budget is 30s rather than 10s — the fix this entry prescribed, made when L06 took the lane to
+> 19 containers and the rate went to every run. See the entry above for the measurement. The
+> caller-side half stands: a bounded wait whose caller does not assert the condition it waited
+> for still turns a timeout into an assertion three lines away.
 
 > Archived 2026-08-29 → [`../docs/insights-archive.md`](../docs/insights-archive.md), verbatim
 > under this section: 2026-08-01. What stays here is `open`, plus any resolved entry an open

@@ -20,7 +20,22 @@ Status:   → promoted to `docs/flow-authoring.md`
 
 ## What Doesn't Work
 
-_None yet._
+### 2026-08-30 · A flow that asserts only seeded rows passes while proving nothing about the click it just made
+
+Trigger:  the first version of `11-eval-pipeline` clicked "Turn into eval case" on an accepted
+          finding and on a dismissed one, then waited for the case rows on the agent's Evals
+          tab. Green, 11 flows of 11.
+Cause:    the seed already writes eight cases for that agent, so those rows render whether or
+          not either click did anything at all. The flow waited for a state that existed
+          before it started, which is indistinguishable from the state it was meant to create.
+          A broken button, a failed request and a perfect run all produce the same green.
+Takeaway: after a mutating click, assert the thing that MOVED — here the case count going
+          8 to 10 — never the presence of something the seed guarantees. A seeded fixture makes
+          this especially easy to get wrong, because the screen looks right in every case. It
+          is the browser-lane form of the rule in root `CLAUDE.md`: a green is not a result
+          until you check what the run actually changed.
+Evidence: e2e/specs/11-eval-pipeline.flow.json
+Status:   resolved — the flow now waits for the moved count rather than the seeded rows
 
 ## Codebase Patterns
 

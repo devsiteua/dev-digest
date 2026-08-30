@@ -60,6 +60,46 @@ _None yet._
 
 ## What Doesn't Work
 
+### 2026-08-30 · Three assertions in one test needed their literals updated, and the fourth looked identical — updating it would have deleted the control
+
+Trigger:  `seed.ts` now decides ten findings instead of four, so the per-file `finding_lines`
+          expectations in `smart-diff.it.test.ts` had to move.
+Cause:    three of them are DESCRIPTIVE — they record what the seed happens to contain, and
+          editing the literal is the correct repair. The fourth,
+          `expect(lines['src/server.ts']).toEqual([])` at `:179`, is the negative half of "an
+          older review does not leak its findings": the test plants a finding on
+          `src/server.ts` in a SUPERSEDED review and asserts the current review reports none
+          there. Seeding a finding onto that file turns it red too — loudly, not silently — and
+          the obvious repair, updating the literal exactly as the other three needed, converts
+          a control into a tautology that can never fail again. The right repair was to move
+          the seeded finding off that file.
+Takeaway: when one data change makes several assertions in a file go red, sort them into
+          descriptive and control BEFORE editing any. The tell is an expectation whose value is
+          empty or absent: a control usually asserts that nothing is there, so "update the
+          expected value" is precisely the move that destroys it. Sibling of the
+          data-versus-lane sweep below — that one asks which step destroys a fixture, this one
+          asks which step makes the obvious REPAIR destroy the control.
+Evidence: server/test/smart-diff.it.test.ts:127-134,177-180; server/src/db/seed-evals.ts
+Status:   open
+
+### 2026-08-30 · A zero-count grep gate fires on prose and on type unions — and it is right both times
+
+Trigger:  two gates the L06 plan wrote for itself, both of the form "grep this file for the
+          vocabulary of X → 0". Both fired on first contact with the finished code.
+Cause:    AC-17's gate (the scoring module must name nothing to do with a model) fired because
+          the file's own DOC COMMENT used the word "container" while explaining that it must
+          never reach for one. AC-28's (nothing writes `owner_kind` `'skill'`) fired on
+          `ownerKind: 'skill' | 'agent'` — a type union in a signature, not a write.
+Takeaway: fix the code, not the gate — and both fixes were improvements: the comment was
+          reworded, and the inline union became the shared `EvalOwnerKind`, removing an inline
+          re-declaration root `CLAUDE.md` § Gotchas already warns about. A zero-count gate
+          cannot tell code from prose or a write from a type, and that is the same property
+          that makes it reachable where a positive count is not (the entry below). Expect one
+          to fire the first time it meets real code; that is the gate working, not a false
+          alarm.
+Evidence: server/src/modules/evals/scoring.ts:11-15; specs/plans/eval-pipeline.md § Step 3, Step 6
+Status:   open
+
 ### 2026-08-30 · `allowedTools` is not a permission boundary under `bypassPermissions` — an eval run rewrote a committed file
 
 Trigger:  running the workflow tier of `evals/`. Afterwards `git status` showed
@@ -250,6 +290,23 @@ Status:   open — fix opportunistically when touching those files
 > What stays here is `open`, plus any resolved entry an open one points at.
 
 ## Codebase Patterns
+
+### 2026-08-30 · The seed-literal obligation is wider than `e2e/specs/*.json` — an integration test reads those literals too
+
+Trigger:  editing `seed.ts` to decide ten findings, and looking for everything that would
+          break.
+Cause:    root `CLAUDE.md` § Gotchas names exactly one obligation: after editing `seed.ts`,
+          grep `e2e/specs/*.json` for the values changed. The L06 plan quoted that rule, swept
+          only `e2e/`, and concluded "exactly one flow asserts a seed-derived count" — true,
+          and incomplete. `server/test/smart-diff.it.test.ts` hard-codes seed-derived
+          `finding_lines` per file, and went red on values no flow mentions. The rule is
+          narrower than the fact it describes, and a plan that trusts it inherits the gap.
+Takeaway: after editing `seed.ts`, grep the WHOLE repository for the literals changed — not
+          one package, and not the one package a gotcha happens to name. `check:e2e-contract`
+          only enforces the e2e half, so nothing automated covers the rest.
+Evidence: server/test/smart-diff.it.test.ts:127-134; e2e/specs/04-pr-findings.flow.json:3,14;
+          root CLAUDE.md § Gotchas
+Status:   open — the `CLAUDE.md` gotcha still names only `e2e/specs`
 
 ### 2026-08-30 · `skillContent()` injects SKILL.md plus a `references/` DIRECTORY — a skill's sibling pages never reach the model
 
