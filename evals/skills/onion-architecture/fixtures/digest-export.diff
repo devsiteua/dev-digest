@@ -1,0 +1,73 @@
+diff --git a/server/src/modules/reviews/service.ts b/server/src/modules/reviews/service.ts
+index 4a1c9de..8f2b710 100644
+--- a/server/src/modules/reviews/service.ts
++++ b/server/src/modules/reviews/service.ts
+@@ -1,10 +1,14 @@
++import type { FastifyReply } from 'fastify';
+ import type { Container } from '../../platform/container.js';
+ import type { ReviewDto } from '../../vendor/shared/contracts/reviews.js';
++import { ReviewRepository } from './repository.js';
+ import { toReviewDto } from './helpers.js';
+ 
+ export class ReviewService {
+   constructor(private readonly container: Container) {}
+ 
++  private readonly repo = new ReviewRepository(this.container.db);
++
+   async get(workspaceId: string, id: string): Promise<ReviewDto> {
+-    const row = await this.container.reviewRepository.byId(workspaceId, id);
++    const row = await this.repo.byId(workspaceId, id);
+     return toReviewDto(row);
+   }
++
++  /** Streams the markdown digest straight onto the response. */
++  async exportMarkdown(workspaceId: string, id: string, reply: FastifyReply): Promise<void> {
++    const row = await this.repo.byId(workspaceId, id);
++    reply.header('content-type', 'text/markdown');
++    reply.send(toReviewDto(row).summary_md);
++  }
+ }
+diff --git a/server/src/modules/reviews/routes.ts b/server/src/modules/reviews/routes.ts
+index 1d0e3aa..b77c412 100644
+--- a/server/src/modules/reviews/routes.ts
++++ b/server/src/modules/reviews/routes.ts
+@@ -1,6 +1,9 @@
+ import type { FastifyInstance } from 'fastify';
++import { and, eq, desc } from 'drizzle-orm';
++import { reviews } from '../../db/schema.js';
+ import { ReviewParams, ReviewDto } from '../../vendor/shared/contracts/reviews.js';
+ 
+ export function registerReviewRoutes(app: FastifyInstance): void {
+   app.get('/reviews/:id', { schema: { params: ReviewParams, response: { 200: ReviewDto } } }, async (req) => {
+     const { workspaceId } = await getContext(app.container, req);
+     return app.container.reviewService.get(workspaceId, req.params.id);
+   });
++
++  app.get('/reviews/:id/export', async (req, reply) => {
++    const { workspaceId } = await getContext(app.container, req);
++    const [row] = await app.container.db
++      .select()
++      .from(reviews)
++      .where(and(eq(reviews.workspaceId, workspaceId), eq(reviews.id, req.params.id)))
++      .orderBy(desc(reviews.createdAt))
++      .limit(1);
++    return app.container.reviewService.exportMarkdown(workspaceId, row.id, reply);
++  });
+ }
+diff --git a/server/src/modules/reviews/helpers.ts b/server/src/modules/reviews/helpers.ts
+index 9c31f02..0ab54d1 100644
+--- a/server/src/modules/reviews/helpers.ts
++++ b/server/src/modules/reviews/helpers.ts
+@@ -1,7 +1,12 @@
++import type { ReviewRow } from '../../db/rows.js';
+ import type { ReviewDto } from '../../vendor/shared/contracts/reviews.js';
+ 
+-export function toReviewDto(row: { id: string; summary_md: string }): ReviewDto {
++export function toReviewDto(row: ReviewRow): ReviewDto {
+   return { id: row.id, summary_md: row.summaryMd };
+ }
++
++/** Pure formatter: DTO -> the markdown body the export endpoint returns. */
++export function toMarkdownDigest(dto: ReviewDto): string {
++  return `# Review ${dto.id}\n\n${dto.summary_md}\n`;
++}
