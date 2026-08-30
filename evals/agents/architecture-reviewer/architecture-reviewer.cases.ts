@@ -39,15 +39,33 @@ const fx = fixtureReader(import.meta.url);
  *   benign-rename.diff  a local-variable rename       -> nothing; the correct answer is silence
  */
 
-// The agent's Step 0 refuses a scope that does not resolve to files that exist. That refusal is
-// correct behaviour and not what this eval measures, so the scope is established here the way a
-// real caller would establish it. Identical for both variants, so the A/B stays controlled — and
-// the agent is still free to read the repo for the DOCUMENTED RULES, which is the point.
+// The agent's Step 0 refuses a scope that does not resolve to files that exist, and its §1 makes
+// `pnpm arch:check` the thing it starts with. `agentTools()` strips `Bash` (it is in
+// MUTATING_TOOLS), so as shipped the agent could satisfy NEITHER: it answered "Cannot start" and
+// asked the caller to run the guard. That refusal is correct agent behaviour and is not what this
+// eval measures — worse, it corrupted the grades in both directions. A refusal scored 0 on the
+// review cases (reading as a citation failure) and scored 1 on the negative case, where "reports
+// no violations" and "does not attribute a rule identifier" are both VACUOUSLY true of a refusal.
+//
+// So the preamble supplies what a real caller supplies: the scope, and the guard output. Identical
+// for both variants, so the A/B stays controlled, and the agent is still free to read the repo for
+// the documented rules — which is the behaviour under test. The `delivers an actual review`
+// practice on every case below is what stops a refusal from ever being scored as a pass again.
 const SCOPE = `You are reviewing a proposed change that is not yet committed. The diff below IS the
 scope — treat it as the authoritative content of those files and do not go looking for the change
-in the working tree or in git history; it is not there yet. The paths are real, and the
-repository's own rule sources (\`server/.dependency-cruiser-onion.cjs\`, \`docs/architecture.md\`,
-the CLAUDE.md files) are on disk for you to consult.
+in the working tree or in git history; it is not there yet. The paths are real.
+
+\`cd server && pnpm arch:check\` was run against the base state immediately before this diff, and
+this was its complete output:
+
+    ✔ no dependency violations found (189 modules, 650 dependencies cruised)
+    ‼ 16 known violations ignored. Run with --no-ignore-known to see them.
+
+The mechanical guard is therefore green on the base: anything this diff introduces is new, not
+pre-existing debt. You have no \`Bash\` in this session — do not ask for a command to be run and do
+not treat running the guard as outstanding work. The rule sources themselves are on disk and you
+should read them: \`server/.dependency-cruiser-onion.cjs\` holds the rule names,
+\`docs/architecture.md\` holds the invariants.
 
 Audit this diff against DevDigest's documented structural contracts.`;
 
@@ -61,6 +79,7 @@ export const cases: AgentCase[] = [
     kind: "quality",
     prompt: ONION_PROMPT,
     practices: [
+      "delivers an actual architecture review — a findings table, or an explicit no-violations verdict — rather than refusing to start, asking the caller to run a command, or requesting more information",
       "flags the `import type { FastifyReply } from 'fastify'` added to modules/reviews/service.ts as a violation — HTTP must not reach a service",
       "flags the `new OctokitGitHubClient(...)` / the import of `../../adapters/github/octokit.js` inside modules/reviews/service.ts as a violation — a service must take the port off the container instead of constructing a concrete adapter",
       "flags the `import { reviews, findings } from '../../db/schema.js'` added to modules/reviews/helpers.ts as a violation — db/schema belongs to the data layer",
@@ -76,6 +95,7 @@ export const cases: AgentCase[] = [
     kind: "quality",
     prompt: CORE_PROMPT,
     practices: [
+      "delivers an actual architecture review — a findings table, or an explicit no-violations verdict — rather than refusing to start, asking the caller to run a command, or requesting more information",
       "flags the `import { readFileSync } from 'node:fs'` added to reviewer-core/src/review/run.ts as a violation — reviewer-core does no I/O",
       "flags that the `groundFindings(...)` call was deleted, so findings are now emitted without passing the citation-grounding gate",
       "citation: names the real rule identifier `core-stays-pure` for the node:fs finding rather than describing it only in prose",
@@ -90,6 +110,7 @@ export const cases: AgentCase[] = [
     kind: "quality",
     prompt: BENIGN_PROMPT,
     practices: [
+      "delivers an actual architecture review — a findings table, or an explicit no-violations verdict — rather than refusing to start, asking the caller to run a command, or requesting more information",
       "reports no violations for the benign local-variable rename, or records only info-level non-blocking observations — it does not invent a critical/high/medium finding",
       "does not attribute a documented rule identifier to this diff, since it breaks none",
     ],
