@@ -39,8 +39,14 @@ Also true, and worth knowing before the first run:
   `EVAL_JUDGE_MODEL` to `claude-sonnet-5`, a stronger family on purpose, to soften
   self-preference in the judge.
 - By default the package runs on the **Claude Code subscription**: the API key is stripped from
-  spawned processes. `EVAL_BACKEND=openrouter` switches the same tests to a cheap model with no
-  code change.
+  spawned processes (`evals/src/runtime/env.ts:38`), and the spawned `claude` binary carries the
+  login. That path needs nothing configured.
+- `EVAL_BACKEND=openrouter` switches the same tests to a cheap model with no code change — but
+  it reads `OPENROUTER_API_KEY` **from the shell environment** and throws when it is unset
+  (`env.ts:31`, `run-openrouter.ts:23`). In this repository the real key lives in
+  `~/.devdigest/secrets.json`, which is the *server's* read chokepoint and is never exported to
+  a shell, while `server/.env`'s copy of the name is deliberately empty. So the fallback backend
+  needs the key exported by hand for that command; it will not find it on its own.
 - `onion-architecture` is **hand-authored and ours to edit** (root `CLAUDE.md` § Do not touch
   lists it among the six that must stay out of `skills-lock.json`). Breaking it deliberately is
   legal; breaking a vendored skill would not be.
