@@ -153,3 +153,78 @@ the two stages that judge everything.
    10, which `Depends: Step 6`. Five rounds of cross-model review checked that every lane had a
    step; none checked that the step could run it.
    Costs: a fourth pass over the coverage table, on a document already carrying three.
+
+---
+
+## 2026-08-30 — Multi-Agent Review: one agent against three, measured
+
+**Not a pipeline run.** Every other entry in this file records what a *workflow* cost. This one
+records what the *product* costs, because AC-35 of `specs/multi-agent-review.md` names this file
+as where the 1-vs-3 comparison lives. It is kept apart so it cannot be read as an agent run.
+
+**Spec:** `specs/multi-agent-review.md` AC-35 · **Plan:** `specs/plans/multi-agent-review.md` Step 12
+**Subject:** `devsiteua/devdigest-review-fixtures` PR #2, "Add an admin maintenance command runner"
+(2 files, +30/−0; `src/admin/maintenance.ts` passes an unvalidated string to `execSync`)
+**Model:** `openrouter / deepseek/deepseek-v4-flash` for all three agents
+**Method:** started from the product's own picker by a human, numbers read afterwards from
+`GET /pulls/:id/runs`, not from the screen.
+
+| | wall clock | tokens (in / out / total) | cost | findings |
+|---|---|---|---|---|
+| **1 agent** — General Reviewer | 14,051 ms | 2,667 / 1,542 / **4,209** | **$0.000771** | **1** |
+| **3 agents** — General + Security + Performance | 63,727 ms | 10,092 / 5,375 / **15,467** | **$0.002049** | **5** |
+| ratio | **4.53×** | **3.67×** | **2.66×** | **5×** |
+
+**The ratio is not 3×, and the four ratios do not even agree with each other** — they run from
+2.66× to 5×. Three reasons, all specific to this codebase:
+
+1. **The executor is sequential.** `run-executor.ts:122-129` is `for (const … of jobs) { await
+   this.runOneAgent(…) }` — no `Promise.all`, no queue. So the wall clock of a fan-out is the
+   *sum* of its agents, and the wall-clock ratio can exceed 3× rather than approach it. Watched
+   live: General finished while Security and Performance still read `running`, then Security
+   finished while Performance still ran. The brief's row calling parallel execution "вже готове"
+   is false, and this measurement is what it looks like from outside.
+2. **Answer lengths differ, so cost scales more slowly than agent count.** 2.66× on cost against
+   3 agents, because each agent writes a different amount.
+3. **The pre-work really is shared.** General Reviewer's `tokens_in` was **2,667 in both runs** —
+   byte-identical input on a one-agent run and inside a three-agent fan-out. That is the diff and
+   the intent being prepared once for the whole batch (`run-executor.ts:106,120`), visible as a
+   number rather than as a claim.
+
+**One measurement is weak evidence, and this run can say so with data.** A bug (below) started
+four extra three-agent runs on the same PR minutes earlier. Across those, *the same* General
+Reviewer on *the same* PR took 9.0 s, 21.7 s, 25.5 s and 25.7 s — a **2.9× spread** with nothing
+changed, and in one of them Security Reviewer died on a 60 s timeout. Those four are excluded
+from the table because they overlapped in time and contended for the same provider; they are
+kept here because they are the honest error bar on the two rows above.
+
+**What the fan-out actually bought:** 5 findings against 1, and all five are the same defect —
+`execSync` on an unvalidated string — reported at lines 13, 14, 17 and 22 in three different
+wordings, one of them in Chinese. **The grouper merged none of them**, which is correct
+behaviour and the limitation the spec predicted verbatim: *"Two agents describing the same defect
+in unrelated words at different lines will be two groups. That is the price of zero model calls
+at read time."* Same file, but the line gap and the Jaccard floor both miss, so the reviewer sees
+five one-member groups where a human sees one bug. This is the strongest argument in the
+repository for revisiting `GROUP_LINE_WINDOW` / `GROUP_TITLE_SIMILARITY` — with real output to
+tune against, which nobody had when they were chosen.
+
+**Missed by every automated gate:** `Start New Review` was a dead button. The picker's success
+path was `router.push` to the results route; mounted *on* that route it pushed the URL the browser
+was already on, Next.js treated it as a no-op, the picker never closed, and the click read as a
+failure — so it was pressed four times and started four real runs. 372 client tests, 186
+integration tests, 11 e2e flows, two clean architecture reviews and a 36/37 AC matrix all passed
+while it shipped. The component test asserted the push; the page test never drove the picker
+mounted inside it. Found by a human pressing the button once, which is the whole reason Step 12
+is manual.
+
+**Proposals**
+
+1. Tune the grouper against this run's output → `specs/multi-agent-review.md` § Known limitations
+   Because: five one-member groups for one defect is the limitation working as designed, and the
+   first real evidence for what the two constants should be.
+   Costs: a wider window or a lower Jaccard floor merges genuinely different defects at nearby
+   lines, which is the failure the current values were chosen to avoid.
+2. A component with two mount points needs a test per mount point → `.claude/agents/test-writer.md`
+   Because: the second mount point's success path was never executed by any test, and it was the
+   broken one. The rule generalises: a prop that changes control flow needs a case per branch.
+   Costs: doubles the cases for every reused component, most of which differ only in styling.
