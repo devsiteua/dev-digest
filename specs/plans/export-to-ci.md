@@ -268,8 +268,13 @@ Do:      `pnpm add yaml` in `server/` (same major as `agent-runner`'s `^2.6.1`).
          `ncc` emits, named here once so the reader, the refusal (AC-16) and the commit (AC-35)
          cannot disagree — `WORKFLOW_PATH = '.github/workflows/devdigest-review.yml'`,
          `MAX_BUNDLE_BYTES = 8 * 1024 * 1024`, `CI_RUNS_LIMIT = 50`, and one pinned 40-character
-         commit SHA per external action (`actions/checkout`, `actions/setup-node`,
-         `actions/upload-artifact`), each with the tag it corresponds to in a comment beside it.
+         commit SHA per external action, each with the tag it corresponds to in a comment beside
+         it. **Resolved 2026-08-30 via `gh api repos/<action>/git/ref/tags/<tag>`, so no lookup is
+         needed at implementation time** — use these verbatim and do not re-resolve:
+         `actions/checkout` v7.0.1 → `3d3c42e5aac5ba805825da76410c181273ba90b1`;
+         `actions/setup-node` v7.0.0 → `820762786026740c76f36085b0efc47a31fe5020`;
+         `actions/upload-artifact` v7.0.1 → `043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`.
+         Each dereferences to an object of type `commit`, which is what AC-08's regex asserts.
          `helpers.ts`: `skillSlug(name)` (kebab-case of `skills.name`; the table has no slug column
          — `server/src/db/schema/skills.ts:10`); `assertUniqueSlugs()` throwing an `AppError`
          whose message names **both** colliding skills (AC-33); and `bundleFiles()`, the pure
