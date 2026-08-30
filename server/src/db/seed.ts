@@ -803,6 +803,262 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
     }
   }
 
+  // ---- L07: a finished three-agent multi-agent run on the demo PR ----
+  //
+  // The Multi-Agent Review screen reads `GET /pulls/:id/multi-agent`, which 404s
+  // until a set of agents has been run — so without this block the screen can
+  // only be looked at by spending a real model call, and the e2e flow could not
+  // exist at all (the hermetic stack has no provider key, and a flow may not
+  // trigger a model).
+  //
+  // Its own guard, on the ABSENCE OF A PARENT ROW for this PR. The block above
+  // guards on "this PR has no runs yet", which is false forever once this one has
+  // run — reusing that condition would make `pnpm db:seed` twice stop converging,
+  // which is precisely what this data is here to let someone check.
+  //
+  // The findings are arranged to make the screen say something true:
+  //   · `src/config.ts:12` — all three agents, same severity, near-identical
+  //     titles → one group of three and NOT a conflict (a committed live key is
+  //     the one thing every reviewer flags, whatever it was hired for). This is
+  //     what `Show only conflicts` has to hide.
+  //   · `src/middleware/ratelimit.ts:28` — General says SUGGESTION, Security says
+  //     WARNING → a conflict on divergent severities, and Performance is silent.
+  //   · `src/api/users.ts:45` — Performance alone → a conflict where two `done`
+  //     agents `did not flag` it.
+  //   · `src/api/public/webhooks.ts:61` — Security alone → a group of one.
+  // The four findings of the `model: 'seed'` review are NOT touched: they belong
+  // to the single-agent run above, which flow 04 and the run-cost badge assert.
+  const SEED_MULTI_AGENT_COLUMNS = [
+    {
+      agentName: 'Security Reviewer',
+      durationMs: 9_120,
+      tokensIn: 8_140,
+      tokensOut: 2_260,
+      costUsd: 0.0052,
+      score: 48,
+      blockers: 2,
+      verdict: 'request_changes',
+      summary:
+        'A live Stripe key is committed and the webhook forwarder takes an attacker-controlled URL. Block until both are gone.',
+      findings: [
+        {
+          file: 'src/config.ts',
+          startLine: 12,
+          endLine: 12,
+          severity: 'CRITICAL',
+          category: 'security',
+          title: 'Hardcoded Stripe secret key committed to the repository',
+          rationale:
+            'Line 12 holds a literal `sk_live_` key. It is in the git history from this commit on, so rotating it is part of the fix, not an alternative to it.',
+          suggestion: 'Read it from `process.env.STRIPE_SECRET_KEY` and rotate the exposed key.',
+          confidence: 0.97,
+        },
+        {
+          file: 'src/api/public/webhooks.ts',
+          startLine: 61,
+          endLine: 74,
+          severity: 'CRITICAL',
+          category: 'security',
+          title: 'Webhook forwarder follows an attacker-controlled callback URL',
+          rationale:
+            'The handler reads `body.callback_url` and fetches it server-side, outside the new limiter. That is an SSRF into the internal network.',
+          suggestion: 'Allow-list the callback host and move the route behind the rate limiter.',
+          confidence: 0.89,
+        },
+        {
+          file: 'src/middleware/ratelimit.ts',
+          startLine: 28,
+          endLine: 28,
+          severity: 'WARNING',
+          category: 'style',
+          title: 'Magic number 3600 duplicated instead of a named constant',
+          rationale:
+            'The window is written twice as a bare `3600`. Two copies of a security-relevant number drift, and the second one is the one nobody updates.',
+          suggestion: 'Extract `WINDOW_SECONDS` and use it in both places.',
+          confidence: 0.71,
+        },
+      ],
+    },
+    {
+      agentName: 'General Reviewer',
+      durationMs: 7_640,
+      tokensIn: 7_020,
+      tokensOut: 1_740,
+      costUsd: 0.0038,
+      score: 66,
+      blockers: 1,
+      verdict: 'request_changes',
+      summary:
+        'Readable middleware, one blocker: the committed key. The repeated 3600 is worth naming before it drifts.',
+      findings: [
+        {
+          file: 'src/config.ts',
+          startLine: 12,
+          endLine: 12,
+          severity: 'CRITICAL',
+          category: 'security',
+          title: 'Hardcoded Stripe secret key committed to config',
+          rationale: 'A literal `sk_live_` key sits in `src/config.ts` and ships with the build.',
+          suggestion: 'Move it to an environment variable and rotate it.',
+          confidence: 0.95,
+        },
+        {
+          file: 'src/middleware/ratelimit.ts',
+          startLine: 28,
+          endLine: 28,
+          severity: 'SUGGESTION',
+          category: 'style',
+          title: 'Extract the magic number 3600 into a named constant',
+          rationale:
+            'The number 3600 appears twice with no explanation; a reader has to infer seconds-in-an-hour.',
+          suggestion: 'Name it `WINDOW_SECONDS` and reuse it in both places.',
+          confidence: 0.64,
+        },
+      ],
+    },
+    {
+      agentName: 'Performance Reviewer',
+      durationMs: 6_980,
+      tokensIn: 6_410,
+      tokensOut: 1_520,
+      costUsd: 0.0031,
+      score: 64,
+      blockers: 1,
+      verdict: 'comment',
+      summary:
+        'The N+1 in the user list will bite under the new limiter. The Redis round-trip itself is acceptable.',
+      findings: [
+        {
+          file: 'src/config.ts',
+          startLine: 12,
+          endLine: 12,
+          severity: 'CRITICAL',
+          category: 'security',
+          title: 'Hardcoded Stripe secret key in config',
+          rationale: 'Not a performance problem, but a live key in `src/config.ts` outranks one.',
+          suggestion: 'Move it to an environment variable and rotate it.',
+          confidence: 0.9,
+        },
+        {
+          file: 'src/api/users.ts',
+          startLine: 45,
+          endLine: 52,
+          severity: 'WARNING',
+          category: 'perf',
+          title: 'N+1 query in the user list endpoint',
+          rationale:
+            'The loop issues one query per user. Under the new limiter the endpoint is retried more often, which multiplies the round-trips rather than shedding them.',
+          suggestion: 'Fetch with a single `IN` query and group in memory.',
+          confidence: 0.84,
+        },
+      ],
+    },
+  ] as const;
+
+  if (demoPr) {
+    const [existingMultiRun] = await db
+      .select({ id: t.multiAgentRuns.id })
+      .from(t.multiAgentRuns)
+      .where(eq(t.multiAgentRuns.prId, demoPr.id));
+
+    if (!existingMultiRun) {
+      const named = await Promise.all(
+        SEED_MULTI_AGENT_COLUMNS.map(async (col) => {
+          const [agent] = await db
+            .select({ id: t.agents.id })
+            .from(t.agents)
+            .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.name, col.agentName)));
+          return { col, agentId: agent?.id ?? null };
+        }),
+      );
+
+      // All three or none: a partial fan-out would seed a run whose
+      // `agent_count` disagrees with the screen, and the guard above would then
+      // never let it be completed.
+      if (named.every((n) => n.agentId != null)) {
+        // One transaction for the whole run: the guard asks only whether the
+        // PARENT row exists, so a crash between two children would leave a
+        // multi-agent run a re-seed skips forever — the same reasoning the
+        // skills loop above records.
+        await db.transaction(async (tx) => {
+          const startedAt = new Date(Date.now() - 6 * 60 * 60 * 1000);
+          const [parent] = await tx
+            .insert(t.multiAgentRuns)
+            .values({ workspaceId, prId: demoPr.id, ranAt: startedAt })
+            .returning();
+
+          for (const [index, { col, agentId }] of named.entries()) {
+            const [run] = await tx
+              .insert(t.agentRuns)
+              .values({
+                workspaceId,
+                agentId,
+                prId: demoPr.id,
+                multiAgentRunId: parent!.id,
+                // Explicit, one second apart: `defaultNow()` is the
+                // TRANSACTION's timestamp, so three rows written here would tie
+                // to the microsecond and the columns' left-to-right order would
+                // be decided by the id tie-break rather than by the run.
+                ranAt: new Date(startedAt.getTime() + index * 1000),
+                provider: DEFAULT_PROVIDER,
+                model: DEFAULT_MODEL,
+                status: 'done',
+                source: 'local',
+                durationMs: col.durationMs,
+                tokensIn: col.tokensIn,
+                tokensOut: col.tokensOut,
+                costUsd: col.costUsd,
+                findingsCount: col.findings.length,
+                blockers: col.blockers,
+                score: col.score,
+                grounding: `${col.findings.length}/${col.findings.length} passed`,
+              })
+              .returning();
+
+            const [review] = await tx
+              .insert(t.reviews)
+              .values({
+                workspaceId,
+                prId: demoPr.id,
+                agentId,
+                runId: run!.id,
+                kind: 'review',
+                verdict: col.verdict,
+                summary: col.summary,
+                score: col.score,
+                model: DEFAULT_MODEL,
+                // Explicit, and OLDER than the `model: 'seed'` review above.
+                // `latestReviewFindings` and the PR list's FINDINGS column both
+                // read the NEWEST `kind: 'review'` row, so three rows written
+                // here with `defaultNow()` would take that title away from the
+                // seeded review — and the smart diff's badges, the list's
+                // counters and the flows that assert them with it. This run
+                // happened earlier in the demo's story; saying so in the data is
+                // what keeps it additive.
+                createdAt: startedAt,
+              })
+              .returning();
+
+            await tx.insert(t.findings).values(
+              col.findings.map((f) => ({
+                reviewId: review!.id,
+                file: f.file,
+                startLine: f.startLine,
+                endLine: f.endLine,
+                severity: f.severity,
+                category: f.category,
+                title: f.title,
+                rationale: f.rationale,
+                suggestion: f.suggestion,
+                confidence: f.confidence,
+              })),
+            );
+          }
+        });
+      }
+    }
+  }
+
   // ---- L02: demo convention candidates ----
   // Three `pending` rules for the seeded repo, so the conventions screen has a
   // populated state — cards, evidence, confidence bars, accept/reject — without
