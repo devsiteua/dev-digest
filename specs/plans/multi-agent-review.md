@@ -712,6 +712,14 @@ Do:       Read the design first: artboards `ma-cols`, `ma-tabs`, `e-ma`. Carry a
           (AC-25). Live status comes from `useRunEvents(runIds)` keyed per run, so one column's
           event changes one column (AC-24).
 
+          **`LiveLogStream` is reused, and only through the drawer.** The brief asks for both
+          primitives back (`kickoff/L07A.md`); `RunTraceDrawer` already renders `LiveLogStream`
+          on its Live log tab (`RunTraceDrawer.tsx:10,102`), so `View trace` delivers the live
+          log per column with no new code. **Do not add a log panel to the page** — a panel
+          beside a `View trace` that opens the same stream renders it twice. `RunStatus`
+          (`_components/RunStatus/RunStatus.tsx:38`), the PR page's own direct use of the
+          primitive, is not touched and not imported here.
+
           `TabsDetailView` — one tab per agent, and a detail card per finding carrying
           `confidence`, the suggested fix, and Accept · Dismiss · Learn · `Turn into eval case`
           (AC-27). Accept and Dismiss go through the existing finding-action hook. **Learn and
