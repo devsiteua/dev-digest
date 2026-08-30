@@ -39,6 +39,16 @@ import {
  * `container.reviewRepo` so tenancy is checked by the one query in this
  * codebase that is workspace-scoped for pull requests.
  */
+/**
+ * The verb set `Container` brokers, and what a test stands in for.
+ *
+ * A `Pick<>` over the class rather than the class itself, for the reason
+ * `IntentApi` (`intent/service.ts`) and `ProjectContextApi` (`context/service.ts`)
+ * both give: a class with private fields can only ever be satisfied by itself,
+ * so typing the override as `BlastService` would make it un-overridable.
+ */
+export type BlastApi = Pick<BlastService, 'forPull' | 'explain'>;
+
 export class BlastService {
   private repo: BlastRepository;
 

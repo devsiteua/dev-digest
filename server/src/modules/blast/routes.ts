@@ -3,7 +3,6 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import type { BlastExplainResponse, BlastRadiusResponse } from '@devdigest/shared';
 import { getContext } from '../_shared/context.js';
 import { IdParams } from '../_shared/schemas.js';
-import { BlastService } from './service.js';
 
 /**
  * L04 — the Blast Radius.
@@ -15,19 +14,27 @@ import { BlastService } from './service.js';
  * bill, and it spends nothing but indexed reads. The global 120/min limit still
  * applies. The POST does spend money and is capped accordingly.
  *
- * The service is instantiated here rather than brokered on `Container`, which is
- * what `modules/smart-diff/routes.ts` does and for the same reason: nothing else
- * consumes the blast map, so the container gains no dependency it has one caller
- * for. It also keeps this module importing NOTHING from `modules/repo-intel` —
+ * The service is taken from `Container` rather than constructed here. It used
+ * to be constructed here, on the argument that nothing else consumed the blast
+ * map so the container gained a dependency with one caller; the PR brief is the
+ * second consumer, and that argument expired with it. `container.blast` is now
+ * the single construction site, and a test can stand a stub in through
+ * `ContainerOverrides.blast`.
+ *
+ * What has NOT changed is why brokering matters rather than being tidy:
+ * `modules/brief/**` importing `modules/blast/service.js` directly would have
+ * been caught by nobody. `no-cross-module-import` is the one rule in
+ * `.dependency-cruiser-onion.cjs` with `severity: 'warn'`, and depcruise's exit
+ * code counts errors only — so that import compiles, runs, and leaves
+ * `pnpm arch:check` green.
+ *
+ * This module still imports NOTHING from `modules/repo-intel`:
  * `container.repoIntel` is typed, so the facade's return shapes arrive by
- * inference and the module declares its own DTOs. That matters because
- * `no-cross-module-import` is the one rule in `.dependency-cruiser-onion.cjs`
- * with `severity: 'warn'`, and depcruise's exit code counts errors only: a
- * violation here would leave `pnpm arch:check` green and be found by nobody.
+ * inference and the module declares its own DTOs.
  */
 export default async function blastRoutes(appBase: FastifyInstance) {
   const app = appBase.withTypeProvider<ZodTypeProvider>();
-  const service = new BlastService(app.container);
+  const service = app.container.blast;
 
   app.get(
     '/pulls/:id/blast',

@@ -31,6 +31,7 @@ import { SkillsService } from '../modules/skills/service.js';
 import { ReviewRepository } from '../modules/reviews/repository.js';
 import { ConventionsService, type ConventionsApi } from '../modules/conventions/service.js';
 import { IntentService, type IntentApi } from '../modules/intent/service.js';
+import { BlastService, type BlastApi } from '../modules/blast/service.js';
 import {
   ProjectContextService,
   type ProjectContextApi,
@@ -60,8 +61,13 @@ export interface ContainerOverrides {
   llm?: Partial<Record<'openai' | 'anthropic' | 'openrouter', LLMProvider>>;
   /** repo-intel facade (T1.1+) — tests inject mock RepoIntel implementations. */
   repoIntel?: RepoIntel;
-  /** repo-intel T3 adapters — only the indexer pipeline reads these. */
+  /** repo-intel T3 adapter — only the indexer pipeline reads this one. */
   depgraph?: DepGraph;
+  /**
+   * The token counter. NOT a repo-intel adapter any more: `modules/brief`
+   * counts its input budget with the same instance, so a stub here changes
+   * what both the repo map and the brief's trim ladder measure.
+   */
   tokenizer?: Tokenizer;
   /**
    * Conventions extractor (L02). Injected as the four-verb API rather than the
@@ -83,6 +89,14 @@ export interface ContainerOverrides {
    * in a stub here.
    */
   projectContext?: ProjectContextApi;
+  /**
+   * Blast radius (L04). Injected as the verb set rather than the class, for the
+   * reason `conventions`, `intent` and `projectContext` are: a class with
+   * private fields can only ever be satisfied by itself, which is not an
+   * override. Stubbing this is what lets a test drive the PR brief without an
+   * indexed repository.
+   */
+  blast?: BlastApi;
 }
 
 export class Container {
@@ -108,6 +122,7 @@ export class Container {
   private _conventions?: ConventionsApi;
   private _intent?: IntentApi;
   private _projectContext?: ProjectContextApi;
+  private _blast?: BlastApi;
   private _reviewRepo?: ReviewRepository;
   private _repoIntel?: RepoIntel;
   private _depgraph?: DepGraph;
@@ -189,6 +204,24 @@ export class Container {
   }
 
   /**
+   * The blast map (L04), brokered for the same reason `intent` and
+   * `projectContext` are — and now with the second consumer the old comment in
+   * `modules/blast/routes.ts` was waiting for: the PR brief needs the map to
+   * build its grounding allow-list.
+   *
+   * The alternative — `modules/brief/**` importing `modules/blast/service.js`
+   * directly — would have been caught by NOBODY: `no-cross-module-import` is the
+   * one rule in `.dependency-cruiser-onion.cjs` declared `severity: 'warn'`, and
+   * depcruise's exit code counts errors only. The discipline has to come from
+   * here.
+   */
+  get blast(): BlastApi {
+    if (this.overrides.blast) return this.overrides.blast;
+    this._blast ??= new BlastService(this);
+    return this._blast;
+  }
+
+  /**
    * The workspace's per-feature model choice, or `undefined` when it has not
    * picked one — brokered for the same reason as `skillsService`.
    *
@@ -228,7 +261,15 @@ export class Container {
     return this._depgraph;
   }
 
-  /** Token counter (js-tiktoken) for the repo-map budget search. */
+  /**
+   * The process-wide token counter (js-tiktoken). Two consumers: the repo-map
+   * budget search, and `modules/brief`'s 8 000-token input ladder.
+   *
+   * One instance for the process, and `TiktokenTokenizer`'s fallback to
+   * `ceil(chars / 4)` is STICKY per instance — a process whose BPE load failed
+   * counts differently for the rest of its life. The brief hashes what it
+   * counted, so that shows up as a brief which will not stop reading stale.
+   */
   get tokenizer(): Tokenizer {
     if (this.overrides.tokenizer) return this.overrides.tokenizer;
     this._tokenizer ??= new TiktokenTokenizer();
