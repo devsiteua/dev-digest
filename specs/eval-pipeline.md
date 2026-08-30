@@ -186,7 +186,7 @@ See `Design analysis`.
 | AC-17 | ubiquitous | Скоринг повинен (shall) не робити жодного виклику мовної моделі. | `cd server && pnpm exec vitest run --exclude '**/*.it.test.ts'` — тест скорингу отримує LLM-провайдер, будь-який виклик якого валить тест; плюс `grep` по модулю скорингу на відсутність імпорту провайдера. |
 | AC-18 | ubiquitous | Знахідку слід (shall) вважати такою, що відповідає очікуванню, коли збігається файл і перетинаються діапазони рядків. | Юніт-тести таблицею випадків (дотик країв, вкладення, сусідні діапазони, інший файл) у `pnpm verify:l06`. |
 | AC-19 | ubiquitous | `citation_accuracy` прогону повинна (shall) дорівнювати частці знахідок, що пережили grounding gate. | Юніт-тест над результатом `groundFindings` із `reviewer-core/src/grounding.ts:52` у `pnpm verify:l06`. |
-| AC-20 | unwanted | ЯКЩО знаменник метрики порожній (нуль очікувань `must_find` для recall, нуль знахідок для precision чи citation_accuracy), ТОДІ система повинна (shall) повернути `1` і зберегти самі знаменники поряд із метриками. | Юніт-тест на порожні знаменники в `pnpm verify:l06`; інтеграційний тест читає збережені знаменники. |
+| AC-20 | unwanted | ЯКЩО знаменник метрики порожній (нуль очікувань `must_find` для recall, нуль **судимих** знахідок для precision, нуль знахідок для citation_accuracy), ТОДІ система повинна (shall) повернути `1` і зберегти самі знаменники поряд із метриками. Судимою є знахідка, що влучила в діапазон `must_find` (правильна) або в діапазон `must_not_flag` (шум); решта повідомленого не входить у знаменник precision. | Юніт-тест на порожні знаменники в `pnpm verify:l06`; інтеграційний тест читає збережені знаменники. |
 | AC-21 | event-driven | КОЛИ екран показує метрику з порожнім знаменником, він повинен (shall) показати «—» замість числа, а не стовідсоткове значення. | Компонентний тест метричної картки й рядка історії (`cd client && pnpm test`). |
 | AC-22 | event-driven | КОЛИ користувач відкриває вкладку Evals агента, система повинна (shall) показати список кейсів набору й історію прогонів, де кожен рядок несе свої метрики. | Компонентний тест вкладки + e2e-флоу по сторінці агента. |
 | AC-23 | ubiquitous | У лівому сайдбарі повинен (shall) бути пункт Eval Dashboard, а його сторінка — показувати `recall`, `precision`, `citation_accuracy` та останні прогони агентів. | e2e-флоу: перехід із сайдбара на сторінку й читання трьох метрик; компонентний тест сторінки. |
@@ -219,9 +219,13 @@ See `Design analysis`.
 - **A case that fails mid-run** (model unavailable, timeout, malformed structured output).
   Persisted as an incomplete run over the cases that did run. Covered by AC-14 and, on the
   comparison screen, AC-25.
-- **An empty denominator.** `recall` with no `must_find` expectations; `precision` and
-  `citation_accuracy` when the agent returned nothing. `1` on the wire because
-  `knowledge.ts:58-61` cannot carry `null`; `—` on the screen. Covered by AC-20 and AC-21.
+- **An empty denominator.** `recall` with no `must_find` expectations; `citation_accuracy`
+  when the agent returned nothing; `precision` when nothing it returned was JUDGED — a case
+  freezes the whole pull request's diff while asserting one expectation, so the agent
+  legitimately reports findings the set has no opinion about, and charging those to precision
+  would measure how talkative the model is rather than the prompt under test. `1` on the wire
+  because `knowledge.ts:58-61` cannot carry `null`; `—` on the screen. Covered by AC-20 and
+  AC-21.
 - **A `.default()` on the new expectation schema.** Root `INSIGHTS.md` (2026-08-29) records
   that a `.default()` field is optional on input but **required** on `z.infer`, so a
   "purely additive" mirror edit breaks every object literal of that shape in both packages.

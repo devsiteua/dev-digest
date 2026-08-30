@@ -103,7 +103,9 @@ export const EvalRunRecord = z.object({
   matched_count: z.number().int().nullable(),
   expected_count: z.number().int().nullable(),
   /**
-   * How many findings the run reported for this case — `precision`'s denominator.
+   * How many findings the run reported for this case — descriptive, and
+   * `citation_accuracy`'s denominator. NOT `precision`'s: that is
+   * `precision_denominator` below.
    *
    * Derived from the stored `actual_output`, not a column: the review was already
    * persisted whole, so this needs no migration. It exists because a ratio whose
