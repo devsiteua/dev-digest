@@ -79,3 +79,77 @@ Main session 628,629 fresh · 297,043 out · 48,069,690 cache reads · 231 turns
 5. Run the integration lane more than once before calling it green → `.claude/skills/implement/SKILL.md` § Verification.
    Because: a ≈22% flake read as a pass in every single-run report this session.
    Costs: the lane takes ~11s per run and starts 14 Postgres containers; three runs is 35s added to every `/implement`.
+
+## 2026-08-30 — PR Brief (Why + Risk): the first run whose bug survived every gate
+
+**Plan:** `specs/plans/L05-pr-brief.md` · **Spec:** `specs/L05-pr-brief.md` · **Mode:** deep
+**Agents:** 6 launched — `implementer → implementer → implementer → architecture-reviewer → plan-verifier → implementer`
+**Tokens:** subagents 145,447 out on 1,508 fresh in; **cache reads 104,150,664**, counted
+separately; orchestration session a further 267,155 out and **83,668,170 cache reads** over 358
+turns. Wall clock across the six launches: ~72 min.
+
+| Agent | Model (measured) | Fresh in | Out | Cache create | Cache reads | Turns |
+|---|---|---|---|---|---|---|
+| `implementer` (steps 7-11) | `claude-opus-5` | 474 | 45,617 | 468,069 | **43,501,786** | 237 |
+| `implementer` (steps 2-6) | `claude-opus-5` | 336 | 47,248 | 464,052 | 28,312,898 | 168 |
+| `plan-verifier` | **`claude-sonnet-5`** | 258 | 21,278 | 399,669 | 15,887,487 | 129 |
+| `architecture-reviewer` | **`claude-sonnet-5`** | 166 | 2,096 | 332,497 | 5,676,115 | 83 |
+| `implementer` (AC-36 follow-up) | `claude-opus-5` | 152 | 18,553 | 315,020 | 6,467,581 | 76 |
+| `implementer` (step 1) | `claude-opus-5` | 122 | 10,655 | 193,399 | 4,304,797 | 61 |
+| **orchestration (main session)** | `claude-opus-5` | 716 | 267,155 | 882,634 | 83,668,170 | 358 |
+
+The two `sonnet` rows are the `/implement` overrides, proved from `message.model` rather than
+assumed. Both read-only agents together cost 21.6M cache reads — 21% of the subagent total for
+the two stages that judge everything.
+
+- **Easy:** the three `implementer` launches each ran their step range to green in one pass.
+  `architecture-reviewer` returned **0 CRITICAL and 0 WARNING**, so the fix loop `/implement`
+  budgets two iterations for spent zero. Splitting the eleven steps across two launches
+  (2-6, 7-11) rather than one held: neither ran out of context, and neither re-derived the
+  repository.
+- **Hard:** four separate stops, none of them about the feature's logic. `pnpm db:generate`
+  emitted a migration that could not apply (a commented-out `DROP CONSTRAINT` with a
+  `<constraint_name>` placeholder), needing a hand-edit to a *Do not touch* path. A plan gate
+  demanded `grep -c … → 2` where 3 is the floor. `@fastify/rate-limit` is unregistered under
+  `NODE_ENV=test`, so a 429 criterion could only be tested by building the app with
+  `nodeEnv: 'production'`. And `/pr-self-review` blocked on a pre-existing `vendor/ui/nav.ts`
+  finding whose advertised `--override` did nothing.
+- **Duplicated:** the 1,220-line plan was read in full by six subagent contexts and the
+  orchestrator — seven times, **not measured** in tokens because each agent's read is inside
+  its cache reads. Measured instead: `plan-verifier` re-ran the server unit lane, the
+  `.it.test` lane and the client lane that the `implementer` had run and reported green in the
+  same session, at **15,887,487 cache reads over 129 turns**. `architecture-reviewer` also
+  re-ran `arch:check` after the same launch had.
+- **Missed:** the whole pipeline. 41/41 acceptance criteria MET, a clean architecture review,
+  10/10 e2e flows and 15 integration files green — and a user-facing bug survived all of it: a
+  real `POST /pulls/:id/brief` took **126 s** against a 60 s budget, because `req.timeoutMs`
+  was never read, the SDK's per-attempt limit was *longer* than the budget, and the budget
+  could not fit the retry. It was found by one manual `curl` after the user asked whether any
+  of this actually works. No mock can catch it: the mock provider returns instantly.
+  Separately, five rounds of cross-model review of the plan missed that AC-39's lane was placed
+  in a step that runs before the data it asserts exists.
+
+**Proposals**
+
+1. Re-run only the lanes whose files changed since the `implementer`'s report → `.claude/agents/plan-verifier.md` § what it verifies
+   Because: 15,887,487 cache reads and 129 turns, a large share of it re-running three lanes
+   already reported green in the same session by the agent that wrote the code.
+   Costs: independence. That re-run is exactly how an `implementer` who misreports a lane gets
+   caught, and this run gives no evidence that has ever happened — removing a check because it
+   has never fired is how checks get removed.
+2. Add a live-run stage to `/implement`, after verification and before the report → `.claude/skills/implement/SKILL.md` § 6
+   Because: every automated gate passed while a 126 s timeout shipped. The pipeline has no step
+   that runs the thing it built.
+   Costs: real money and real keys on every run, a slow and flaky stage, and plenty of plans
+   have no single endpoint to call — it would have to be opt-in, which is how it becomes the
+   flag nobody passes.
+3. A plan gate carrying a hard-coded count must be executed against the tree while the plan is written → `.claude/agents/implementation-planner.md` § Verify lines
+   Because: `grep -c "briefStateOf" … → 2` was unreachable — `grep -c` counts lines and the
+   import is one — and cost an `implementer` a deviation report to discover.
+   Costs: the planner runs shell commands during planning, which is slower and gives it a
+   reason to drift into implementing.
+4. The lane sweep must check the dependency direction of the data each lane reads → `.claude/agents/implementation-planner.md` § Coverage
+   Because: AC-39's integration lane sat in Step 6 while the rows it asserts are seeded by Step
+   10, which `Depends: Step 6`. Five rounds of cross-model review checked that every lane had a
+   step; none checked that the step could run it.
+   Costs: a fourth pass over the coverage table, on a document already carrying three.
