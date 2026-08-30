@@ -52,13 +52,74 @@ open entry points at ("the entry below") — the pair stays whole.
 
 ## What Works
 
-_None yet._
+### 2026-08-30 · The lesson's own start branch answers "does this infrastructure really exist" in one command
+
+Trigger:  a spec had to state whether the finding-grouping heuristic the L07 brief calls ready
+          infrastructure exists. Grepping this tree proves only that it is not here NOW — it
+          cannot distinguish "the lab never shipped it" from "we deleted it".
+Cause:    every lab in this course has a paired `upstream/lesson-N-lab/<topic>-start` and
+          `-finish` branch, and they answer different questions.
+          `git ls-tree -r --name-only <start-branch> | grep -iE "<feature vocabulary>"` is the
+          inventory of what the lesson actually hands you; the same grep on `-finish` shows what
+          the answer was supposed to look like. For L07: zero matches on
+          `upstream/lesson-7-lab/multiagents-start` (`ca62cbe`) for
+          `group|cluster|similar|multi-agent|conflict`, and on `multiagents-finish` (`af92aa8`)
+          the two server files and the eight client components that were "already there".
+          `git ls-tree` reads the branch without checking it out, so it costs nothing and
+          disturbs no worktree — which matters when several are live at once.
+Takeaway: run it before writing a spec whose brief claims infrastructure is ready. It converted
+          the largest open question in `specs/multi-agent-review.md` into a stated fact with
+          evidence, in one command. This EXTENDS the 2026-08-02 entry under Codebase Patterns
+          ("a feature cut from the starter leaves its scaffold behind — grep before building"):
+          that one says grep THIS tree, and it is not enough on its own, because the two trees
+          disagree and only the start branch is authoritative about the starting point. Note the
+          finish branch is the finished lab with every parallel worktree already merged, so it
+          is a reference, never a source to copy from — copying breaches the boundaries the
+          fan-out exists to teach.
+Evidence: upstream/lesson-7-lab/multiagents-start (ca62cbe) vs multiagents-finish (af92aa8);
+          specs/multi-agent-review.md § Open questions 1
+Status:   open — applies to every remaining lesson brief
 
 > Archived 2026-08-29 → [`docs/insights-archive.md`](docs/insights-archive.md), verbatim under
 > this section: 2026-08-28, 2026-08-07. What stays here is `open`, plus any resolved entry an
 > open one points at.
 
 ## What Doesn't Work
+
+### 2026-08-30 · A lesson brief's "what already exists" table is a hypothesis, and the row hardest to doubt was the false one
+
+Trigger:  `reference/lessons/kickoff/L07A.md` § "Що вже є в коді (не писати заново)" is a table
+          of ready infrastructure, each row citing a file. Three of its rows are false, and the
+          spec written from it would have planned around all three.
+Cause:    (a) "паралельне виконання вже готове" — `run-executor.ts:122-129` is
+          `for (const … of jobs) { await this.runOneAgent(…) }`. No `Promise.all`, no
+          `allSettled`, no queue. (b) "готова евристика групування знахідок" — does not exist
+          anywhere, in this tree or in the branch the lab starts from (see the What Works entry
+          above). (c) "A додає атрибуцію знахідок, яку читає ingest у B" — the attribution has
+          been there since the starter (`server/src/db/schema/reviews.ts:28-30`); what the work
+          actually changes under the neighbouring worktree is the SHAPE of `agent_runs`.
+          Row (a) is the instructive one. The cited file EXISTS, the line range is right, and
+          two of the three properties the row claims are genuinely there — the diff and intent
+          really are prepared once for the whole batch (`:106`, `:120`) and the per-agent error
+          isolation really is real (`:129-142`). A reader who opens the file to check sees a
+          batch-shaped function doing batch-shaped work and confirms the row. The one missing
+          property is invisible precisely because the surrounding claims are true.
+Takeaway: check such a row by grepping for its MECHANISM, not by opening the file it cites:
+          `grep -nE "Promise\.(all|allSettled)|PQueue|concurrenc" <file>` for a concurrency
+          claim, `git ls-tree` for a "module already exists" claim (What Works, above). Opening
+          the file and reading around confirms shape, and shape is what a partially-true row
+          already has. Note that a mechanism named in copy or in a table can also exist
+          ELSEWHERE in the repo and still be absent from the path in question — `p-queue` is a
+          real dependency here (`server/package.json:40`, used by `platform/jobs.ts` and
+          `repo-intel/pipeline/full.ts`) and is simply not on the review path, which is why
+          both the brief and `client/messages/en/runs.json:121` can name it without lying
+          obviously. This is the same shape as the 2026-08-01 entry below ("treat prose in
+          READMEs as a hypothesis"), one level up: there the prose was stale, here it is a
+          structured inventory written to be trusted.
+Evidence: reference/lessons/kickoff/L07A.md § Що вже є в коді;
+          server/src/modules/reviews/run-executor.ts:106,120,122-129;
+          server/src/db/schema/reviews.ts:28-30; specs/multi-agent-review.md § Context
+Status:   open — the same table format opens every remaining kickoff brief
 
 ### 2026-08-30 · A plan's own dependency graph can encode an ordering that cannot be executed, and every gate in the plan agrees with it
 

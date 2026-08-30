@@ -57,7 +57,18 @@ Takeaway: the 2026-08-02 rule ("grep for the feature's vocabulary before buildin
           it calls: a hook can be green under `tsc` and still describe an endpoint that never
           answered that shape.
 Evidence: client/src/lib/hooks/core.ts:123,131 (both deleted); client/messages/en/context.json (rewritten)
-Status:   resolved — deleted in the same commit that added their replacement (`7685882`)
+Status:   → promoted to `client/CLAUDE.md` § Gotchas on 2026-08-30, at its second sighting:
+          `messages/en/runs.json` § `page` (`:110-134`) ships the Multi-Agent Review screen's
+          copy before the screen exists, and it asserts a MECHANISM rather than a shape —
+          `"fan-out via p-queue"` (`:121`) and `"every enabled agent in parallel"` (`:112,124`)
+          on an executor that runs agents one at a time
+          (`server/src/modules/reviews/run-executor.ts:122-129`). Sharper than the L05 case in
+          one way: `p-queue` really is a dependency of this repo (`server/package.json:40`),
+          just not on the review path, so the copy survives a keyword grep. Scaffold copy is
+          evidence of INTENT and never of behaviour — the L07-A plan reuses these keys and
+          rewrites those two strings rather than trusting them.
+          Originally: resolved — deleted in the same commit that added their replacement
+          (`7685882`)
 
 ### 2026-08-07 · "The model proposed N rules" is derived, not measured — and a re-scan inflates it by every previously-decided row
 

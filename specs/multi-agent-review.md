@@ -73,7 +73,7 @@ missing is the product around it.
 
 | Already true | Where |
 |---|---|
-| N agents run from one request, **sequentially**; diff + intent prepared once for the batch; per-agent failures isolated | `run-executor.ts:122-129` is `for (const … of jobs) { await this.runOneAgent(…) }` — no `Promise.all`, no `allSettled`, no queue, and no `p-queue` anywhere in the repository. The shared diff (`:106`), the shared intent (`:120`) and the isolation (`:129-142`) are real. **The brief's claim that "паралельне виконання вже готове" (`kickoff/L07A.md` § Що вже є в коді) is false**, and so is the lab's; recorded here rather than planned around |
+| N agents run from one request, **sequentially**; diff + intent prepared once for the batch; per-agent failures isolated | `run-executor.ts:122-129` is `for (const … of jobs) { await this.runOneAgent(…) }` — no `Promise.all`, no `allSettled` and no queue. `p-queue` **is** a dependency of this repo (`server/package.json:40`, used by `platform/jobs.ts` and `repo-intel/pipeline/full.ts`) — it is simply not on the review path, which is what makes the claim so easy to believe. The shared diff (`:106`), the shared intent (`:120`) and the isolation (`:129-142`) are real. **The brief's claim that "паралельне виконання вже готове" (`kickoff/L07A.md` § Що вже є в коді) is false**, and so is the lab's; recorded here rather than planned around |
 | `run_id` rows exist before any LLM call, so the UI can subscribe immediately | `server/src/modules/reviews/service.ts:114-137`; `docs/glossary.md` § Run |
 | Run request contract is `{ agentId?, all? }` — no subset form | `server/src/vendor/shared/contracts/platform.ts:320-324` |
 | `resolveTargets` throws 400 unless `all` or a single `agentId` is given | `server/src/modules/reviews/service.ts:46-57` |
@@ -629,8 +629,9 @@ them only if the diff proves otherwise.
 - **Agents run one after another, not at once.** The columns fill sequentially, so a
   three-agent run takes roughly three single-agent runs minus the shared diff and intent
   (`run-executor.ts:106,120`). This is the third and largest reason AC-35's ratio is what it
-  is, and the measurement must say so. Making it concurrent is one `Promise.allSettled` away
-  and was deliberately declined for this stream (`Non-goals`).
+  is, and the measurement must say so. Making it concurrent is one `Promise.allSettled` away —
+  or one `PQueue`, already a dependency — and was deliberately declined for this stream
+  (`Non-goals`).
 - **The estimate is coarse.** It averages completed runs and cannot know that an agent's
   prompt or model changed since (`Inputs and provenance`). It is labelled an estimate.
 - **`Turn into eval case` and `Learn` are broken on purpose** until L06 and the memory work

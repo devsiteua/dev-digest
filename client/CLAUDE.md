@@ -42,6 +42,9 @@ pnpm typecheck
   real journeys belong to `../e2e`.
 - `/` redirects to the first repo's PR list, or to `/onboarding` when there are none. Flows
   and tests that assume a landing page will be wrong.
+- Copy in `messages/<locale>/*.json` for a screen that does not exist yet is a **claim, not a
+  spec**: it can name a concrete mechanism the review path never used. Grep it before building
+  the screen, reuse the keys, rewrite the sentences (`INSIGHTS.md` 2026-08-29).
 - `ApiError.status === 0` means the API is unreachable, not an HTTP error — the error UX
   branches on it for the full-screen state.
 
