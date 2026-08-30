@@ -183,7 +183,11 @@ export default function MultiAgentReviewPage() {
                   <EmptyState icon="Cpu" title={t("empty.noRun.title")} body={t("empty.noRun.body")} />
                 )
               )}
-              <MultiAgentPicker prId={prId} prControl={prControl} />
+              <MultiAgentPicker
+                prId={prId}
+                prControl={prControl}
+                onStarted={() => setConfiguring(false)}
+              />
             </>
           )}
         </div>

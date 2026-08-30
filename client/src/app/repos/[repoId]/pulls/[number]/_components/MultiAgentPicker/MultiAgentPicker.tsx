@@ -34,9 +34,20 @@ export interface MultiAgentPickerProps {
    * Multi-Agent Review route passes a select over its repo's pulls.
    */
   prControl?: React.ReactNode;
+  /**
+   * Told that a run has started, so a parent already ON the results route can
+   * close this picker itself.
+   *
+   * Without it the second mount point is a dead button: its success path is
+   * `router.push(resultsHref(...))`, and pushing the URL you are already on is a
+   * no-op, so the picker stayed open, the click looked like it had failed, and
+   * pressing again started a second real run. A parent that hands this in owns
+   * the transition; one that does not still gets the navigation.
+   */
+  onStarted?: () => void;
 }
 
-export function MultiAgentPicker({ prId, prControl }: MultiAgentPickerProps) {
+export function MultiAgentPicker({ prId, prControl, onStarted }: MultiAgentPickerProps) {
   const t = useTranslations("multiAgent");
   const router = useRouter();
   const { repoId } = useParams<{ repoId: string }>();
@@ -74,7 +85,14 @@ export function MultiAgentPicker({ prId, prControl }: MultiAgentPickerProps) {
     // request with nothing selected" is a rule about this function.
     if (!canRun || prId == null) return;
     const res = await start.mutateAsync({ prId, agentIds: selected });
-    if (prNumber != null && res.runs.length > 0) router.push(resultsHref(repoId, prNumber));
+    if (res.runs.length === 0) return;
+    // A parent on the results route closes the picker itself; navigating there
+    // would be a push to the current URL, which changes nothing.
+    if (onStarted) {
+      onStarted();
+      return;
+    }
+    if (prNumber != null) router.push(resultsHref(repoId, prNumber));
   };
 
   if (agentsLoading) {

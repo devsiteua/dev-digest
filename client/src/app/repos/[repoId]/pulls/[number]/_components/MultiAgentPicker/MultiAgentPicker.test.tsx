@@ -217,6 +217,29 @@ describe("MultiAgentPicker — the button (AC-20, AC-21)", () => {
       expect(push).toHaveBeenCalledWith("/repos/r1/multi-agent?pr=482"),
     );
   });
+
+  // Found by hand, not by this suite: on the results route the picker's success
+  // path was `router.push` to the URL the browser was ALREADY on — a no-op. The
+  // picker stayed open, the click read as "nothing happened", and pressing again
+  // started another real run. Four three-agent runs were billed before anyone
+  // realised. A parent that hands in `onStarted` owns the transition and must be
+  // told instead of navigated.
+  it("tells a parent on the results route rather than pushing the URL it is already on", async () => {
+    const onStarted = vi.fn();
+    render(
+      <NextIntlClientProvider locale="en" messages={{ multiAgent }}>
+        <MultiAgentPicker prId="pr-1" onStarted={onStarted} />
+      </NextIntlClientProvider>,
+    );
+    fireEvent.click(checkboxFor("Security Reviewer"));
+
+    fireEvent.click(runButton());
+    await vi.waitFor(() => expect(onStarted).toHaveBeenCalledTimes(1));
+
+    // The run really was started, and the dead push is gone.
+    expect(mutateAsync).toHaveBeenCalledTimes(1);
+    expect(push).not.toHaveBeenCalled();
+  });
 });
 
 describe("MultiAgentPicker — the estimate (AC-22, AC-23)", () => {
