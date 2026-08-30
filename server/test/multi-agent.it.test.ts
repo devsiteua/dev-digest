@@ -82,7 +82,7 @@ const DIFF = `diff --git a/src/config.ts b/src/config.ts
 +++ b/src/config.ts
 @@ -10,3 +10,4 @@
    port: 3000,
-+  stripeKey: "sk_live_xxx",
++  stripeKey: "<redacted>",
    redisUrl: x,`;
 
 /** One grounded finding on line 11 — the line the diff really adds. */
@@ -164,7 +164,7 @@ d('L07 multi-agent review (Testcontainers pg)', () => {
       path: 'src/config.ts',
       additions: 1,
       deletions: 0,
-      patch: '@@ -10,3 +10,4 @@\n   port: 3000,\n+  stripeKey: "sk_live_xxx",\n   redisUrl: x,',
+      patch: '@@ -10,3 +10,4 @@\n   port: 3000,\n+  stripeKey: "<redacted>",\n   redisUrl: x,',
     });
     return { repoId: repo!.id, prId: pr!.id, prNumber: number };
   }

@@ -849,7 +849,7 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
           category: 'security',
           title: 'Hardcoded Stripe secret key committed to the repository',
           rationale:
-            'Line 12 holds a literal `sk_live_` key. It is in the git history from this commit on, so rotating it is part of the fix, not an alternative to it.',
+            'Line 12 holds a literal live Stripe secret key. It is in the git history from this commit on, so rotating it is part of the fix, not an alternative to it.',
           suggestion: 'Read it from `process.env.STRIPE_SECRET_KEY` and rotate the exposed key.',
           confidence: 0.97,
         },
@@ -898,7 +898,7 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
           severity: 'CRITICAL',
           category: 'security',
           title: 'Hardcoded Stripe secret key committed to config',
-          rationale: 'A literal `sk_live_` key sits in `src/config.ts` and ships with the build.',
+          rationale: 'A literal live Stripe secret key sits in `src/config.ts` and ships with the build.',
           suggestion: 'Move it to an environment variable and rotate it.',
           confidence: 0.95,
         },

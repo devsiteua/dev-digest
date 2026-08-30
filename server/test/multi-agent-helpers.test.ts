@@ -37,7 +37,7 @@ function finding(over: Partial<GroupableFinding> = {}): GroupableFinding {
     start_line: 12,
     end_line: 12,
     title: 'Hardcoded Stripe secret key committed to the repository',
-    rationale: 'Line 12 holds a literal `sk_live_` key.',
+    rationale: 'Line 12 holds a literal live Stripe secret key.',
     suggestion: 'Read it from the environment and rotate the exposed key.',
     severity: 'CRITICAL',
     confidence: 0.95,
@@ -91,7 +91,7 @@ describe('groupFindings — the same place, said by several agents (AC-15 … AC
     const first = finding({
       agent_id: 'sec',
       title: 'Hardcoded Stripe secret key committed to the repository',
-      rationale: 'Line 12 holds a literal `sk_live_` key; rotating it is part of the fix.',
+      rationale: 'Line 12 holds a literal live Stripe secret key; rotating it is part of the fix.',
       suggestion: 'Read it from `process.env.STRIPE_SECRET_KEY` and rotate the exposed key.',
       severity: 'CRITICAL',
       confidence: 0.97,
@@ -99,7 +99,7 @@ describe('groupFindings — the same place, said by several agents (AC-15 … AC
     const second = finding({
       agent_id: 'gen',
       title: 'Hardcoded Stripe secret key committed to config',
-      rationale: 'A literal `sk_live_` key sits in `src/config.ts` and ships with the build.',
+      rationale: 'A literal live Stripe secret key sits in `src/config.ts` and ships with the build.',
       suggestion: 'Move it to an environment variable and rotate it.',
       severity: 'CRITICAL',
       confidence: 0.95,
