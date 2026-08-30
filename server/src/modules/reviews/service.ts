@@ -158,9 +158,16 @@ export class ReviewService {
     const repo = await this.repo.getRepo(pull.repoId);
     if (!repo) throw new NotFoundError('Repo not found');
 
-    const multiAgentRunId = multiAgent
-      ? await this.repo.createMultiAgentRun({ workspaceId, prId })
-      : null;
+    // `targets.length > 0` is load-bearing, not defensive. `{ all: true }` on a
+    // workspace with nothing enabled resolves to an empty list and has always
+    // been a no-op; creating a parent row for it would leave a childless
+    // `multi_agent_runs` that `GET /pulls/:id/multi-agent` then serves as the
+    // PR's latest run — 200 with zero columns, for a run nobody started. The
+    // `agentIds` form cannot reach here empty: `resolveTargets` rejects it.
+    const multiAgentRunId =
+      multiAgent && targets.length > 0
+        ? await this.repo.createMultiAgentRun({ workspaceId, prId })
+        : null;
 
     // Create the agent_run rows up front so a runId is available IMMEDIATELY —
     // the client persists these in global state and subscribes to the SSE

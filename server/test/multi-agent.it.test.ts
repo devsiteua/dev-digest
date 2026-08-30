@@ -358,6 +358,30 @@ d('L07 multi-agent review (Testcontainers pg)', () => {
     await app.close();
   });
 
+  it('`all: true` with nothing enabled stays the no-op it always was, and writes no orphan parent', async () => {
+    // Caught in pre-PR review, not by the criteria. Once `all` began creating a
+    // parent row, a workspace with zero enabled agents would write a CHILDLESS
+    // `multi_agent_runs` — and `GET /pulls/:id/multi-agent` would then serve it
+    // as the PR's latest run: 200, zero columns, for a run nobody started.
+    // AC-01 forbids fixing this by rejecting the request, because `{ all: true }`
+    // answering emptily is shipped behaviour that must not change.
+    const app = await appWith();
+    const { prId } = await makeRepoPr();
+    await db().update(t.agents).set({ enabled: false }).where(eq(t.agents.workspaceId, workspaceId));
+
+    try {
+      const res = await startRun(app, prId, { all: true });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().runs).toEqual([]);
+      expect(res.json().multi_agent_run_id).toBeNull();
+      expect(await parentRowsFor(prId)).toHaveLength(0);
+      expect(await runRowsFor(prId)).toHaveLength(0);
+    } finally {
+      await db().update(t.agents).set({ enabled: true }).where(eq(t.agents.workspaceId, workspaceId));
+      await app.close();
+    }
+  });
+
   it('the legacy single `{ agentId }` form creates no parent row and leaves the column null (AC-05)', async () => {
     const app = await appWith();
     const { prId } = await makeRepoPr();
