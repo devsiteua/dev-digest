@@ -37,6 +37,31 @@ _None yet._
 
 ## What Doesn't Work
 
+### 2026-08-30 · `router.push` to the route you are already on is a silent no-op, so "one component, two mount points" shipped a dead button that every gate passed
+
+Trigger:  `MultiAgentPicker` was mounted twice by design — inline on the PR page, and as the
+          landing state of `/repos/[repoId]/multi-agent`. On the PR page its button worked. On
+          the multi-agent route, pressing it looked like nothing happened, so a human pressed it
+          four times and started four real, billable three-agent runs.
+Cause:    the success path was `router.push(resultsHref(repoId, prNumber))`. From the PR page
+          that is a different route and it navigates. From the results route it pushes the URL
+          the browser is already on, which Next.js treats as a no-op — no re-render, no state
+          change — so the parent's `configuring` flag stayed `true` and the picker never closed.
+          The mutation was fine and had already fired; only the transition was missing.
+Takeaway: a component reused at two mount points needs a test PER MOUNT POINT, because the
+          branch that differs is exactly the one nobody exercises. Here the component test
+          asserted `push` was called (the working mount) and the page test rendered the results,
+          never driving the picker mounted inside it — so 372 client tests, 186 integration
+          tests, 11 e2e flows and two clean architecture reviews all passed over it. More
+          narrowly: never let navigation BE the state transition when the destination may be the
+          current route. Hand the parent a callback (`onStarted`) and let it own the change;
+          navigate only when the parent did not. The regression test asserts the callback fires
+          and `push` does NOT — and was confirmed red with the fix reverted, per the entry above
+          about proving a test is not a grep in disguise.
+Evidence: client/src/app/repos/[repoId]/pulls/[number]/_components/MultiAgentPicker/MultiAgentPicker.tsx (startRun, onStarted);
+          client/src/app/repos/[repoId]/multi-agent/page.tsx (configuring); commit 1be6ab8
+Status:   resolved — found by hand during the L07-A 1-vs-3 measurement, not by any suite
+
 ### 2026-08-29 · The L05 scaffold did not merely sit unused — it was WRONG, and three of its four pieces would have shipped a lie
 
 Trigger:  building Project Context, expecting the dormant-scaffold pattern the root

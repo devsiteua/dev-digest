@@ -44,6 +44,18 @@ Status:   open — not fixed; `skills.it.test.ts` was outside the L04 spec's fil
 > before concluding the new file caused anything. The load reading still holds; the attribution
 > to the newest file does not.
 
+> **Second correction, 2026-08-30.** The ~20% figure is machine-dependent and reads low on a
+> fast one. Adding `multi-agent.it.test.ts` (the 16th file) and running the full lane six times:
+> **3 red**. Running it five times with that file excluded, back to 15: **2 red**. So ~50% and
+> ~40%, not ~20%, with the new file making no measurable difference. Same two files
+> (`skills.it.test.ts`, `project-context.it.test.ts`), same `waitForPrRuns` shape, in files the
+> branch never opened. More cores means more parallel containers means more contention, so "it
+> is green on CI" and "it is green locally" are not the same claim, and neither is evidence
+> about the other. Budget for a re-run when the lane is the gate, and never read a single red as
+> a regression without the five-run check the correction above already demands.
+
+
+
 ### 2026-08-07 · The first live extraction spent 3 of 20 rules on formatting a Prettier config already enforces — offering the configs did not stop it
 
 Trigger:  first real scan of `devsiteua/dev-digest` (12 files, deepseek-v4-flash): 20 rules
@@ -91,6 +103,27 @@ Status:   open — deliberately not fixed in L02; the spec sentence is the thing
 > 2026-08-01. What stays here is `open`, plus any resolved entry an open one points at.
 
 ## Codebase Patterns
+
+### 2026-08-30 · `NotFoundError` hardcodes its code to `not_found`, so a criterion that distinguishes two 404s by CODE cannot use the class the codebase reaches for by reflex
+
+Trigger:  `GET /pulls/:id/multi-agent` 404s for two unrelated reasons — the pull request does
+          not exist, or it has never been fanned out — and the acceptance criterion required the
+          second to be identifiable on its own. The plan cited `modules/brief/routes.ts:39` as
+          the precedent for "distinguished by their code".
+Cause:    that precedent does not exist. Both of `brief`'s 404s are a bare `NotFoundError`, and
+          `platform/errors.ts:19-23` fixes that class's `code` to the literal `not_found` — so
+          the two differ only by their message string, which no client can branch on. The
+          precedent reads as real because the two throws sit in different files with different
+          messages, and nothing at either call site mentions the code.
+Takeaway: when a route needs two 404s a consumer can tell apart, throw
+          `AppError('<specific_code>', message, 404)` directly and leave `NotFoundError` for the
+          generic case. Do not subclass it to override the code — that edits a shared platform
+          file for one call site. And check the CODE a precedent actually emits before copying
+          its shape: `grep -n "code" src/platform/errors.ts` is the whole check, and the class's
+          constructor is where the answer is, not the throw site.
+Evidence: server/src/platform/errors.ts:19-23; server/src/modules/multi-agent/routes.ts:44-50;
+          server/src/modules/brief/routes.ts:39; server/src/modules/brief/service.ts:196-200
+Status:   open — applies to every route that needs a distinguishable 404
 
 ### 2026-08-30 · `@fastify/rate-limit` is not registered at all under `NODE_ENV=test`, so a per-route limit cannot be exercised by a normal integration test
 

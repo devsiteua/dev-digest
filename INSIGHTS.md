@@ -86,6 +86,30 @@ Status:   open — applies to every remaining lesson brief
 
 ## What Doesn't Work
 
+### 2026-08-30 · A seed addition can break an e2e flow without touching a single literal that flow asserts, and the `CLAUDE.md` gate for this cannot see it
+
+Trigger:  seeding a finished three-agent run on demo PR #482. The rule in root `CLAUDE.md`
+          § Gotchas — "after editing `seed.ts`, grep `e2e/specs/*.json` for the values you
+          changed" — was run and came back clean, because the block only ADDS rows and changes
+          no existing literal.
+Cause:    flow 09 locates a control by `find role button --name "Open the suggestion on line 28
+          …"`, and that name is built from **the latest review's** findings — `latestReviewFindings`
+          picks the newest `created_at`, and the server's PR-list tally uses the same rule
+          (root `INSIGHTS.md` 2026-08-02 records the two-tallies design). Three new `reviews`
+          rows on `defaultNow()` would have become the newest, moving "latest" off the
+          `model: 'seed'` review and silently renaming the button. Nothing textual changes, so a
+          literal grep is blind to it: what moved was a DERIVED SELECTION over the table.
+Takeaway: when seeding into a table some surface reduces to "the latest one" / "the top one" /
+          "the highest-scoring one", the grep is not enough — find who computes that reduction
+          and either stamp the new rows so they lose it, or accept that the flow's name changes
+          and update it in the same commit. Here the new rows carry an explicit `createdAt`
+          equal to the parent run's `ran_at`, six hours old, so the seeded review stays newest
+          and every surface flows 02/04/05/09/10 assert is untouched. The general shape: a
+          literal grep tests the TEXT a flow asserts, never the QUERY that produces it.
+Evidence: server/src/db/seed.ts (the L07 multi-agent block's explicit createdAt);
+          e2e/specs/09-pr-smart-diff.flow.json:19; client/src/lib/findings.ts (latestReviewFindings)
+Status:   open — the `CLAUDE.md` gotcha is correct and incomplete; this is the half it misses
+
 ### 2026-08-30 · A lesson brief's "what already exists" table is a hypothesis, and the row hardest to doubt was the false one
 
 Trigger:  `reference/lessons/kickoff/L07A.md` § "Що вже є в коді (не писати заново)" is a table
@@ -417,6 +441,29 @@ Status:   open — harmless as long as nothing enumerates the UI type
 > plus any resolved entry an open one points at.
 
 ## Tool & Library Notes
+
+### 2026-08-30 · A parallel worktree's ports live in its own `.env`, but `client`'s `dev` script hardcodes 3000 and ignores them
+
+Trigger:  bringing the stack up in `dev-digest-l07a` to run the L07 measurement. The API came
+          up on 3073 as expected; `cd client && pnpm dev` died with
+          `EADDRINUSE :::3000` because a neighbouring worktree was already there.
+Cause:    two independent traps. (a) Each worktree carries its own ports —
+          `server/.env` has `API_PORT=3073`, `client/.env` has `NEXT_PUBLIC_API_BASE=…:3073` and
+          `WEB_PORT=3072` — while root `CLAUDE.md`, `mcp/`'s `test:live` and most plan text all
+          name 3001/3000. A "is the route registered?" probe against 3001 from this worktree
+          gets Fastify's own 404 from the NEIGHBOUR, which is indistinguishable at a glance from
+          a route that was never registered. (b) `client/package.json`'s script is
+          `"dev": "next dev -p 3000"` — a literal, so `WEB_PORT` is declared in `.env` and read
+          by nothing. The server's script honours its `.env`; the client's does not, so the two
+          halves of one worktree disagree.
+Takeaway: in a worktree, read the ports from `server/.env` and `client/.env` before starting or
+          probing anything, and start the web with `pnpm exec next dev -p $WEB_PORT` rather than
+          `pnpm dev`. When a probe returns a plausible-looking 404, confirm the port belongs to
+          THIS worktree before believing it. Also note Next spawns a worker that survives a
+          plain `kill` on the parent — `lsof -ti tcp:<port>` again and `kill -9` the remainder.
+Evidence: server/.env (API_PORT=3073); client/.env (WEB_PORT=3072); client/package.json ("dev");
+          root CLAUDE.md § Commands
+Status:   open — every L06-L08 lesson runs two worktrees at once
 
 ### 2026-08-06 · `seed.ts` never converges on rename: a skill dropped from `SEED_SKILLS` survives, still linked, and its checklist is still in the prompt
 
