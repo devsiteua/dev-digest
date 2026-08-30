@@ -1,0 +1,85 @@
+{
+  "title": "Multi-Agent Review",
+  "crumb": "Multi-Agent Review",
+  "subtitle": "one pull request, several agents, side by side",
+  "meta": "{count, plural, one {# agent} other {# agents}} · {duration} total · {cost}",
+  "startNew": "Start New Review",
+  "mode": {
+    "columns": "Columns",
+    "tabs": "Tabs + detail",
+    "label": "View mode"
+  },
+  "configure": {
+    "title": "Configure run",
+    "agents": "Agents",
+    "prLabel": "Pull request",
+    "prOption": "#{number} · {title}",
+    "prNone": "Select a pull request…",
+    "disabled": "disabled",
+    "run": "Run multi-agent review ({count})",
+    "starting": "Starting…",
+    "failed": "Could not start the run: {message}"
+  },
+  "estimate": {
+    "total": "Estimated total for the selection: ~{duration} · ~{cost}",
+    "totalNoData": "Estimated total: no completed runs to estimate from yet",
+    "totalNoCost": "Estimated total for the selection: ~{duration} · cost not recorded for these models",
+    "agent": "est. ~{duration} · ~{cost}",
+    "agentNoCost": "est. ~{duration} · cost not recorded",
+    "noData": "no data yet — this agent has no completed run to estimate from",
+    "sampled": "from {count, plural, one {# past run} other {# past runs}}",
+    "loading": "Loading estimates…"
+  },
+  "empty": {
+    "noAgents": {
+      "title": "Enable agents to run reviews",
+      "body": "A multi-agent review runs the pull request through the agents you pick. This workspace has no agents yet.",
+      "cta": "Go to Agents"
+    },
+    "noRun": {
+      "title": "No multi-agent run yet",
+      "body": "Pick the agents below and start one — the results come back as one column per agent."
+    },
+    "noPr": {
+      "title": "Pick a pull request",
+      "body": "Multi-agent review runs on one pull request at a time."
+    },
+    "noPulls": {
+      "title": "No pull requests to review",
+      "body": "Import or refresh a repository first — a multi-agent run needs a pull request to run on."
+    }
+  },
+  "error": {
+    "title": "Couldn't load this multi-agent run",
+    "retry": "Retry"
+  },
+  "column": {
+    "elapsed": "{seconds}s elapsed",
+    "status": {
+      "running": "running",
+      "done": "done",
+      "failed": "failed",
+      "cancelled": "cancelled"
+    },
+    "noAgentName": "Deleted agent"
+  },
+  "group": {
+    "badge": "{count, plural, one {# agent flagged this place} other {# agents flagged this place}}",
+    "expand": "Show what each agent said",
+    "collapse": "Hide what each agent said"
+  },
+  "finding": {
+    "accept": "Accept",
+    "dismiss": "Dismiss",
+    "learn": "Learn",
+    "evalCase": "Turn into eval case",
+    "noFindings": "No findings from this agent."
+  },
+  "stub": {
+    "learn": "Learn is not wired up yet: the `POST /findings/:id/learn` endpoint and the `memory` table behind it are L07's memory half, which is a different stream. Nothing was saved.",
+    "evalCase": "Turn into eval case is not wired up yet: the eval-case endpoint arrives with L06. Nothing was saved."
+  },
+  "conflicts": {
+    "considered": "{considered} of {total} agents considered — the rest did not finish, so their silence is not a disagreement."
+  }
+}
