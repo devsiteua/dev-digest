@@ -123,18 +123,20 @@ export function ciRunStatus(findingsCount: number, exitCode: number): CiRunStatu
   return exitCode === 0 ? 'succeeded' : 'failed';
 }
 
-/** A `ci_runs` row joined to the two columns the list renders from elsewhere. */
+/** A `ci_runs` row joined to the three columns the list renders from elsewhere. */
 export interface CiRunListRow {
   run: CiRunRow;
+  repo: string | null;
   agentName: string | null;
   durationMs: number | null;
 }
 
 /** Row → DTO. `duration_s` is derived; everything else is carried straight through. */
-export function toCiRunDto({ run, agentName, durationMs }: CiRunListRow): CiRun {
+export function toCiRunDto({ run, repo, agentName, durationMs }: CiRunListRow): CiRun {
   return {
     id: run.id,
     ci_installation_id: run.ciInstallationId,
+    repo,
     pr_number: run.prNumber,
     ran_at: run.ranAt?.toISOString() ?? null,
     status: run.status,

@@ -212,6 +212,8 @@ export type CiRunStatus = z.infer<typeof CiRunStatus>;
 export const CiRun = z.object({
   id: z.string(),
   ci_installation_id: z.string().nullable(),
+  /** "owner/name" of the installation's repository, joined for the list. */
+  repo: z.string().nullish(),
   pr_number: z.number().int().nullable(),
   ran_at: z.string().nullable(),
   status: z.string().nullable(),

@@ -152,7 +152,12 @@ export class CiService {
       input.commit_sha,
     );
     if (existing) {
-      return toCiRunDto({ run: existing, agentName: null, durationMs: null });
+      return toCiRunDto({
+        run: existing,
+        repo: target.installation.repo,
+        agentName: null,
+        durationMs: null,
+      });
     }
 
     const ranAt = new Date();
@@ -187,6 +192,9 @@ export class CiService {
 
     return toCiRunDto({
       run,
+      // The installation's own repository, never `input.repo` — the request
+      // body does not decide what this run belongs to (AC-23).
+      repo: target.installation.repo,
       agentName: null,
       durationMs: input.result.duration_ms ?? null,
     });

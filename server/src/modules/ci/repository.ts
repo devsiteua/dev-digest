@@ -195,6 +195,7 @@ export class CiRepository {
     return this.db
       .select({
         run: t.ciRuns,
+        repo: t.ciInstallations.repo,
         agentName: t.agents.name,
         durationMs: t.agentRuns.durationMs,
       })
