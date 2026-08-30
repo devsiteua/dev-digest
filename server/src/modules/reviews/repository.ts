@@ -139,8 +139,14 @@ export class ReviewRepository {
     prId: string;
     provider: string | null;
     model: string | null;
+    multiAgentRunId?: string | null;
   }): Promise<string> {
     return runRepo.createAgentRun(this.db, values);
+  }
+
+  /** The one writer of `multi_agent_runs`; see `run.repo.ts` for why it lives here. */
+  createMultiAgentRun(values: { workspaceId: string; prId: string }): Promise<string> {
+    return runRepo.createMultiAgentRun(this.db, values);
   }
 
   completeAgentRun(

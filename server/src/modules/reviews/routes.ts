@@ -10,7 +10,7 @@ import { reviewWorkingDiff } from './working.js';
 
 /**
  * reviews module.
- *   POST   /pulls/:id/review  {agentId} | {all:true}  → run review(s); returns runs
+ *   POST   /pulls/:id/review  {agentId} | {agentIds} | {all:true} → run review(s); returns runs
  *   POST   /reviews/working   {agent, diff}            → review a diff with no PR behind it
  *   GET    /runs/:id/events                            → SSE stream of RunEvent (replay-first)
  *   GET    /runs/:id/trace                             → the single-document RunTrace
@@ -34,15 +34,20 @@ export default async function reviewsRoutes(appBase: FastifyInstance) {
     const body = RunRequest.parse(req.body ?? {});
     const targets = await service.resolveTargets(workspaceId, {
       ...(body.agentId !== undefined ? { agentId: body.agentId } : {}),
+      ...(body.agentIds !== undefined ? { agentIds: body.agentIds } : {}),
       ...(body.all !== undefined ? { all: body.all } : {}),
     });
-    const { runs, reviews } = await service.runReview(
+    // A FAN-OUT is what makes this one multi-agent run — both the named set and
+    // `all: true`. Only the legacy single `{ agentId }` form stays unparented,
+    // so its column keeps reading null.
+    const { runs, reviews, multi_agent_run_id } = await service.runReview(
       workspaceId,
       req.params.id,
       targets,
+      body.agentIds !== undefined || body.all === true,
       req.log,
     );
-    return { pr_id: req.params.id, runs, reviews };
+    return { pr_id: req.params.id, runs, reviews, multi_agent_run_id };
   });
 
   // ---- Review a diff with no pull request behind it ----------------------

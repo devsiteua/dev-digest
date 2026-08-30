@@ -41,19 +41,55 @@ export class ReviewService {
   // ===========================================================================
 
   /**
-   * Resolve which agents to run. `all` → all enabled agents; else a single agent.
+   * Resolve which agents to run. Three mutually exclusive forms:
+   *   `all: true`   → every enabled agent
+   *   `agentIds`    → exactly those agents, enabled or not (a named set)
+   *   `agentId`     → one agent
+   *
+   * The forms are COUNTED first: zero or more than one is
+   * `invalid_run_request` (400). An empty `agentIds` is not "no set given" — it
+   * is a set of nothing, and rejected. The count cannot live in the route schema,
+   * which can only ever answer 422.
+   *
+   * Every id in `agentIds` is resolved BEFORE this returns, so a single unknown
+   * id 404s with no `agent_runs` row written anywhere — resolution is upstream of
+   * `runReview`, not inside its creation loop.
    */
   async resolveTargets(
     workspaceId: string,
-    opts: { agentId?: string; all?: boolean },
+    opts: { agentId?: string; agentIds?: string[]; all?: boolean },
   ): Promise<AgentRow[]> {
-    if (opts.all) return this.agents.listEnabled(workspaceId);
-    if (opts.agentId) {
-      const agent = await this.agents.getById(workspaceId, opts.agentId);
-      if (!agent) throw new NotFoundError('Agent not found');
-      return [agent];
+    const forms = [
+      opts.agentId !== undefined,
+      opts.agentIds !== undefined,
+      opts.all !== undefined && opts.all,
+    ].filter(Boolean).length;
+    if (forms !== 1) {
+      throw new AppError(
+        'invalid_run_request',
+        'Provide exactly one of agentId, agentIds or all:true',
+        400,
+      );
     }
-    throw new AppError('invalid_run_request', 'Provide agentId or all:true', 400);
+
+    if (opts.all) return this.agents.listEnabled(workspaceId);
+
+    if (opts.agentIds !== undefined) {
+      if (opts.agentIds.length === 0) {
+        throw new AppError('invalid_run_request', 'agentIds must not be empty', 400);
+      }
+      const targets: AgentRow[] = [];
+      for (const id of opts.agentIds) {
+        const agent = await this.agents.getById(workspaceId, id);
+        if (!agent) throw new NotFoundError('Agent not found');
+        targets.push(agent);
+      }
+      return targets;
+    }
+
+    const agent = await this.agents.getById(workspaceId, opts.agentId!);
+    if (!agent) throw new NotFoundError('Agent not found');
+    return [agent];
   }
 
   /** Delete a whole review run (one agent's pass) + its findings (cascade). */
@@ -99,17 +135,32 @@ export class ReviewService {
    * (= agent_runs.id) created up-front so the SSE route can be subscribed
    * before/while the run progresses. A partial failure in one agent does not
    * abort the others.
+   *
+   * `multiAgent` makes the batch ONE multi-agent run: a parent `multi_agent_runs`
+   * row is created once, before the loop, and every child run is stamped with it.
+   * Both fan-out forms — a named `agentIds` set and `all: true` — pass `true`; only
+   * the legacy single `{ agentId }` form passes `false`, leaving its column null.
+   * `run-executor` is unaware of the parent row and does not need to be.
    */
   async runReview(
     workspaceId: string,
     prId: string,
     targets: AgentRow[],
+    multiAgent: boolean,
     logger?: Logger,
-  ): Promise<{ runs: { run_id: string; agent_id: string; agent_name: string }[]; reviews: ReviewDto[] }> {
+  ): Promise<{
+    runs: { run_id: string; agent_id: string; agent_name: string }[];
+    reviews: ReviewDto[];
+    multi_agent_run_id: string | null;
+  }> {
     const pull = await this.repo.getPull(workspaceId, prId);
     if (!pull) throw new NotFoundError('Pull request not found');
     const repo = await this.repo.getRepo(pull.repoId);
     if (!repo) throw new NotFoundError('Repo not found');
+
+    const multiAgentRunId = multiAgent
+      ? await this.repo.createMultiAgentRun({ workspaceId, prId })
+      : null;
 
     // Create the agent_run rows up front so a runId is available IMMEDIATELY —
     // the client persists these in global state and subscribes to the SSE
@@ -123,6 +174,7 @@ export class ReviewService {
         prId,
         provider: agent.provider,
         model: agent.model,
+        multiAgentRunId,
       });
       runs.push({ run_id: runId, agent_id: agent.id, agent_name: agent.name });
       jobs.push({ agent, runId });
@@ -134,7 +186,7 @@ export class ReviewService {
       logger?.error({ prId, err: (err as Error).message }, 'review: background execution crashed');
     });
 
-    return { runs, reviews: [] };
+    return { runs, reviews: [], multi_agent_run_id: multiAgentRunId };
   }
 
   private publish(runId: string, kind: RunEventKind, msg: string, data?: unknown) {
