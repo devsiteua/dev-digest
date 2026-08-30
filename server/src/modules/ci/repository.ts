@@ -1,7 +1,8 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq } from 'drizzle-orm';
 import type { Db } from '../../db/client.js';
 import * as t from '../../db/schema.js';
 import type { AgentRow, SkillRow } from '../../db/rows.js';
+import type { CiRunListRow } from './helpers.js';
 
 /**
  * The only file in `modules/ci` that touches Drizzle.
@@ -15,6 +16,7 @@ import type { AgentRow, SkillRow } from '../../db/rows.js';
  */
 
 export type CiInstallationRow = typeof t.ciInstallations.$inferSelect;
+export type CiRunRow = typeof t.ciRuns.$inferSelect;
 
 /** An agent and the skills attached to it, in the user's stated order. */
 export interface AgentWithSkills {
@@ -87,4 +89,127 @@ export class CiRepository {
     if (!row) throw new Error('ci_installations insert returned no row');
     return row;
   }
+
+  /**
+   * The installation an ingested artifact belongs to, resolved by repository
+   * alone, together with the workspace and agent it hangs off.
+   *
+   * This is the ONLY authority for the workspace of an ingested run: the request
+   * body never names one, and a body that could would let anyone holding the
+   * ingest token write into any workspace (AC-23).
+   *
+   * A repository exported twice — to a second agent — has two rows. The newest
+   * wins, with `id` as the tie-break because `defaultNow()` is the transaction's
+   * timestamp and two rows written together tie to the microsecond.
+   */
+  async findInstallationByRepo(repo: string): Promise<InstallationTarget | undefined> {
+    const [row] = await this.db
+      .select({
+        installation: t.ciInstallations,
+        agentId: t.agents.id,
+        workspaceId: t.agents.workspaceId,
+      })
+      .from(t.ciInstallations)
+      .innerJoin(t.agents, eq(t.ciInstallations.agentId, t.agents.id))
+      .where(eq(t.ciInstallations.repo, repo))
+      .orderBy(desc(t.ciInstallations.installedAt), desc(t.ciInstallations.id))
+      .limit(1);
+    return row;
+  }
+
+  /** The already-ingested run for this installation + PR + commit, if any. */
+  async findRun(
+    ciInstallationId: string,
+    prNumber: number,
+    commitSha: string,
+  ): Promise<CiRunRow | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(t.ciRuns)
+      .where(
+        and(
+          eq(t.ciRuns.ciInstallationId, ciInstallationId),
+          eq(t.ciRuns.prNumber, prNumber),
+          eq(t.ciRuns.commitSha, commitSha),
+        ),
+      );
+    return row;
+  }
+
+  /**
+   * Write the local `agent_runs` row and the `ci_runs` row that points at it, in
+   * ONE transaction — a `ci_runs` row whose `agent_run_id` dangles would show a
+   * run with no duration and no cost, which is worse than no row at all.
+   */
+  async recordRun(input: {
+    agentRun: typeof t.agentRuns.$inferInsert;
+    ciRun: Omit<typeof t.ciRuns.$inferInsert, 'agentRunId'>;
+  }): Promise<CiRunRow> {
+    return this.db.transaction(async (tx) => {
+      const [run] = await tx.insert(t.agentRuns).values(input.agentRun).returning();
+      if (!run) throw new Error('agent_runs insert returned no row');
+      const [ciRun] = await tx
+        .insert(t.ciRuns)
+        .values({ ...input.ciRun, agentRunId: run.id })
+        .returning();
+      if (!ciRun) throw new Error('ci_runs insert returned no row');
+      return ciRun;
+    });
+  }
+
+  /**
+   * The most recent CI runs in a workspace, newest first.
+   *
+   * Scoped through `ci_installations → agents`, which is the only path from a
+   * `ci_runs` row to a workspace. Ordered by `ran_at` AND `id`: `defaultNow()`
+   * ties a batch to the microsecond, so `ran_at` alone answers in planner order.
+   */
+  listRuns(workspaceId: string, limit: number): Promise<CiRunListRow[]> {
+    return this.runQuery().where(eq(t.agents.workspaceId, workspaceId)).limit(limit);
+  }
+
+  /** The same list, narrowed to one agent. */
+  listRunsForAgent(
+    workspaceId: string,
+    agentId: string,
+    limit: number,
+  ): Promise<CiRunListRow[]> {
+    return this.runQuery()
+      .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.id, agentId)))
+      .limit(limit);
+  }
+
+  /** Every repository this agent has been exported to. */
+  listInstallations(workspaceId: string, agentId: string): Promise<CiInstallationRow[]> {
+    return this.db
+      .select({ installation: t.ciInstallations })
+      .from(t.ciInstallations)
+      .innerJoin(t.agents, eq(t.ciInstallations.agentId, t.agents.id))
+      .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.ciInstallations.agentId, agentId)))
+      .orderBy(desc(t.ciInstallations.installedAt), desc(t.ciInstallations.id))
+      .then((rows) => rows.map((r) => r.installation));
+  }
+
+  /** The joins both run lists share; the caller adds its own `where` and limit. */
+  private runQuery() {
+    return this.db
+      .select({
+        run: t.ciRuns,
+        agentName: t.agents.name,
+        durationMs: t.agentRuns.durationMs,
+      })
+      .from(t.ciRuns)
+      .innerJoin(t.ciInstallations, eq(t.ciRuns.ciInstallationId, t.ciInstallations.id))
+      .innerJoin(t.agents, eq(t.ciInstallations.agentId, t.agents.id))
+      .leftJoin(t.agentRuns, eq(t.ciRuns.agentRunId, t.agentRuns.id))
+      .orderBy(desc(t.ciRuns.ranAt), desc(t.ciRuns.id))
+      .$dynamic();
+  }
+}
+
+/** An installation plus the workspace and agent it determines. */
+export interface InstallationTarget {
+  installation: CiInstallationRow;
+  agentId: string;
+  workspaceId: string;
 }

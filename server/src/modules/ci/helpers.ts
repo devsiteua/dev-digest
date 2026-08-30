@@ -1,4 +1,5 @@
-import type { CiFile } from '@devdigest/shared';
+import type { CiFile, CiRun, CiRunStatus } from '@devdigest/shared';
+import type { CiRunRow } from './repository.js';
 import { AppError } from '../../platform/errors.js';
 import { MANIFEST_DIR, RUNNER_DIR, RUNNER_FILES, SKILLS_DIR, WORKFLOW_PATH } from './constants.js';
 
@@ -106,4 +107,42 @@ export function bundleFiles(input: BundleFilesInput): CiFile[] {
   }
 
   return files;
+}
+
+/**
+ * The status written into `ci_runs.status` when an artifact is ingested.
+ *
+ * A RENDERING of what the runner told us, never a recomputation of the gate: the
+ * studio does not know the agent's `ci_fail_on` at the moment the job ran, and
+ * re-deriving it here would let the two disagree about the same run. The exit
+ * code is the runner's own verdict, and `findings_count === 0` is the one thing
+ * that is true regardless of any policy.
+ */
+export function ciRunStatus(findingsCount: number, exitCode: number): CiRunStatus {
+  if (findingsCount === 0) return 'no_findings';
+  return exitCode === 0 ? 'succeeded' : 'failed';
+}
+
+/** A `ci_runs` row joined to the two columns the list renders from elsewhere. */
+export interface CiRunListRow {
+  run: CiRunRow;
+  agentName: string | null;
+  durationMs: number | null;
+}
+
+/** Row → DTO. `duration_s` is derived; everything else is carried straight through. */
+export function toCiRunDto({ run, agentName, durationMs }: CiRunListRow): CiRun {
+  return {
+    id: run.id,
+    ci_installation_id: run.ciInstallationId,
+    pr_number: run.prNumber,
+    ran_at: run.ranAt?.toISOString() ?? null,
+    status: run.status,
+    findings_count: run.findingsCount,
+    cost_usd: run.costUsd,
+    github_url: run.githubUrl,
+    source: run.source,
+    agent: agentName,
+    duration_s: durationMs === null ? null : durationMs / 1000,
+  };
 }

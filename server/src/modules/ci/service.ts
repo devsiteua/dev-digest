@@ -1,18 +1,34 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type {
+  AgentCiView,
   CiExport,
   CiExportInput,
   CiFile,
+  CiIngestInput,
   CiInstallation,
+  CiRun,
   CommitFile,
   RepoRef,
 } from '@devdigest/shared';
 import type { Container } from '../../platform/container.js';
 import { AppError, NotFoundError } from '../../platform/errors.js';
 import { CiRepository, type CiInstallationRow } from './repository.js';
-import { CI_BRANCH, MAX_BUNDLE_BYTES, RUNNER_DIR, RUNNER_FILES } from './constants.js';
-import { assertUniqueSlugs, bundleFiles, type RunnerFileName } from './helpers.js';
+import {
+  CI_BRANCH,
+  CI_RUNS_LIMIT,
+  MAX_BUNDLE_BYTES,
+  RUNNER_DIR,
+  RUNNER_FILES,
+  RUNNER_VERSION,
+} from './constants.js';
+import {
+  assertUniqueSlugs,
+  bundleFiles,
+  ciRunStatus,
+  toCiRunDto,
+  type RunnerFileName,
+} from './helpers.js';
 import { agentSlug, buildManifestYaml, buildSkillFiles } from './manifest.js';
 import { buildWorkflowYaml } from './workflow.js';
 
@@ -111,6 +127,94 @@ export class CiService {
       }));
 
     return { installation: toInstallationDto(installation), files, pr_url: pr.url };
+  }
+
+  /**
+   * Ingest one `devdigest-result.json` posted back by a CI job.
+   *
+   * Nothing in the request decides which workspace this lands in — the
+   * installation resolved from `repo` does, and it is the only thing that can
+   * (AC-23). An unknown repository is refused with no row written, because a
+   * result nobody installed is not ours to record (AC-19).
+   *
+   * Idempotent on (installation, PR, commit): the same job re-posting its
+   * artifact must not double-count a review (AC-21).
+   */
+  async ingest(input: CiIngestInput): Promise<CiRun> {
+    const target = await this.repo.findInstallationByRepo(input.repo);
+    if (!target) {
+      throw new NotFoundError(`No CI installation for repository "${input.repo}"`);
+    }
+
+    const existing = await this.repo.findRun(
+      target.installation.id,
+      input.pr_number,
+      input.commit_sha,
+    );
+    if (existing) {
+      return toCiRunDto({ run: existing, agentName: null, durationMs: null });
+    }
+
+    const ranAt = new Date();
+    const run = await this.repo.recordRun({
+      agentRun: {
+        workspaceId: target.workspaceId,
+        agentId: target.agentId,
+        ranAt,
+        // The run happened in someone else's CI, so there is no local pull
+        // request to hang it on, and `blockers` stays null: the studio renders
+        // the runner's verdict and never re-derives the gate.
+        prId: null,
+        blockers: null,
+        source: 'ci',
+        status: 'done',
+        durationMs: input.result.duration_ms ?? null,
+        costUsd: input.result.cost_usd,
+        findingsCount: input.result.findings_count,
+      },
+      ciRun: {
+        ciInstallationId: target.installation.id,
+        prNumber: input.pr_number,
+        commitSha: input.commit_sha,
+        ranAt,
+        status: ciRunStatus(input.result.findings_count, input.exit_code),
+        findingsCount: input.result.findings_count,
+        costUsd: input.result.cost_usd,
+        githubUrl: input.run_url,
+        source: 'gha',
+      },
+    });
+
+    return toCiRunDto({
+      run,
+      agentName: null,
+      durationMs: input.result.duration_ms ?? null,
+    });
+  }
+
+  /** The CI Runs page: the most recent runs in this workspace. */
+  async listRuns(workspaceId: string): Promise<CiRun[]> {
+    const rows = await this.repo.listRuns(workspaceId, CI_RUNS_LIMIT);
+    return rows.map(toCiRunDto);
+  }
+
+  /**
+   * The agent's CI tab.
+   *
+   * It deliberately carries NO `ci_fail_on`: the tab already holds the agent it
+   * is rendering, and saving that field goes through the existing agent update.
+   * A second copy here would be a second place to keep in step for no gain.
+   */
+  async agentCiView(workspaceId: string, agentId: string): Promise<AgentCiView> {
+    const [installations, runs] = await Promise.all([
+      this.repo.listInstallations(workspaceId, agentId),
+      this.repo.listRunsForAgent(workspaceId, agentId, CI_RUNS_LIMIT),
+    ]);
+    return {
+      installations: installations.map(toInstallationDto),
+      runs: runs.map(toCiRunDto),
+      runner_version: RUNNER_VERSION,
+    };
   }
 
   /**

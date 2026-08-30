@@ -86,3 +86,17 @@ export const SKILLS_DIR = '.devdigest/skills';
  * string is ever concatenated into the generated YAML.
  */
 export const CI_TRIGGERS = ['opened', 'synchronize', 'reopened'] as const;
+
+/**
+ * Body ceiling for `POST /ci/ingest`. The app-wide limit is 1 MB (`app.ts`); an
+ * artifact is a handful of counters and a job URL, and this is the one route a
+ * caller reaches with a shared token rather than a session.
+ */
+export const CI_INGEST_BODY_LIMIT = 65_536;
+
+/**
+ * Shortest `DEVDIGEST_CI_TOKEN` that counts as configured. Anything shorter is
+ * treated as unset, so a placeholder value fails closed rather than becoming a
+ * guessable password.
+ */
+export const MIN_CI_TOKEN_LENGTH = 32;
