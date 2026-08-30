@@ -290,7 +290,9 @@ Do:      `pnpm add yaml` in `server/` (same major as `agent-runner`'s `^2.6.1`).
          (`no-cross-module-import`), because the runner reads bodies from disk with no provenance
          (`agent-runner/src/skills.ts`).
          `workflow.ts`: emit the GitHub Actions YAML — `on.pull_request.types` from the input and
-         no other trigger, the string `pull_request_target` nowhere (AC-09); `permissions` with
+         no other trigger (the input offers exactly `opened`, `synchronize`, `reopened`, and
+         `DEVDIGEST_POST_AS` exactly `github_review` | `pr_comment` | `none` — the three the
+         runner reads, `agent-runner/README.md` § Runtime environment; AC-12), the string `pull_request_target` nowhere (AC-09); `permissions` with
          exactly `contents: read` and `pull-requests: write` (AC-06); a job-level
          `if: github.event.pull_request.head.repo.full_name == github.repository` (AC-11);
          `actions/checkout` and `actions/setup-node` (Node 22) pinned to their SHAs (AC-08); a run
@@ -534,8 +536,10 @@ Do:      Read the design before writing anything: screen keys `export-to-ci` (ar
          CI» / the empty state's CTA (AC-01); a Target step rendering **exactly one** card,
          GitHub Actions (AC-02); a read-only Preview fed by `useCiPreview`, listing every file and
          showing contents for the manifest, each skill and the workflow, and only a path and a byte
-         size for each of the **three** runner files (AC-03); a Configure step with the `pull_request` event checkboxes and
-         the publish mode, whose state is what the Install request carries (AC-12); an Install step
+         size for each of the **three** runner files (AC-03); a Configure step with exactly three `pull_request` event
+         checkboxes — `opened` and `synchronize` checked, `reopened` unchecked — and exactly three
+         publish-mode options, `github_review` (selected), `pr_comment` and `none` («exit code
+         only»), whose state is what the Install request carries (AC-12); an Install step
          that calls the export mutation once and shows the returned PR link, the GitHub failure
          with the sentence naming `gh auth refresh -h github.com -s workflow`, and the
          bundle-missing message naming `pnpm build` in `agent-runner/`.
