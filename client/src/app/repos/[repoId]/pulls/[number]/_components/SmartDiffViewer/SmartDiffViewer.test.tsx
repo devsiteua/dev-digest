@@ -336,5 +336,29 @@ describe("SmartDiffViewer — the badge on a line opens its finding", () => {
       screen.queryByRole("button", { name: /Open the .* on line/ }),
     ).not.toBeInTheDocument();
   });
+
+  it("jumps to the line the URL asked for, with no click at all", async () => {
+    // AC-33's landing half and AC-34 in one assertion: the focus arrives as a
+    // prop from the page, is turned into the same token a badge click produces,
+    // and lands on the line. A reload is exactly this — a first render with the
+    // props already set — so if this passes, the reload does too.
+    renderViewer({ focusFile: "src/config.ts", focusLine: 12 });
+
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+    const target = scrollIntoView.mock.instances[0] as HTMLElement;
+    expect(target.getAttribute("data-line")).toBe("12");
+  });
+
+  it("opens the file the URL names even when it carries no line", async () => {
+    // `line` is optional in the URL, and `FileCard`'s jump effect returns early
+    // without one — so the file has to be revealed by being open, or `?file=`
+    // alone would do nothing visible and be indistinguishable from a bug.
+    renderViewer({ focusFile: "package-lock.json", focusLine: null });
+
+    // The lock file is the hard case: it is collapsed unconditionally by role.
+    expect(screen.getByText("package-lock.json")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/No diff text available/)).toBeInTheDocument());
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
 });
 

@@ -38,12 +38,29 @@ interface SmartDiffViewerProps {
    * URL; nothing below this component knows there is a router.
    */
   onOpenFinding?: (findingId: string) => void;
+  /**
+   * A file the URL asks this viewer to focus, already checked against the diff
+   * by `DiffTab` — so anything arriving here is a path this PR really changes.
+   *
+   * It arrives as a PROP rather than living here because this component is
+   * unmounted whenever another tab is active: local state could not survive the
+   * round trip, and the reload AC-34 asks about would land on nothing.
+   */
+  focusFile?: string | null;
+  /** The line inside `focusFile`, or `null` — then the file opens and nothing jumps. */
+  focusLine?: number | null;
 }
 
-/** Which line a click on a file's badge jumps to, and a counter to re-fire it. */
+/**
+ * Which line a click on a file's badge jumps to, and a counter to re-fire it.
+ *
+ * `line` is nullable because a focus can also arrive from the URL, where the
+ * line is optional: `FileCard`'s effect returns early on a null line, so such a
+ * focus opens the file (through `defaultOpen`) and highlights nothing.
+ */
 interface Focus {
   path: string;
-  line: number;
+  line: number | null;
   token: number;
 }
 
@@ -54,6 +71,8 @@ export function SmartDiffViewer({
   findings,
   commenting,
   onOpenFinding,
+  focusFile,
+  focusLine,
 }: SmartDiffViewerProps) {
   const t = useTranslations("prReview");
   // Uncontrolled on purpose. The Files tab is unmounted while another tab is
@@ -62,6 +81,24 @@ export function SmartDiffViewer({
   // anything a reader would be annoyed to lose.
   const [smart, setSmart] = React.useState(true);
   const [focus, setFocus] = React.useState<Focus | null>(null);
+
+  /**
+   * Turn an incoming `?file`/`?line` into the SAME focus a badge click produces.
+   *
+   * This is the one legitimate `useEffect` here: the URL is an external system,
+   * and the focus it asks for has to become the token `FileCard`'s existing
+   * jump-and-highlight already listens to. Keyed on the pair, so navigating from
+   * one review-focus row to another re-fires — and asking twice for the same
+   * line does not, which is correct: nothing moved.
+   */
+  React.useEffect(() => {
+    if (!focusFile) return;
+    setFocus((prev) => ({
+      path: focusFile,
+      line: focusLine ?? null,
+      token: (prev?.token ?? 0) + 1,
+    }));
+  }, [focusFile, focusLine]);
 
   const overlay = React.useMemo(
     () => (findings ? buildFindingOverlay(findings) : null),
@@ -82,7 +119,9 @@ export function SmartDiffViewer({
     boilerplate: t("smartDiff.boilerplateDesc"),
   };
 
-  const focusLine = (path: string) => (line: number) =>
+  // Named for what it returns — a handler for ONE file's card. `focusLine` is
+  // the incoming URL line, and the two must not share a name.
+  const focusLineFor = (path: string) => (line: number) =>
     setFocus((prev) => ({ path, line, token: (prev?.token ?? 0) + 1 }));
 
   const card = (row: SmartDiffRow, role: SmartDiffRole | null) => {
@@ -99,15 +138,28 @@ export function SmartDiffViewer({
         // `finding_lines`, and the severity words stay plain text.
         findingIdByLine={overlay?.findingId[row.file.path]}
         onOpenFinding={onOpenFinding}
-        // Boilerplate is collapsed unconditionally — that is what "the lock file
-        // starts collapsed" means, and leaving it to the 200-line heuristic
-        // would open a 3-line generated file while hiding a 300-line one.
-        // Elsewhere a flagged file opens; an unflagged one keeps the card's own
-        // rule, so a PR with no review still reads the way it does today.
-        defaultOpen={role === "boilerplate" ? false : lines.length > 0 ? true : undefined}
+        // A file the URL points at wins over every rule below it: the reader
+        // asked for this one by name, including when it is a lock file. It is
+        // also what covers the `line`-less case — `FileCard`'s jump effect
+        // returns early without a line, so nothing else would reveal the card.
+        //
+        // Otherwise: boilerplate is collapsed unconditionally — that is what
+        // "the lock file starts collapsed" means, and leaving it to the 200-line
+        // heuristic would open a 3-line generated file while hiding a 300-line
+        // one. Elsewhere a flagged file opens; an unflagged one keeps the card's
+        // own rule, so a PR with no review still reads the way it does today.
+        defaultOpen={
+          row.file.path === focusFile
+            ? true
+            : role === "boilerplate"
+              ? false
+              : lines.length > 0
+                ? true
+                : undefined
+        }
         focusLine={focus?.path === row.file.path ? focus.line : null}
         focusToken={focus?.path === row.file.path ? focus.token : undefined}
-        onFocusLine={focusLine(row.file.path)}
+        onFocusLine={focusLineFor(row.file.path)}
       />
     );
   };

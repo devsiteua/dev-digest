@@ -67,6 +67,16 @@ export default function PRDetailPage() {
   // opens the run holding that finding and expands its card. Surviving in the
   // URL is the point — a reload lands on the same finding.
   const focusFindingId = search.get("findingId");
+  // Set by a review-focus row in the PR brief; read by the Files tab, which
+  // expands that file and jumps to the line. In the URL for the same reason
+  // `findingId` is: a reload has to land on the same place, and the Files tab is
+  // unmounted while another tab is active, so nothing below can hold it.
+  const focusFile = search.get("file");
+  // `line` is 1-based, so a non-numeric or zero value is not a line — it is
+  // someone editing the URL. Parsed here rather than in the tab, because the
+  // page is what owns the URL and the tab should receive a number or nothing.
+  const lineParam = search.get("line");
+  const focusLine = lineParam != null && /^[1-9]\d*$/.test(lineParam) ? Number(lineParam) : null;
   /**
    * Write several query params in ONE navigation.
    *
@@ -86,7 +96,11 @@ export default function PRDetailPage() {
   // Changing tab by hand drops the finding: it describes a card the reader has
   // just navigated away from, and leaving it would re-open that card the next
   // time they come back to Findings for an unrelated reason.
-  const setTab = (t: string) => setParams({ tab: t, findingId: null });
+  //
+  // `file` and `line` go with it, for exactly that reason: they describe a place
+  // in the Files tab the reader has just left, and a stale pair would re-focus
+  // it the next time they open Files for something else.
+  const setTab = (t: string) => setParams({ tab: t, findingId: null, file: null, line: null });
   const openFinding = (findingId: string) => setParams({ tab: "findings", findingId });
 
   // Reviews come newest-first; each is its own run (grouped into accordions).
@@ -167,7 +181,9 @@ export default function PRDetailPage() {
       />
 
       <div style={{ padding: "24px 32px 44px", display: "flex", flexDirection: "column", gap: 24, maxWidth: 1080, margin: "0 auto" }}>
-        {tab === "overview" && <OverviewTab prId={prId} prBody={pr.body} />}
+        {tab === "overview" && (
+          <OverviewTab prId={prId} prBody={pr.body} />
+        )}
 
         {tab === "findings" && (
           <FindingsTab
@@ -218,6 +234,8 @@ export default function PRDetailPage() {
             canComment={pr.status === "open"}
             findings={latestFindings}
             onOpenFinding={openFinding}
+            focusFile={focusFile}
+            focusLine={focusLine}
           />
         )}
       </div>

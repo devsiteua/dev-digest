@@ -69,6 +69,9 @@
     "originalOrder": "Original order",
     "orderLabel": "Diff order"
   },
+  "diffFocus": {
+    "unknownFile": "This pull request does not change the file the link points at:"
+  },
   "list": {
     "breadcrumb": "Pull Requests",
     "title": "Pull Requests",
