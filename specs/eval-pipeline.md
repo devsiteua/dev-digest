@@ -1,7 +1,7 @@
 # Eval Pipeline — regression protection for the product's own review agents
 
 Spec ID: EVAL-PIPELINE
-Status: draft
+Status: in-progress
 Supersedes: none
 Owner: devsiteua
 Packages touched: server, client, reviewer-core (read-only reuse), e2e
@@ -109,8 +109,14 @@ See `Design analysis`.
   metrics), an `Eval Dashboard` page reached from the sidebar, and a comparison of two runs.
 - **One point commit to `client/src/vendor/ui/nav.ts`** adding the Eval Dashboard item — the
   single authorised exception to the vendored-UI rule, per the caller.
-- **Seed extension** so a seeded workspace carries at least eight findings with real
-  decisions, each addition guarded on its own absence.
+- **Seed extension** so a seeded workspace carries, on one seeded agent, at least eight
+  findings with real decisions **and** at least eight eval cases built from them. These are
+  two different populations: eight decided findings do not become eight cases by themselves,
+  and nothing else writes `eval_cases` during a seed. The same extension attaches the demo
+  review to a seeded agent — the review inserted at `server/src/db/seed.ts:445-458` sets no
+  `agent_id`, while `eval_cases.owner_id` is `notNull` (`server/src/db/schema/eval.ts:13`), so
+  without that link a seeded finding has no set to join. Each addition guarded on its own
+  absence.
 - **`verify:l06`** in `server/package.json`, shaped like `verify:l03`.
 
 ## Out of scope
@@ -161,7 +167,7 @@ See `Design analysis`.
 
 | AC-ID | Pattern | Criterion | How it is checked |
 |---|---|---|---|
-| AC-01 | ubiquitous | Набір eval-кейсів агента повинен (shall) містити щонайменше 8 кейсів. | `cd server && pnpm exec vitest run .it.test` — інтеграційний тест лічить `eval_cases` для засіяного агента; manual run: вкладка Evals показує ≥8 рядків. |
+| AC-01 | ubiquitous | Набір eval-кейсів засіяного агента повинен (shall) містити щонайменше 8 кейсів одразу після `pnpm db:seed`, без жодного ручного кліку. | `cd server && pnpm db:seed`, потім `pnpm exec vitest run .it.test` — інтеграційний тест лічить `eval_cases` засіяного агента; manual run: вкладка Evals показує ≥8 рядків на щойно засіяній базі. |
 | AC-02 | event-driven | КОЛИ користувач натискає «Turn into eval case» на знахідці, що має рішення, система повинна (shall) створити eval case одним кліком і вивести тип очікування з рішення: `accepted` → `must_find`, `dismissed` → `must_not_flag`. | Інтеграційний тест `*.it.test.ts` на обидва рішення; e2e-флоу: клік на accepted-знахідці й на dismissed-знахідці, перевірка типу очікування в наборі. |
 | AC-03 | unwanted | ЯКЩО знахідка не має ані `accepted_at`, ані `dismissed_at`, ТОДІ система повинна (shall) залишити кнопку створення кейса вимкненою й пояснити, що спершу треба прийняти або відхилити знахідку. | Компонентний тест `FindingCard` (`cd client && pnpm test`) на три стани знахідки. |
 | AC-04 | unwanted | ЯКЩО для знахідки eval case уже існує, ТОДІ система повинна (shall) не створювати другий кейс, а привести користувача до наявного. | Інтеграційний тест: два послідовні виклики створення дають один рядок у `eval_cases`; manual run: повторний клік відкриває той самий кейс. |
@@ -169,7 +175,7 @@ See `Design analysis`.
 | AC-06 | unwanted | ЯКЩО diff pull request перевищує 100 000 символів, ТОДІ система повинна (shall) відмовити у створенні кейса з повідомленням, що називає межу, і за жодних умов не обрізати diff. | Юніт-тест межі (входить у `pnpm verify:l06`) + інтеграційний тест на відповідь маршруту. |
 | AC-07 | ubiquitous | Eval case повинен (shall) залишатися незмінним знімком: видалення pull request чи знахідки-джерела його не видаляє. | Інтеграційний тест: видалити PR, перечитати набір — кейс на місці й проганяється. |
 | AC-08 | event-driven | КОЛИ користувач видаляє eval case, система повинна (shall) прибрати його з набору разом із його рядками прогонів. | Інтеграційний тест на каскад `eval_cases` → `eval_runs`; manual run: рядок зникає зі вкладки Evals. |
-| AC-09 | ubiquitous | `pnpm db:seed` повинен (shall) залишати у робочому просторі щонайменше 8 знахідок із реальними рішеннями, причому кожне додавання оновлюється на місці на вже засіяній базі, без перестворення тому. | `cd server && pnpm db:seed` двічі поспіль на наявній базі, потім `pnpm exec vitest run .it.test` — лічильник рішень ≥8 і не подвоюється. |
+| AC-09 | ubiquitous | `pnpm db:seed` повинен (shall) залишати у робочому просторі щонайменше 8 знахідок із реальними рішеннями, щонайменше 8 побудованих із них eval-кейсів і демо-рев'ю, прив'язане до засіяного агента, причому кожне додавання оновлюється на місці на вже засіяній базі, без перестворення тому. | `cd server && pnpm db:seed` двічі поспіль на наявній базі, потім `pnpm exec vitest run .it.test` — лічильники рішень і кейсів ≥8, жоден не подвоюється, `reviews.agent_id` демо-рев'ю не порожній. |
 | AC-10 | event-driven | КОЛИ користувач запускає прогін набору, система повинна (shall) створити прогін як окрему збережену сутність зі знімком system prompt і моделі, під якими він відбувся. | Інтеграційний тест: змінити `agents.system_prompt` між двома прогонами, прочитати обидва знімки — вони різні й збігаються з промптом на момент запуску. |
 | AC-11 | ubiquitous | Прогін повинен (shall) виконувати агента на всіх кейсах набору із зафіксованих знімків, так що два прогони одного кейса отримують байт-у-байт однаковий вхід. | Юніт-тест над збиранням входу (в `pnpm verify:l06`): двічі побудований вхід одного кейса рівний як рядок. |
 | AC-12 | unwanted | ЯКЩО у агента немає жодного eval-кейса, ТОДІ система повинна (shall) залишити керування запуском вимкненим. | Компонентний тест вкладки Evals на порожньому наборі (`cd client && pnpm test`). |
@@ -190,11 +196,17 @@ See `Design analysis`.
 | AC-27 | ubiquitous | Схема очікування повинна (shall) жити в eval-секції `contracts/eval-ci.ts` і бути дослівно віддзеркаленою у клієнтській копії, тоді як секція `AgentManifest` в обох копіях лишається незмінною. | `diff` двох файлів показує розбіжність лише в `AgentManifest` і `ConformanceInput.provider`; `cd server && pnpm typecheck` і `cd client && pnpm typecheck`. |
 | AC-28 | optional | ДЕ eval case має `owner_kind` `agent` — єдине значення, яке пише цей потік, — система повинна (shall) включати його в прогін; кейсів з `owner_kind` `skill` цей потік не створює і не проганяє. | Юніт-тест вибірки набору в `pnpm verify:l06`; `grep` по коду потоку на відсутність запису літерала `'skill'` в `owner_kind`. |
 | AC-29 | ubiquitous | `pnpm verify:l06` повинен (shall) бути зеленим на чистій машині без Docker. | `cd server && pnpm verify:l06` у дереві без запущеного Postgres. |
+| AC-30 | unwanted | ЯКЩО рев'ю, якому належить знахідка, не має агента, ТОДІ система повинна (shall) відмовити у створенні eval case з причиною, що називає відсутнього агента, і не створювати кейс без власника. | Інтеграційний тест: знахідка з рев'ю, де `agent_id` порожній, — маршрут повертає відмову, і `eval_cases` не поповнюється. |
 
 ## Edge cases
 
 - **A finding with no decision.** The one-click path has nothing to derive an expectation
   from. Covered by AC-03.
+- **A finding whose review has no agent.** `reviews.agent_id` is nullable
+  (`server/src/db/schema/reviews.ts:28`) and the seeded demo review sets none
+  (`server/src/db/seed.ts:445-458`), while `eval_cases.owner_id` is `notNull` — so there is no
+  set for the case to join. Refused with the missing agent named, the same shape as AC-06's
+  refusal rather than a case created without an owner. Covered by AC-30.
 - **The same finding clicked twice.** Covered by AC-04.
 - **A pull request whose diff is enormous.** Refused at creation with the limit named, never
   truncated: truncation would change what the agent sees between creation and run, and two
@@ -370,7 +382,7 @@ only, never interpreted.
 | `cd server && pnpm exec vitest run .it.test` (integration, Docker) | Case creation from both decision types (AC-02), idempotence (AC-04), whole-diff snapshot and provenance (AC-05), survival of PR deletion (AC-07), case deletion cascade (AC-08), seed idempotence and the ≥8 count (AC-01, AC-09), prompt snapshot per run (AC-10), concurrent-run refusal (AC-13), partial run persistence with `MockLLMProvider` (AC-14), non-blocking run and observable state (AC-15). |
 | `cd client && pnpm test` (component) | Disabled eval control per decision state (AC-03), empty-set disabled Run (AC-12), `—` for empty denominators (AC-21), Evals tab list + history (AC-22), Eval Dashboard page (AC-23), comparison columns, delta and per-case state change (AC-24), incomplete-run labelling (AC-25). |
 | `cd client && pnpm typecheck` + `cd server && pnpm typecheck` | The mirrored contract compiles in both packages (AC-27), including any `.default()` consequence. |
-| `e2e/` flow | Finding → case → run → metrics, end to end on the hermetic stack; sidebar navigation to the Eval Dashboard (AC-23). Note root `CLAUDE.md` § Gotchas: a flow asserting seeded literals must be updated together with `seed.ts` (AC-09). |
+| `e2e/` flow | The model-free half only: finding → case → the Evals tab's case list and run history (AC-22) → sidebar → Eval Dashboard (AC-23). The lane cannot go further — `e2e/run.ts:17-18` declares that nothing in it triggers an LLM call or needs an API key, and `scripts/e2e.sh` exports no provider key — while a run *is* a model call. The `→ run → metrics` half is AC-26's manual live run, already excluded from automation below. Note root `CLAUDE.md` § Gotchas: a flow asserting seeded literals must be updated together with `seed.ts` (AC-09). |
 | shell `diff` / `grep` | The two contract copies differ only in `AgentManifest` and `ConformanceInput.provider` (AC-27); no code path writes `'skill'` as an `owner_kind` (AC-28). |
 
 **Deliberately not covered by an automated test:** AC-26 — that a system-prompt change
@@ -423,6 +435,18 @@ gaps:
 **Unanswered-question markers remaining in this file:** none. Nothing in this spec is a
 guess recorded as a requirement.
 
-**Status note.** The status is `draft` because no plan has been written against it yet, not
-because a question is open; it moves to `in-progress` when `specs/plans/eval-pipeline.md`
-exists (`README.md` § Rules 5).
+**Status note.** `specs/plans/eval-pipeline.md` now exists (`fcde185`), so the status is
+`in-progress` (`README.md` § Rules 5). No unanswered question is open.
+
+**Amended after planning.** `implementation-planner` returned three inconsistencies against
+the tree at `2038e95`; all three were re-verified in the code before this file was changed.
+`In scope` promised eight decided findings while AC-01 counted eight eval cases — two
+different populations — and both now state the wide reading, which is the only one under
+which AC-01's manual half and the e2e halves of AC-22 and AC-23 are executable on the
+ephemeral database `scripts/e2e.sh` boots. The demo review sets no `agent_id` while
+`eval_cases.owner_id` is `notNull`, so the seed must attach it to a seeded agent (AC-09), and
+a finding whose review has no agent has no set to join — that refusal is now **AC-30** rather
+than an unwritten planning decision. The § Test plan `e2e` row asked for a run the lane
+declares it cannot perform; it now asks only for the model-free half and names where the
+other half is checked. Ids stay flat and permanent: nothing was renumbered, and no earlier
+criterion changed meaning.
