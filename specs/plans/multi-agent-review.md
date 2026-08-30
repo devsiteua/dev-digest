@@ -84,8 +84,15 @@ decision so a reviewer can disagree with me rather than with the requirement.
   reasons: the pull request does not exist, or it has no multi-agent run. Both are 404 in this
   codebase (`NotFoundError`, `platform/errors.ts`). **Reading:** the two are distinguished by
   their **code and message**, not by their status — `no_multi_agent_run` for the criterion's
-  case, `Pull request not found` for the other, on the precedent of
-  `modules/brief/routes.ts:39`. Step 11's integration case asserts the code, not just the status.
+  case, `Pull request not found` for the other. Step 11's integration case asserts the code, not
+  just the status.
+  **Corrected 2026-08-30, during Step 13.** This bullet originally cited
+  `modules/brief/routes.ts:39` as the precedent for distinguishing two 404s by code. That
+  precedent does not exist: both of `brief`'s 404s are a bare `NotFoundError`, and
+  `platform/errors.ts:19-23` hardcodes that class's code to `not_found`, so the two differ only
+  by message. The shipped code therefore uses a bare `AppError('no_multi_agent_run', …, 404)` and
+  is **stricter** than the module it was modelled on. Found independently by both architecture
+  reviews.
 
 - **AC-10 — "другим детермінованим ключем".** `multi_agent_runs` carries only
   `id · workspace_id · pr_id · ran_at` (`schema/runs.ts:47-56`), and § Non-functional
@@ -439,7 +446,12 @@ Do:       `resolveTargets` (`service.ts:46-57`) becomes a three-form resolver, a
           `runReview` (`service.ts:103-137`) takes a new `multiAgent: boolean` argument and,
           when it is true, calls `this.repo.createMultiAgentRun({ workspaceId, prId })` **once**
           before the loop, then passes the returned id into every `createAgentRun` call. For
-          `{ agentId }` it is not called and the column stays `null` (AC-05). The return type
+          `{ agentId }` it is not called and the column stays `null` (AC-05).
+          **Corrected 2026-08-30, during execution.** As first written this paragraph was read as
+          excluding `{ all: true }` from the parent row, and the implementation followed that
+          reading. AC-04 names **both** fan-out forms — `agentIds` **and** `all` — so `multiAgent`
+          is `body.agentIds !== undefined || body.all === true`, and only the legacy single
+          `{ agentId }` form stays unparented. The return type
           gains `multi_agent_run_id: string | null`. Nothing else about the ordering changes: the
           rows still exist before the response returns (`:114-137`), which is what lets the
           browser subscribe immediately.

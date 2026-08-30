@@ -1,7 +1,7 @@
 # Multi-Agent Review
 
 Spec ID: MULTI-AGENT-REVIEW
-Status: approved
+Status: done
 Supersedes: none
 Owner: devsiteua
 Packages touched: server, client, e2e (`@devdigest/shared` contracts in both mirror copies)
