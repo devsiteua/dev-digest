@@ -16,6 +16,46 @@ import { EvalRun, EvalOwnerKind, Conformance } from './knowledge.js';
 // Eval — case input + persisted run record + dashboard
 // ===========================================================================
 
+/**
+ * What a case asserts about the model's output.
+ *
+ * `must_find` came from an ACCEPTED finding — the agent is expected to report
+ * something on that range. `must_not_flag` came from a DISMISSED one — reporting
+ * there is the failure. A finding with neither decision has nothing to assert and
+ * cannot become a case.
+ *
+ * No field here carries `.default()`, deliberately. `expected_output` and
+ * `input_meta` are persisted JSON, which normally obliges a default (see
+ * `server/INSIGHTS.md`, 2026-08-29: a drifted snapshot 500s on `.parse()`) — but
+ * both eval tables have zero rows in every environment, so there is no legacy row
+ * to protect, while a `.default()` would make the key REQUIRED on `z.infer` and
+ * therefore on the seed literal that writes the first ones. A field added LATER
+ * re-applies that rule rather than copying this exemption.
+ */
+export const EvalExpectationKind = z.enum(['must_find', 'must_not_flag']);
+export type EvalExpectationKind = z.infer<typeof EvalExpectationKind>;
+
+/** A file plus a line range — matching is file equality and range overlap, nothing else. */
+export const EvalExpectation = z.object({
+  kind: EvalExpectationKind,
+  file: z.string(),
+  start_line: z.number().int(),
+  end_line: z.number().int(),
+});
+export type EvalExpectation = z.infer<typeof EvalExpectation>;
+
+/**
+ * Where a case came from. Provenance only — a case keeps NO foreign key to the
+ * finding or the PR, so deleting either leaves the case intact.
+ */
+export const EvalCaseMeta = z.object({
+  source_finding_id: z.string(),
+  pr_id: z.string(),
+  pr_number: z.number().int(),
+  created_from: z.literal('finding'),
+});
+export type EvalCaseMeta = z.infer<typeof EvalCaseMeta>;
+
 /** Create/update payload for an eval case (id + owner resolved by the route). */
 export const EvalCaseInput = z.object({
   owner_kind: EvalOwnerKind,
@@ -23,23 +63,45 @@ export const EvalCaseInput = z.object({
   name: z.string().min(1),
   input_diff: z.string().default(''),
   input_files: z.unknown().nullish(),
-  input_meta: z.unknown().nullish(),
-  expected_output: z.unknown(),
+  input_meta: EvalCaseMeta.nullish(),
+  expected_output: EvalExpectation,
   notes: z.string().nullish(),
 });
 export type EvalCaseInput = z.infer<typeof EvalCaseInput>;
 
+/**
+ * Request body for `POST /eval-cases` — turn ONE decided finding into a case.
+ *
+ * Only the finding id: the owner, the expectation and the frozen diff are all
+ * DERIVED server-side. A body that let a caller supply the expectation would let
+ * two cases claim the same provenance and disagree about what it asserts.
+ */
+export const EvalCaseFromFindingInput = z.object({
+  finding_id: z.string().uuid(),
+});
+export type EvalCaseFromFindingInput = z.infer<typeof EvalCaseFromFindingInput>;
+
+/** Per-case outcome of one execution. `errored` threw; `failed` ran and missed. */
+export const EvalRunStatus = z.enum(['passed', 'failed', 'errored']);
+export type EvalRunStatus = z.infer<typeof EvalRunStatus>;
+
 /** A persisted eval run row (one execution of a case), returned by the API. */
 export const EvalRunRecord = z.object({
   id: z.string(),
+  batch_id: z.string(),
   case_id: z.string(),
   case_name: z.string().nullish(),
   ran_at: z.string(),
   actual_output: z.unknown(),
+  status: EvalRunStatus,
+  error: z.string().nullable(),
   pass: z.boolean().nullable(),
   recall: z.number().nullable(),
   precision: z.number().nullable(),
   citation_accuracy: z.number().nullable(),
+  /** The numerator and denominator behind `recall`, so a row is readable alone. */
+  matched_count: z.number().int().nullable(),
+  expected_count: z.number().int().nullable(),
   duration_ms: z.number().int().nullable(),
   cost_usd: z.number().nullable(),
 });
@@ -52,6 +114,75 @@ export const EvalRunResult = z.object({
   result: EvalRun,
 });
 export type EvalRunResult = z.infer<typeof EvalRunResult>;
+
+/**
+ * `partial` is a batch that finished with at least one case errored — it has real
+ * metrics over the cases that ran, and `cases_ran < cases_total` says so.
+ */
+export const EvalRunBatchStatus = z.enum(['running', 'done', 'partial', 'failed']);
+export type EvalRunBatchStatus = z.infer<typeof EvalRunBatchStatus>;
+
+/**
+ * One execution of a whole case set, with the prompt it ran under frozen into it.
+ *
+ * Every ratio ships with its denominator. Two runs over different set sizes are
+ * only comparable when the reader can see what each percentage was computed over,
+ * and a denominator of 0 is what the UI renders as `-` instead of a rounded 1.
+ */
+export const EvalRunBatch = z.object({
+  id: z.string(),
+  workspace_id: z.string(),
+  agent_id: z.string(),
+  agent_version: z.number().int(),
+  system_prompt_snapshot: z.string(),
+  model_snapshot: z.string(),
+  provider_snapshot: z.string(),
+  status: EvalRunBatchStatus,
+  started_at: z.string(),
+  finished_at: z.string().nullable(),
+  recall: z.number().nullable(),
+  precision: z.number().nullable(),
+  citation_accuracy: z.number().nullable(),
+  recall_denominator: z.number().int(),
+  precision_denominator: z.number().int(),
+  citation_denominator: z.number().int(),
+  cases_total: z.number().int(),
+  cases_ran: z.number().int(),
+  duration_ms: z.number().int().nullable(),
+  cost_usd: z.number().nullable(),
+  error: z.string().nullable(),
+});
+export type EvalRunBatch = z.infer<typeof EvalRunBatch>;
+
+/** A batch plus every per-case row it produced. */
+export const EvalRunBatchDetail = z.object({
+  batch: EvalRunBatch,
+  runs: z.array(EvalRunRecord),
+});
+export type EvalRunBatchDetail = z.infer<typeof EvalRunBatchDetail>;
+
+/**
+ * A case's state in one batch. `absent` means the case was not in that batch's set
+ * at all — the only honest answer when two runs cover different sets — and
+ * `skipped` means it was in the set but never ran (the batch is `partial`).
+ */
+export const EvalCaseOutcome = z.enum(['pass', 'fail', 'absent', 'skipped']);
+export type EvalCaseOutcome = z.infer<typeof EvalCaseOutcome>;
+
+/** Two batches side by side, and every case whose state differs between them. */
+export const EvalRunComparison = z.object({
+  a: EvalRunBatch,
+  b: EvalRunBatch,
+  cases: z.array(
+    z.object({
+      case_id: z.string(),
+      name: z.string(),
+      before: EvalCaseOutcome,
+      after: EvalCaseOutcome,
+    }),
+  ),
+});
+export type EvalRunComparison = z.infer<typeof EvalRunComparison>;
 
 /** One point on the dashboard trend (per run, chronological). */
 export const EvalTrendPoint = z.object({
