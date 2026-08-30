@@ -7,6 +7,9 @@ import {
   IntentEvidence,
   IntentKind,
   IntentSource,
+  ReviewFocusItem,
+  Risk,
+  RiskSeverity,
   SmartDiff,
 } from './brief.js';
 import { Provider } from './knowledge.js';
@@ -115,6 +118,133 @@ export const PrIntentRecord = Intent.extend({
   generated_at: z.string(),
 });
 export type PrIntentRecord = z.infer<typeof PrIntentRecord>;
+
+/**
+ * One generated PR brief, exactly as it is persisted in `pr_brief.json` and
+ * exactly as it is transported.
+ *
+ * The table is a HISTORY — one row per generation, keyed by `(pr_id, state_key)`
+ * — so this shape is a snapshot of what one model call produced from one set of
+ * inputs, not "the brief of this pull request".
+ *
+ * `state_key` is the SHA-256 of the fully assembled, fully TRIMMED model input
+ * (system + user, concatenated). It is the cache key, the upsert target and the
+ * whole of staleness: a read recomputes it and compares. It is not the head SHA
+ * — a force-push that changes nothing the brief read leaves the brief fresh, and
+ * a Project Context document edited without a new commit makes it stale.
+ *
+ * Because this contract `.parse()`s PERSISTED JSON, every field added to it
+ * later carries `.default()` or its step owns a backfill (`server/INSIGHTS.md`
+ * 2026-08-29). Nothing here needs one today: the table has no rows.
+ */
+export const PrBriefRecord = z.object({
+  pr_id: z.string(),
+  /** What the change does, in the reader's terms. */
+  what: z.string(),
+  /** Why it exists — the question a diff cannot answer. */
+  why: z.string(),
+  /** The highest surviving risk severity, settled by code and never taken from the model alone. */
+  risk_level: RiskSeverity,
+  risks: z.array(Risk),
+  review_focus: z.array(ReviewFocusItem),
+  /**
+   * SHA-256 hex of the assembled+trimmed `system + user`. Never a head SHA, and
+   * never computed over the untrimmed input — a brief that needed trimming would
+   * otherwise read stale forever.
+   */
+  state_key: z.string(),
+  /** The commit the brief was generated at. Reported, never acted on. */
+  head_sha: z.string(),
+  /**
+   * An input the assembler expected and could not read — no derived intent, a
+   * degraded blast map and its reason, an issue GitHub would not serve.
+   *
+   * A field rather than a log line, for the reason `PrIntentRecord.missing_context`
+   * gives: a reader has to be able to tell "there was nothing to say" from "we
+   * could not reach what would have said it".
+   */
+  missing_inputs: z.array(z.string()),
+  /** References the model named that the allow-list refused. Never reprompted, always reported. */
+  dropped_refs: z.array(z.string()),
+  /** What the budget ladder dropped, rung by rung. Empty when nothing was trimmed. */
+  trimmed: z.array(z.string()),
+  /**
+   * OUR count of the input, `tokenizer.count(system + user)` over the string that
+   * was actually sent — the number `over budget` was decided against.
+   *
+   * Deliberately NOT `tokens_in`, which is what the provider billed. The two
+   * differ (different tokenizer, the provider's own framing) and substituting
+   * one for the other makes the budget unfalsifiable: an 8 000-token ceiling
+   * checked against a number we did not compute proves nothing about the ladder.
+   * Both are stored so the gap is visible (AC-14).
+   */
+  input_tokens: z.number().int(),
+  provider: Provider,
+  model: z.string(),
+  tokens_in: z.number().int(),
+  tokens_out: z.number().int(),
+  /** null means the model has no known price — a different fact from free. */
+  cost_usd: z.number().nullish(),
+  duration_ms: z.number().int(),
+  generated_at: z.string(),
+});
+export type PrBriefRecord = z.infer<typeof PrBriefRecord>;
+
+/**
+ * What changed between two consecutive briefs of the same pull request.
+ *
+ * Computed by CODE from the two records, never asked of a model: "the risk level
+ * went medium → high" is a fact about two rows, and paying for a sentence that
+ * restates it would be paying to be told what we already know.
+ */
+export const PrBriefDelta = z.object({
+  /** `null` when the level did not move. */
+  risk_level_from: RiskSeverity.nullable(),
+  risk_level_to: RiskSeverity.nullable(),
+  risks_added: z.array(z.string()),
+  risks_removed: z.array(z.string()),
+  focus_added: z.array(z.string()),
+  focus_removed: z.array(z.string()),
+});
+export type PrBriefDelta = z.infer<typeof PrBriefDelta>;
+
+/**
+ * One entry of the Why Timeline — a past generation, summarised.
+ *
+ * `seq` is the table-wide serial the rows are ordered by, NOT a per-PR number:
+ * `generated_at` is the transaction's timestamp, so two rows written together
+ * tie to the microsecond and "latest" would be planner order. The 1·2·3 the card
+ * shows is derived in code from this ordered list.
+ *
+ * `delta` is `null` on the oldest entry, which has nothing behind it to differ from.
+ */
+export const PrBriefTimelineEntry = z.object({
+  seq: z.number().int(),
+  state_key: z.string(),
+  head_sha: z.string(),
+  risk_level: RiskSeverity,
+  what: z.string(),
+  generated_at: z.string(),
+  delta: PrBriefDelta.nullable(),
+});
+export type PrBriefTimelineEntry = z.infer<typeof PrBriefTimelineEntry>;
+
+/**
+ * Response of `GET /pulls/:id/brief` — the newest brief, whether it still
+ * describes the pull request, and how it got here.
+ *
+ * `stale` is recomputed on every read: the assembler runs, the ladder runs, the
+ * hash is taken, and the answer is whether it equals the stored `state_key`.
+ * That costs queries but ZERO model calls, which is the only cost claim that
+ * matters here. Over-reporting is the accepted direction — an unreachable
+ * GitHub issue makes a fresh brief read stale, and the cost of that is a banner
+ * rather than a bill.
+ */
+export const PrBriefResponse = PrBriefRecord.extend({
+  stale: z.boolean(),
+  history: z.array(PrBriefTimelineEntry),
+});
+export type PrBriefResponse = z.infer<typeof PrBriefResponse>;
 
 /** Smart-diff response for a PR (the SmartDiff). */
 export const SmartDiffResponse = SmartDiff;
