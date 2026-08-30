@@ -257,8 +257,21 @@ export const CiIngestInput = z
     pr_number: z.number().int(),
     /** Full 40-character head SHA the job reviewed. */
     commit_sha: z.string().regex(/^[0-9a-f]{40}$/),
-    /** Link to the Actions job that produced the artifact. */
-    run_url: z.string().url(),
+    /**
+     * Link to the Actions job that produced the artifact.
+     *
+     * The scheme is checked as well as the syntax: `z.string().url()` defers to
+     * `new URL()`, which accepts `javascript:` and `data:` — and this value is
+     * persisted verbatim and later rendered as an `<a href>` in CI Runs and on
+     * the agent's CI tab. The body arrives from a job in somebody else's
+     * repository, so an unrestricted scheme here is stored XSS in the studio.
+     */
+    run_url: z
+      .string()
+      .url()
+      .refine((u) => /^https?:\/\//i.test(u), {
+        message: 'run_url must be an http(s) URL',
+      }),
     /** The runner's own exit code — rendered, never re-derived. */
     exit_code: z.number().int(),
     result: CiResultArtifact.strict(),

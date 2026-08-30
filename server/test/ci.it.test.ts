@@ -540,6 +540,25 @@ d('L07-B export to CI (Testcontainers pg)', () => {
     await app.close();
   });
 
+  it('answers 4xx and writes nothing for a run_url with a script scheme (AC-19)', async () => {
+    const { app } = await makeApp();
+    const agentId = await makeAgent();
+    const repo = nextRepo();
+    const installationId = await makeInstallation(agentId, repo);
+
+    const res = await ingest(
+      app,
+      validArtifact(repo, { run_url: 'javascript:alert(document.cookie)' }),
+    );
+
+    expect(res.statusCode).toBeGreaterThanOrEqual(400);
+    expect(res.statusCode).toBeLessThan(500);
+    expect(await ciRunCount(installationId)).toBe(0);
+    expect(await agentRunCount(agentId)).toBe(0);
+
+    await app.close();
+  });
+
   it('answers 4xx and writes nothing for a repository nobody installed (AC-19)', async () => {
     const { app } = await makeApp();
     const agentId = await makeAgent();
