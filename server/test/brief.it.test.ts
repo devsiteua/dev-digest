@@ -532,6 +532,53 @@ d('L05 PR brief (Testcontainers pg)', () => {
     await app.close();
   });
 
+  // ---- The seed ------------------------------------------------------------
+
+  it('serves the two SEEDED briefs of PR #482 as stale, and re-seeding renumbers nothing (AC-39)', async () => {
+    // This file runs the real `seed()` in `beforeAll`, the way `intent.it.test.ts`
+    // does, so the seeded rows are assertable here and not only through the
+    // browser flow. Read against providers that throw on every verb: a seeded
+    // brief must be readable without anything being generated.
+    const app = await makeApp({
+      llm: throwingLLM('openai'),
+      openai: throwingLLM('openai'),
+      openrouter: throwingLLM('openrouter'),
+    });
+    const [demoPr] = await pg.handle.db
+      .select()
+      .from(t.pullRequests)
+      .where(and(eq(t.pullRequests.workspaceId, workspaceId), eq(t.pullRequests.number, 482)));
+    expect(demoPr).toBeDefined();
+
+    const before = (await get(app, demoPr!.id)).json();
+    // Both rows are there, newest first, and the newest is the one the card shows.
+    expect(before.history).toHaveLength(2);
+    expect(before.history.map((h: { state_key: string }) => h.state_key)).toEqual([
+      'seed:v2',
+      'seed:v1',
+    ]);
+    expect(before.state_key).toBe('seed:v2');
+    // STALE, and not by accident: a `seed:`-prefixed key can never equal the
+    // SHA-256 hex a read recomputes, so the product never claims a freshness it
+    // cannot prove.
+    expect(before.stale).toBe(true);
+    expect(before.state_key).not.toMatch(/^[0-9a-f]{64}$/);
+
+    const seqBefore = before.history.map((h: { seq: number }) => h.seq);
+
+    // A second `pnpm db:seed` on a database that already has them.
+    await seed(pg.handle.db);
+
+    const after = (await get(app, demoPr!.id)).json();
+    expect(await briefRows(demoPr!.id)).toBe(2);
+    // `seq` is untouched, because the upsert's `set` carries neither `id` nor
+    // `seq` — renumbering would reorder the Why Timeline it just seeded.
+    expect(after.history.map((h: { seq: number }) => h.seq)).toEqual(seqBefore);
+    expect(after.state_key).toBe('seed:v2');
+    expect(after.stale).toBe(true);
+    await app.close();
+  });
+
   it('keeps the newest twenty briefs and deletes the rest, oldest first (AC-29)', async () => {
     const app = await makeApp();
     const { prId } = await makeRepoPr();
