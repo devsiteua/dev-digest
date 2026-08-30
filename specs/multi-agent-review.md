@@ -53,8 +53,12 @@ missing is the product around it.
 
 **Non-goals**
 
-- **A new execution engine.** Parallel execution, error isolation and shared pre-work exist
-  in `run-executor.ts`; this work adds a picker in front of them and a page behind them.
+- **A new execution engine.** Error isolation and shared pre-work exist in `run-executor.ts`;
+  this work adds a picker in front of them and a page behind them. **Execution is sequential
+  and stays that way** — see the row below and `Known limitations`. Decided by the owner on
+  2026-08-30, against the alternative of rewriting the loop as `Promise.allSettled`: the file
+  is fenced off by AC-34, worktree B is live in the same tree, and every one of the 37 criteria
+  is satisfied without touching it.
 - **A consensus verdict.** We do not merge five agents into one score, one verdict or one
   "the agents concluded". Grouping presents; it never decides.
 - **Semantic (embedding-based) similarity for grouping.** A model call to decide whether two
@@ -69,7 +73,7 @@ missing is the product around it.
 
 | Already true | Where |
 |---|---|
-| N agents run in parallel from one request; diff + intent prepared once; per-agent failures isolated | `server/src/modules/reviews/run-executor.ts:50-142` |
+| N agents run from one request, **sequentially**; diff + intent prepared once for the batch; per-agent failures isolated | `run-executor.ts:122-129` is `for (const … of jobs) { await this.runOneAgent(…) }` — no `Promise.all`, no `allSettled`, no queue, and no `p-queue` anywhere in the repository. The shared diff (`:106`), the shared intent (`:120`) and the isolation (`:129-142`) are real. **The brief's claim that "паралельне виконання вже готове" (`kickoff/L07A.md` § Що вже є в коді) is false**, and so is the lab's; recorded here rather than planned around |
 | `run_id` rows exist before any LLM call, so the UI can subscribe immediately | `server/src/modules/reviews/service.ts:114-137`; `docs/glossary.md` § Run |
 | Run request contract is `{ agentId?, all? }` — no subset form | `server/src/vendor/shared/contracts/platform.ts:320-324` |
 | `resolveTargets` throws 400 unless `all` or a single `agentId` is given | `server/src/modules/reviews/service.ts:46-57` |
@@ -172,6 +176,7 @@ and should be raised rather than edited.
 | `client/src/vendor/ui/nav.ts` | one `NAV` entry. `client/src/vendor/ui/**` is otherwise do-not-touch (root `CLAUDE.md`); this single file is a **deliberate, recorded transfer of ownership for L07** granted by the L07-A brief and `reference/lessons/WORKING-ORDER.md` § Спільні файли. No other file under `vendor/ui/` is touched by this work. |
 | `server/src/vendor/shared/contracts/observability.ts` + client mirror | A5's file, ours by the same brief |
 | `server/src/vendor/shared/contracts/platform.ts` + client mirror | **not** ours by default — see the next section |
+| `server/src/vendor/shared/contracts/review-api.ts` + client mirror | **not** ours by default; claimed for `ReviewRunResponse` only, because AC-07's field has nowhere else to live |
 
 **Explicitly not ours:** `ci/**`, `agent-runner/**`, `server/src/modules/reviews/run-executor.ts`
 (read, do not modify), `reviewer-core/**`, `mcp/**`, `client/src/vendor/ui/**` except
@@ -183,6 +188,7 @@ and should be raised rather than edited.
 |---|---|---|
 | `vendor/shared/contracts/observability.ts` (both copies) | **A** | B does not open it. Every A5 symbol B might want (`AgentColumn`, `Conflict`, …) arrives already merged. |
 | `vendor/shared/contracts/platform.ts` § `RunRequest` (both copies) | **A, for the `RunRequest` object only** | The `agentIds` widening is additive: `agentId` and `all` keep their meaning and their runtime behaviour. If B needs another field in this same file, it appends after the merge rather than in parallel. |
+| `vendor/shared/contracts/review-api.ts` § `ReviewRunResponse` (both copies) | **A, for the `ReviewRunResponse` object only** | AC-07 puts `multi_agent_run_id` on the response of `POST /pulls/:id/review`, and that response type lives here (`review-api.ts:64-69`), not in `platform.ts`. Verified 2026-08-30: both copies are byte-identical today, and B's diff touches only `agent-runner/**`, so there is no collision. The addition is optional-shaped, so B's own use of the type is unaffected. |
 | `vendor/shared/contracts/eval-ci.ts` (both copies) | **B** (and L06) | A never opens it, including for the eval-case stub. |
 | `vendor/shared/index.ts` (both copies) | **neither** | Already re-exports all three contract files (`index.ts:26`). No edit is expected from either stream; if one becomes necessary it is appended, never reordered. |
 | `client/src/vendor/ui/nav.ts` | **A** | B adds its CI Runs entry to the version A merged, not to `main`'s. |
@@ -242,7 +248,7 @@ each of steps 2 and 4 the integration database `devdigest_l07` needs it explicit
 - As a reviewer who navigated away and came back, I want the last multi-agent run still on
   screen with a clear way to start a new one, so that closing a tab does not lose the result.
 - As the person marking this lesson, I want an actual recorded 1-vs-3 measurement in the
-  repository, so that the parallelism claim is a number rather than an assertion.
+  repository, so that the cost of fan-out is a number rather than an assertion.
 - As a reviewer who has never opened this product before, with no agents enabled and no runs,
   I want the screen to tell me what to do instead of showing an empty grid.
 
@@ -282,9 +288,9 @@ English. Five patterns and the reference: `README.md` § EARS.
 | AC-27 | ubiquitous | Режим Tabs + detail повинен (shall) показувати для кожної знахідки `confidence`, `suggested fix` і дії Accept, Dismiss, Learn, `Turn into eval case`. | Компонентний тест на присутність усіх полів і кнопок |
 | AC-28 | unwanted | ЯКЩО натиснуто `Turn into eval case` або `Learn`, ТОДІ застосунок повинен (shall) показати помітну помилку з назвою уроку, який володіє ендпоїнтом, і НЕ вдавати успіх — доки відповідний ендпоїнт не існує. | Компонентний тест: клік → видиме повідомлення; grep підтверджує відсутність маршрутів `learn` і eval у `server/src/modules/*/routes.ts` (форма чесної заглушки з L04, `specs/L04-mcp-server.md`) |
 | AC-29 | event-driven | КОЛИ рецензент вмикає `Show only conflicts`, блок `Where agents disagree` повинен (shall) сховати всі неконфліктні групи, а агент, який переглянув це місце й не позначив його, повинен (shall) відображатися підписом `did not flag`. | Компонентний тест: увімкнений перемикач лишає лише конфлікти; take з `verdict: 'ignored'` рендериться як `did not flag` (артборд `ma-cols`) |
-| AC-30 | event-driven | КОЛИ рецензент повертається на сторінку Multi-Agent Review pull request, у якого вже є мультизапуск, застосунок повинен (shall) показати ОСТАННІЙ мультизапуск і кнопку `Start New Review`, а не порожній екран чи автозапуск. | e2e `11-multi-agent-review.flow.json`: запуск → перехід геть → повернення → колонки на місці, нуль нових `agent_runs` |
+| AC-30 | event-driven | КОЛИ рецензент повертається на сторінку Multi-Agent Review pull request, у якого вже є мультизапуск, застосунок повинен (shall) показати ОСТАННІЙ мультизапуск і кнопку `Start New Review`, а не порожній екран чи автозапуск. | e2e `11-multi-agent-review.flow.json` над **засіяним** мультизапуском (AC-36): перехід геть → повернення → колонки на місці, кнопка `Start New Review` присутня, нуль нових `agent_runs`. Флоу не запускає рев'ю: `e2e/CLAUDE.md` § Conventions забороняє крок, що може викликати модель, і в герметичному стеку немає ключа |
 | AC-31 | unwanted | ЯКЩО у workspace немає жодного увімкненого агента, ТОДІ сторінка повинна (shall) показати порожній стан із CTA на `/agents`, а не порожню сітку колонок. | Компонентний тест на порожній список (артборд `e-ma`) |
-| AC-32 | ubiquitous | Кожен файл `vendor/shared`, який змінює ЦЯ робота — `contracts/observability.ts` і `contracts/platform.ts` — повинен (shall) бути байт-ідентичним у серверній і клієнтській копіях; решта дерева, що розійшлася раніше, до цього критерію не належить. | `cmp -s` окремо по кожному з цих двох файлів; `pnpm typecheck` у `server/` і в `client/`; `scripts/pr-self-review-checks.sh` (`check:contract-mirror`) |
+| AC-32 | ubiquitous | Кожен файл `vendor/shared`, який змінює ЦЯ робота — `contracts/observability.ts`, `contracts/platform.ts` і `contracts/review-api.ts` — повинен (shall) бути байт-ідентичним у серверній і клієнтській копіях; решта дерева, що розійшлася раніше, до цього критерію не належить. | `cmp -s` окремо по кожному з цих трьох файлів; `pnpm typecheck` у `server/` і в `client/`; `scripts/pr-self-review-checks.sh` (`check:contract-mirror`) |
 | AC-33 | ubiquitous | `client/src/vendor/ui/nav.ts` повинен (shall) отримати рівно один новий пункт `NAV` із `href` і `gKey`, і жоден інший файл під `client/src/vendor/ui/` не повинен (shall) з'явитися в дифі цієї роботи. | `git diff --name-only` проти `lesson-07`: під `vendor/ui/` рівно один шлях; тест сайдбару на новий пункт |
 | AC-34 | ubiquitous | Диф цієї роботи повинен (shall) не містити жодного шляху під `ci/`, `agent-runner/`, `reviewer-core/`, `mcp/`, і не змінювати `server/src/modules/reviews/run-executor.ts`. | `git diff --name-only` проти `lesson-07`, звірений із розділом `Owned directories and files` |
 | AC-35 | ubiquitous | Репозиторій повинен (shall) містити записаний замір «1 агент проти 3» на одному й тому самому pull request із фактичними числами: wall-clock кожного прогону, сумарні токени, сумарна вартість і кількість знахідок — із явною згадкою, що співвідношення не зобов'язане бути 3×. | Рядок у `docs/retro/ledger.md` з усіма чотирма числами для обох прогонів; ручний прогін, спостерігач звіряє числа з `GET /pulls/:id/runs` |
@@ -602,6 +608,8 @@ cmp -s server/src/vendor/shared/contracts/observability.ts \
        client/src/vendor/shared/contracts/observability.ts
 cmp -s server/src/vendor/shared/contracts/platform.ts \
        client/src/vendor/shared/contracts/platform.ts
+cmp -s server/src/vendor/shared/contracts/review-api.ts \
+       client/src/vendor/shared/contracts/review-api.ts
 
 # boundary discipline (AC-33, AC-34)
 git diff --name-only lesson-07...HEAD | grep -E '^(ci/|agent-runner/|reviewer-core/|mcp/)' # expect no output
@@ -618,6 +626,11 @@ them only if the diff proves otherwise.
 - **The live log does not survive an API restart.** `RunBus` is in memory by design
   (`docs/architecture.md:174-181`); the durable record is the `run_traces` document, written
   even on failure and cancellation. Not a bug, not this stream's work.
+- **Agents run one after another, not at once.** The columns fill sequentially, so a
+  three-agent run takes roughly three single-agent runs minus the shared diff and intent
+  (`run-executor.ts:106,120`). This is the third and largest reason AC-35's ratio is what it
+  is, and the measurement must say so. Making it concurrent is one `Promise.allSettled` away
+  and was deliberately declined for this stream (`Non-goals`).
 - **The estimate is coarse.** It averages completed runs and cannot know that an agent's
   prompt or model changed since (`Inputs and provenance`). It is labelled an estimate.
 - **`Turn into eval case` and `Learn` are broken on purpose** until L06 and the memory work
