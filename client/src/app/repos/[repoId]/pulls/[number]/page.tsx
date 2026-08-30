@@ -102,6 +102,18 @@ export default function PRDetailPage() {
   // it the next time they open Files for something else.
   const setTab = (t: string) => setParams({ tab: t, findingId: null, file: null, line: null });
   const openFinding = (findingId: string) => setParams({ tab: "findings", findingId });
+  /**
+   * Open a file in the Files tab, from a review-focus row in the PR brief.
+   *
+   * ONE `setParams` call, never two: two calls in the same tick both read the
+   * same `search`, and the second overwrites the first — the same reason
+   * `openFinding` above moves `tab` and `findingId` together.
+   *
+   * `line` is dropped rather than written as "null" when there is none, so the
+   * URL never carries a line that does not exist.
+   */
+  const openFile = (path: string, line: number | null) =>
+    setParams({ tab: "diff", file: path, line: line == null ? null : String(line) });
 
   // Reviews come newest-first; each is its own run (grouped into accordions).
   const runs = reviews ?? [];
@@ -182,7 +194,7 @@ export default function PRDetailPage() {
 
       <div style={{ padding: "24px 32px 44px", display: "flex", flexDirection: "column", gap: 24, maxWidth: 1080, margin: "0 auto" }}>
         {tab === "overview" && (
-          <OverviewTab prId={prId} prBody={pr.body} />
+          <OverviewTab prId={prId} prBody={pr.body} onOpenFile={openFile} />
         )}
 
         {tab === "findings" && (
