@@ -238,6 +238,38 @@ export const CiResultArtifact = z.object({
 });
 export type CiResultArtifact = z.infer<typeof CiResultArtifact>;
 
+/**
+ * Request body for `POST /ci/ingest` — what a CI job posts back after a review.
+ *
+ * Strict on purpose (both here and on `result`): an unknown key is a runner the
+ * studio does not understand, and silently dropping it would record a run whose
+ * numbers nobody can explain.
+ */
+export const CiIngestInput = z
+  .object({
+    /** "owner/name" of the repository the job ran in. */
+    repo: z.string().min(1),
+    pr_number: z.number().int(),
+    /** Full 40-character head SHA the job reviewed. */
+    commit_sha: z.string().regex(/^[0-9a-f]{40}$/),
+    /** Link to the Actions job that produced the artifact. */
+    run_url: z.string().url(),
+    /** The runner's own exit code — rendered, never re-derived. */
+    exit_code: z.number().int(),
+    result: CiResultArtifact.strict(),
+  })
+  .strict();
+export type CiIngestInput = z.infer<typeof CiIngestInput>;
+
+/** Response of `GET /agents/:id/ci` — everything the agent's CI tab renders. */
+export const AgentCiView = z.object({
+  installations: z.array(CiInstallation),
+  runs: z.array(CiRun),
+  /** Version of the runner bundle the studio would export today. */
+  runner_version: z.string(),
+});
+export type AgentCiView = z.infer<typeof AgentCiView>;
+
 // ===========================================================================
 // Conformance (PRD ↔ PR) — API record (the analysis shape is `Conformance`)
 // ===========================================================================
