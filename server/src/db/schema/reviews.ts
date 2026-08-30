@@ -1,5 +1,16 @@
 import { sql } from 'drizzle-orm';
-import { pgTable, uuid, text, integer, jsonb, timestamp, doublePrecision } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  uuid,
+  text,
+  integer,
+  jsonb,
+  timestamp,
+  doublePrecision,
+  serial,
+  index,
+  uniqueIndex,
+} from 'drizzle-orm/pg-core';
 import { now } from './_shared';
 import { workspaces } from './core';
 import { pullRequests } from './pulls';
@@ -117,9 +128,41 @@ export const prIntent = pgTable('pr_intent', {
   generatedAt: timestamp('generated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
-export const prBrief = pgTable('pr_brief', {
-  prId: uuid('pr_id')
-    .primaryKey()
-    .references(() => pullRequests.id, { onDelete: 'cascade' }),
-  json: jsonb('json').notNull(),
-});
+/**
+ * One row per BRIEF, not one per pull request: the table is a history, so the Why
+ * Timeline can show what changed between two generations of the same PR's brief.
+ * `state_key` is the SHA-256 of the fully assembled, fully trimmed model input, so
+ * an unchanged input upserts the row it already wrote instead of adding a second.
+ */
+export const prBrief = pgTable(
+  'pr_brief',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    prId: uuid('pr_id')
+      .notNull()
+      .references(() => pullRequests.id, { onDelete: 'cascade' }),
+    /** SHA-256 of the assembled+trimmed model input. The cache key AND the upsert target. */
+    stateKey: text('state_key').notNull(),
+    /** The commit the brief was generated at — reported, never acted on. */
+    headSha: text('head_sha').notNull(),
+    /**
+     * Table-wide `serial`, NOT a timestamp and NOT a per-PR counter. `defaultNow()` is
+     * the TRANSACTION's timestamp, so two rows written together tie to the microsecond
+     * and "latest" becomes planner order. The sequence allocates outside the transaction,
+     * so two rows written together get strictly increasing values with no read-modify-write
+     * race. Per-PR numbering (1·2·3 on the card) is derived in code from the ordered list.
+     */
+    seq: serial('seq').notNull(),
+    json: jsonb('json').notNull(),
+    /**
+     * NOT the `now()` helper: that one is hardcoded to a column literally named
+     * `created_at`, and this row is upserted in place on an unchanged `state_key`, so
+     * the honest name is when the brief was last GENERATED.
+     */
+    generatedAt: timestamp('generated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    uq: uniqueIndex('pr_brief_pr_state_uq').on(t.prId, t.stateKey),
+    seqIdx: index('pr_brief_pr_seq_idx').on(t.prId, t.seq), // timeline read + the 20-row cap
+  }),
+);
