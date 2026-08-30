@@ -95,20 +95,27 @@ export const BRIEF_TRIM_MAX_FILES = 12;
 export const BRIEF_MAX_HISTORY = 20;
 
 /**
- * Per-request ceiling for the generation.
+ * Wall-clock ceiling for the generation, honoured by every provider.
  *
- * `INTENT_TIMEOUT_MS` exactly, and for the same reason: one synchronous
- * structured POST with a human watching a spinner, a few thousand tokens in and
- * a small object out.
+ * NOT `INTENT_TIMEOUT_MS`, which it used to copy. Intent emits ~214 output
+ * tokens; a brief emits 750-900, so "the same shape of call" was true of the
+ * request and false of the response, and the number was inherited rather than
+ * measured.
  *
- * Honoured by the OpenAI and Anthropic adapters, which read `req.timeoutMs`.
- * `OpenRouterProvider` — the default here — fixes its timeout at construction
- * (90 s) and ignores the per-request field, so this value only binds once a
- * workspace overrides the model onto another provider (root `INSIGHTS.md`,
- * 2026-08-06). Do not "fix" that here: it belongs where `Container.buildLlm`
- * constructs the provider.
+ * Measured on `deepseek-v4-flash` through OpenRouter: healthy calls land at
+ * 14 s, 18 s and 23 s, and OpenRouter intermittently stalls one outright — runs
+ * of 126 s and >60 s were both seen. The three numbers have to be read together:
+ * a stalled attempt is cut at `OPENROUTER_ATTEMPT_TIMEOUT_MS` (30 s,
+ * `platform/container.ts`) and retried, so the budget must fit TWO attempts plus
+ * the retry's own work, or the retry exists only on paper. 30 + 30 = 60 was
+ * exactly the old ceiling, which is why a stall still failed with the per-attempt
+ * limit already fixed.
+ *
+ * 90 s buys a stalled attempt, a healthy retry and margin. It is a ceiling for
+ * the pathological case, not a target: the spinner a human actually watches ends
+ * in about twenty seconds.
  */
-export const BRIEF_TIMEOUT_MS = 60_000;
+export const BRIEF_TIMEOUT_MS = 90_000;
 
 /**
  * Deadline for the linked-issue fetch, separately from the model call.

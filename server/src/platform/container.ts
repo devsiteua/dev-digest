@@ -44,6 +44,13 @@ import { type DepGraph, DepCruiseGraph } from '../adapters/depgraph/index.js';
 import { type Tokenizer, TiktokenTokenizer } from '../adapters/tokenizer/index.js';
 
 /**
+ * How long ONE OpenRouter HTTP attempt may take before the SDK retries it.
+ * Deliberately shorter than every `req.timeoutMs` any caller passes — see the
+ * comment at its use site in `buildLlm`.
+ */
+const OPENROUTER_ATTEMPT_TIMEOUT_MS = 30_000;
+
+/**
  * DI container. One per app instance. Holds config, db, the JobRunner,
  * the SSE bus, and lazily-constructed adapters resolved through SecretsProvider.
  *
@@ -328,6 +335,17 @@ export class Container {
       const key = await this.secrets.get('OPENROUTER_API_KEY');
       if (!key) throw new ConfigError('OPENROUTER_API_KEY is not configured');
       return new OpenRouterProvider(key, {
+        // PER-ATTEMPT, and it must stay well under the shortest wall-clock budget
+        // a caller passes as `req.timeoutMs` (60 s today: intent, the brief).
+        // The library default is 90 s, which is LONGER than that budget — so a
+        // stalled attempt could never be retried inside it, and one stall meant
+        // certain failure instead of a fast second try.
+        //
+        // Measured against `deepseek-v4-flash` on this workload: a healthy call
+        // is ~14 s, while two stalled ones took 126 s and >60 s. 30 s is twice
+        // the healthy figure, so it does not cut a working call short, and it
+        // leaves room for one retry inside a 60 s budget.
+        timeoutMs: OPENROUTER_ATTEMPT_TIMEOUT_MS,
         estimateCost: (model, tokensIn, tokensOut) =>
           this.priceBook.estimate(model, tokensIn, tokensOut),
       });

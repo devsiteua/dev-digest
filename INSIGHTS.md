@@ -404,7 +404,28 @@ Takeaway: a per-request timeout only binds on OpenAI/Anthropic. To change it for
           constructor.
 Evidence: reviewer-core/src/llm/openrouter.ts:54; server/src/adapters/llm/openai.ts:66;
           server/src/platform/container.ts (buildLlm); server/src/modules/conventions/constants.ts
-Status:   open — documented in the L02 spec's Risks; fix only if a scan actually times out
+Status:   resolved 2026-08-30 — a scan did not time out, but a BRIEF did, and in front of a
+          user: `POST /pulls/:id/brief` ran 126 s against a 60 s `BRIEF_TIMEOUT_MS`.
+          Three changes, because the bug was three-layered:
+          1. `completeStructured` now enforces `req.timeoutMs` as a WALL-CLOCK budget with an
+             AbortController, so the field binds on OpenRouter too. AbortController and not the
+             siblings' `Promise.race`: racing abandons the request but leaves it in flight,
+             still spending tokens nobody is waiting for. One signal covers every attempt, so a
+             retry does not restart the budget. Five tests in
+             `reviewer-core/test/openrouter-timeout.test.ts`, four of which go red without it.
+          2. `Container.buildLlm` now passes `timeoutMs: 30_000` — the PER-ATTEMPT value this
+             entry said was the place to set it. The library's 90 s default was LONGER than any
+             caller's budget, so the SDK could never retry inside one.
+          3. `BRIEF_TIMEOUT_MS` 60 s → 90 s. The two above are not enough on their own:
+             30 + 30 = 60 was exactly the old ceiling, so a stalled attempt still failed with a
+             retry that had no room to finish.
+          **The number that made all three legible: a healthy call is 14-28 s** (five
+          consecutive live runs), while OpenRouter intermittently stalls one outright. Without
+          measuring the healthy case, any of the three could have been "fixed" to a number that
+          merely hid the other two.
+          Still true and NOT changed: `maxRetries` keeps the same asymmetry — OpenRouter reads
+          `req.maxRetries` for schema reprompts while network retries come from the SDK
+          constructor.
 
 ### 2026-08-06 · `/pr-self-review --override` cannot unblock a scripted CRITICAL, though both the skill and the checks say it can
 
