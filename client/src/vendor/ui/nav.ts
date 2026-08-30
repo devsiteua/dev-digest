@@ -25,9 +25,10 @@ export interface NavGroup {
  * more from the code), and a flat list gave no hint that they belong together.
  *
  * The design's third group (GLOBAL: Memory, Multi-Agent Review, Agent
- * Performance, CI Runs) and its `eval` item are later lessons, so they are
- * absent rather than disabled — a nav entry to a route that does not exist is
- * worse than no entry.
+ * Performance, CI Runs) is a later lesson, so it is absent rather than disabled
+ * — a nav entry to a route that does not exist is worse than no entry. The
+ * `eval` item WAS in that category and no longer is: `/eval` exists as of L06,
+ * so the entry follows its route rather than preceding it.
  *
  * Both consumers (`useGlobalShortcuts`, `useShellCommands`) flatten NAV, so the
  * grouping is a Sidebar concern only and adding a section changes no shortcut.
@@ -48,6 +49,10 @@ export const NAV: NavGroup[] = [
       // Deliberately no `gKey`: "c" is Conventions', and reshuffling a shipped
       // shortcut is a worse change than one nav entry without one (AC-25).
       { key: "context", label: "Project Context", icon: "FileText", href: "/repos/:repoId/context" },
+      // Also no `gKey`, for the same reason and one more: the design gives this
+      // item no shortcut at all, so inventing one would be the nav diverging
+      // from the artboard rather than following it.
+      { key: "eval", label: "Eval Dashboard", icon: "Gauge", href: "/eval" },
     ],
   },
 ];
