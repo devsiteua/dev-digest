@@ -426,7 +426,21 @@ Takeaway: for a scripted CRITICAL there are only two real options — change the
           from a TS-only enum widening. Either teach section 3 about the override, or stop
           suggesting it there.
 Evidence: scripts/pr-self-review-gate.sh:60-78, .claude/skills/pr-self-review/SKILL.md §7
-Status:   open
+Status:   resolved 2026-08-30 — section 3 now reads the override before it blocks, taking the
+          entry's own first option ("teach section 3 about the override"). It is honoured only
+          when `override.reason` is present AND the verdict's `diff_sha` equals the current
+          digest, so it still retires itself on the next edit; a digest that cannot be computed
+          is not a match, deliberately unlike the file's general "an internal error allows the
+          command" policy, because here an error would wave a CRITICAL through.
+          `scripts/test-pr-self-review.sh` goes 41 passed / 4 failed → 42 / 3: it fixes
+          "a recorded override releases a failing verdict" and breaks nothing. The three that
+          remain share one cause the suite names itself in its first line —
+          "clean worktree already fires: check:vendor-ui" — the same authorised `nav.ts` edit,
+          which makes the two "a passing verdict allows" cases fail downstream. They go green
+          when that edit stops firing, not through this file.
+          The second half of the takeaway still stands and is NOT done: `check:contract-mirror`
+          comparing changed lines, and `check:schema-migration` unable to tell DDL from a TS-only
+          enum widening, are still heuristics that cannot see intent.
 
 ### 2026-08-02 · The seed now creates one `agent_run`, and the guard that made it upgradeable
 

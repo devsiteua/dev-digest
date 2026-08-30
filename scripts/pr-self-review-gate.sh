@@ -63,6 +63,41 @@ if [[ -x "$CHECKS" ]]; then
   if [[ -n "$SCRIPTED" ]]; then
     BLOCKERS="$(printf '%s' "$SCRIPTED" | jq -r '[.[] | select(.severity == "CRITICAL")] | length' 2>/dev/null || echo 0)"
     if [[ "${BLOCKERS:-0}" -gt 0 ]]; then
+      # An override recorded for THIS EXACT diff is honoured here, not only in
+      # section 6. Without this, the escape hatch the message below advertises
+      # does nothing for the findings that print it: the override lives in the
+      # verdict file, section 6 is where it is read, and this section used to
+      # `exit 2` before ever getting there. Root INSIGHTS.md, 2026-08-06 — and
+      # it went on to block a second lesson's pull request over the same
+      # authorised `vendor/ui/nav.ts` edit before it was fixed.
+      #
+      # Binding to `diff_sha` is the whole safety property: the override holds
+      # only while the code it was written about is unchanged, so it retires
+      # itself on the next edit instead of standing open. A digest that cannot
+      # be computed is NOT a match. This path allows only on positive evidence,
+      # deliberately unlike the file's general "an internal error allows the
+      # command" policy: there, an error costs a review; here it would wave
+      # through a CRITICAL.
+      OV_REASON=""
+      if [[ -f "$VERDICT" && -x "$HASHER" ]]; then
+        OV_REASON="$(jq -r '.override // empty | .reason // empty' "$VERDICT" 2>/dev/null || echo "")"
+        OV_SHA="$(jq -r '.diff_sha // ""' "$VERDICT" 2>/dev/null || echo "")"
+        OV_NOW="$("$HASHER" 2>/dev/null || echo "")"
+        if [[ -z "$OV_NOW" || -z "$OV_SHA" || "$OV_NOW" != "$OV_SHA" ]]; then
+          OV_REASON=""
+        fi
+      fi
+      if [[ -n "$OV_REASON" ]]; then
+        {
+          echo "pr-self-review: $BLOCKERS scripted CRITICAL(s) overridden for this diff."
+          echo "Reason on record: \"$OV_REASON\""
+          printf '%s' "$SCRIPTED" | jq -r '.[] | select(.severity == "CRITICAL")
+            | "  • \(.title) — \(.file):\(.start_line)"' 2>/dev/null
+          echo "Recorded against this diff only; any change to the code retires it."
+          echo "Put that reason in the PR description."
+        } >&2
+        exit 0
+      fi
       {
         echo "BLOCKED: pr-self-review found $BLOCKERS critical issue(s) in the changes you are about to open a PR for."
         echo
