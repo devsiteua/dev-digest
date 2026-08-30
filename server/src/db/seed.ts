@@ -1,12 +1,28 @@
 import 'dotenv/config';
 import { createDb, type Db } from './client.js';
 import * as t from './schema.js';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 // TYPE-only, and the one thing `src/db/` may reach for above itself: it is a
 // contract, not a module. Typing the seeded `pr_brief.json` as the shape the
 // server parses back out of it means a later contract change breaks this file
 // at `pnpm typecheck` rather than at the first `GET`.
-import type { PrBriefRecord } from '@devdigest/shared';
+//
+// ONE EXCEPTION, added with the eval case set below: `serializeDiff` and
+// `expectationFromFinding` are VALUE imports from `modules/evals/helpers.js`.
+// A seeded case and a case created through `POST /eval-cases` have to be the
+// same bytes (AC-11), and one shared assembler is the only way that can be true
+// — two writers of the same snapshot converge by construction or not at all.
+// `arch:check` permits it: `db-schema-only-in-data-layer` constrains
+// `src/modules/** → src/db/**`, and nothing constrains this direction.
+import type { EvalCaseMeta, PrBriefRecord } from '@devdigest/shared';
+import { parseUnifiedDiff } from '../adapters/git/diff-parser.js';
+import { expectationFromFinding, serializeDiff } from '../modules/evals/helpers.js';
+import {
+  SEED_EVAL_CASE_KEYS,
+  SEED_EVAL_FINDINGS,
+  SEED_FINDING_DECISIONS,
+  findingKey,
+} from './seed-evals.js';
 import {
   GENERAL_REVIEWER_PROMPT,
   SECURITY_REVIEWER_PROMPT,
@@ -1144,11 +1160,184 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
     });
   }
 
+  // ---- L06: a decided review history, and the eight-case eval set it builds ----
+  //
+  // THREE blocks, each guarded on its OWN absence and all of them OUTSIDE the
+  // `if (!pr)` branch above. Anything inside that branch is invisible on a
+  // database seeded before this feature existed (root `INSIGHTS.md`, 2026-08-02),
+  // and the whole point of this data is that an existing dev database can show
+  // the Evals tab without dropping its volume.
+  await seedEvalDemo(db, workspaceId, repoId);
+
   // NOTE: deliberately no `lastReviewedSha` on the demo PR. Setting it would flip
   // deriveReviewStatus to `reviewed`, and the PR list opens on the `needs_review`
   // filter — the demo PR would vanish from the list it is meant to demonstrate.
 
   return { workspaceId, userId };
+}
+
+/**
+ * The eval demo: an owner for the demo review, ten decided findings, eight cases.
+ *
+ * Split into its own function because it is three independent convergences and
+ * the seed's main body is already long — not because it is optional. It runs on
+ * every seed.
+ */
+async function seedEvalDemo(db: Db, workspaceId: string, repoId: string): Promise<void> {
+  const [demoPr] = await db
+    .select()
+    .from(t.pullRequests)
+    .where(and(eq(t.pullRequests.repoId, repoId), eq(t.pullRequests.number, 482)));
+  if (!demoPr) return;
+
+  const [demoReview] = await db
+    .select()
+    .from(t.reviews)
+    .where(and(eq(t.reviews.prId, demoPr.id), eq(t.reviews.model, 'seed')));
+  if (!demoReview) return;
+
+  const [generalAgent] = await db
+    .select({ id: t.agents.id })
+    .from(t.agents)
+    .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.name, 'General Reviewer')));
+
+  // ---- (a) the demo review gets an owner ----
+  //
+  // `reviews.agent_id` is nullable and the demo review was written without one,
+  // while `eval_cases.owner_id` is NOT NULL. Without this backfill there is no
+  // agent to name as the owner of a case cut from a seeded finding, and AC-01's
+  // "eval cases for the seeded agent" has no referent at all.
+  //
+  // Scoped `where agent_id is null`, so it converges on a re-seed and never
+  // reassigns a review a real run has already attributed.
+  if (generalAgent) {
+    await db
+      .update(t.reviews)
+      .set({ agentId: generalAgent.id })
+      .where(and(eq(t.reviews.id, demoReview.id), isNull(t.reviews.agentId)));
+  }
+
+  // ---- (b) ten findings, every one of them decided ----
+  //
+  // The six new rows are keyed on (review_id, file, start_line, title) and
+  // inserted only when absent. See `seed-evals.ts` for the rename caveat: this
+  // is insert-only, so editing a title there leaves the old row behind.
+  const existing = await db
+    .select({
+      id: t.findings.id,
+      file: t.findings.file,
+      startLine: t.findings.startLine,
+      title: t.findings.title,
+    })
+    .from(t.findings)
+    .where(eq(t.findings.reviewId, demoReview.id));
+  const present = new Set(existing.map((f) => `${f.file}:${f.startLine}:${f.title}`));
+
+  const missing = SEED_EVAL_FINDINGS.filter(
+    (f) => !present.has(`${f.file}:${f.startLine}:${f.title}`),
+  );
+  if (missing.length > 0) {
+    await db.insert(t.findings).values(
+      missing.map((f) => ({
+        reviewId: demoReview.id,
+        file: f.file,
+        startLine: f.startLine,
+        endLine: f.endLine,
+        severity: f.severity,
+        category: f.category,
+        title: f.title,
+        rationale: f.rationale,
+        suggestion: f.suggestion,
+        confidence: f.confidence,
+      })),
+    );
+  }
+
+  // One decision pass over everything still undecided, new rows included. Scoped
+  // to UNDECIDED findings so a user's own accept or dismiss is never overwritten
+  // by a later `pnpm db:seed` — the same reason (a) is scoped to `is null`.
+  const undecided = await db
+    .select({ id: t.findings.id, file: t.findings.file, startLine: t.findings.startLine })
+    .from(t.findings)
+    .where(
+      and(
+        eq(t.findings.reviewId, demoReview.id),
+        isNull(t.findings.acceptedAt),
+        isNull(t.findings.dismissedAt),
+      ),
+    );
+  const decidedAt = new Date();
+  for (const row of undecided) {
+    const decision = SEED_FINDING_DECISIONS[findingKey(row.file, row.startLine)];
+    if (!decision) continue;
+    await db
+      .update(t.findings)
+      .set(
+        decision === 'accepted' ? { acceptedAt: decidedAt } : { dismissedAt: decidedAt },
+      )
+      .where(eq(t.findings.id, row.id));
+  }
+
+  // ---- (c) eight eval cases for the General Reviewer ----
+  //
+  // Guarded on the OWNER having no cases at all, so a user who deleted one does
+  // not get it back on the next seed, and a re-seed adds nothing.
+  if (!generalAgent) return;
+  const existingCases = await db
+    .select({ id: t.evalCases.id })
+    .from(t.evalCases)
+    .where(
+      and(eq(t.evalCases.workspaceId, workspaceId), eq(t.evalCases.ownerId, generalAgent.id)),
+    );
+  if (existingCases.length > 0) return;
+
+  // The frozen input: the whole PR diff, assembled exactly as `diffFromPrFiles`
+  // assembles it and then put through the shared serialiser. `serializeDiff`
+  // sorts by path, so the literal order of `PR_482_FILES` here and the planner
+  // order `getPrFiles` returns to the service produce the same bytes (AC-11).
+  const parts: string[] = [];
+  for (const f of PR_482_FILES) {
+    if (!f.patch) continue;
+    parts.push(`diff --git a/${f.path} b/${f.path}`);
+    parts.push(`--- a/${f.path}`);
+    parts.push(`+++ b/${f.path}`);
+    parts.push(f.patch);
+  }
+  const inputDiff = serializeDiff(parseUnifiedDiff(parts.join('\n')));
+
+  const decided = await db
+    .select()
+    .from(t.findings)
+    .where(eq(t.findings.reviewId, demoReview.id));
+  const byKey = new Map(decided.map((f) => [findingKey(f.file, f.startLine), f]));
+
+  const rows = SEED_EVAL_CASE_KEYS.flatMap((key) => {
+    const finding = byKey.get(key);
+    if (!finding) return [];
+    const meta: EvalCaseMeta = {
+      source_finding_id: finding.id,
+      pr_id: demoPr.id,
+      pr_number: demoPr.number,
+      created_from: 'finding',
+    };
+    return [
+      {
+        workspaceId,
+        ownerKind: 'agent' as const,
+        ownerId: generalAgent.id,
+        name: finding.title,
+        inputDiff,
+        inputFiles: null,
+        inputMeta: meta,
+        // Through the same helper the service uses, so the seed cannot encode an
+        // expectation shape the creation route would never produce.
+        expectedOutput: expectationFromFinding(finding),
+        notes: null,
+      },
+    ];
+  });
+
+  if (rows.length > 0) await db.insert(t.evalCases).values(rows);
 }
 
 // CLI entrypoint
