@@ -1,0 +1,181 @@
+import type { CSSProperties } from "react";
+
+/** Co-located styles for the Export Wizard. Colours are design tokens only. */
+export const s = {
+  stepsBar: {
+    padding: "18px 20px",
+    borderBottom: "1px solid var(--border)",
+  } satisfies CSSProperties,
+  body: { padding: 20 } satisfies CSSProperties,
+  footer: { display: "flex", alignItems: "center", gap: 8 } satisfies CSSProperties,
+  footerRight: { marginLeft: "auto", display: "flex", gap: 8 } satisfies CSSProperties,
+
+  /* -- Target -- */
+  targetGrid: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 12,
+    marginBottom: 20,
+  } satisfies CSSProperties,
+  targetCard: {
+    textAlign: "left",
+    padding: 16,
+    borderRadius: 10,
+    background: "var(--bg-surface)",
+    border: "1.5px solid var(--accent)",
+    color: "var(--text-primary)",
+  } satisfies CSSProperties,
+  targetHead: { display: "flex", alignItems: "center", gap: 10 } satisfies CSSProperties,
+  targetIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    background: "var(--bg-elevated)",
+    display: "grid",
+    placeItems: "center",
+    color: "var(--accent)",
+  } satisfies CSSProperties,
+  targetName: { fontSize: 14, fontWeight: 600 } satisfies CSSProperties,
+  targetDesc: { fontSize: 12, color: "var(--text-muted)", marginTop: 8 } satisfies CSSProperties,
+
+  /* -- Preview -- */
+  previewPane: {
+    display: "grid",
+    gridTemplateColumns: "260px 1fr",
+    height: 340,
+    border: "1px solid var(--border)",
+    borderRadius: 9,
+    overflow: "hidden",
+  } satisfies CSSProperties,
+  fileList: {
+    borderRight: "1px solid var(--border)",
+    padding: 10,
+    background: "var(--bg-surface)",
+    overflow: "auto",
+  } satisfies CSSProperties,
+  fileListLabel: {
+    fontSize: 10.5,
+    fontWeight: 700,
+    color: "var(--text-muted)",
+    letterSpacing: "0.05em",
+    padding: "2px 8px 8px",
+  } satisfies CSSProperties,
+  fileRow: (active: boolean): CSSProperties => ({
+    display: "flex",
+    alignItems: "center",
+    gap: 7,
+    width: "100%",
+    padding: "5px 8px",
+    borderRadius: 5,
+    border: "none",
+    cursor: "pointer",
+    fontSize: 12,
+    textAlign: "left",
+    background: active ? "var(--accent-bg)" : "transparent",
+    color: active ? "var(--accent-text)" : "var(--text-secondary)",
+  }),
+  fileRowPath: {
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  } satisfies CSSProperties,
+  previewBody: {
+    display: "flex",
+    flexDirection: "column",
+    minWidth: 0,
+  } satisfies CSSProperties,
+  previewHead: {
+    padding: "8px 12px",
+    borderBottom: "1px solid var(--border)",
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+  } satisfies CSSProperties,
+  previewPath: { fontSize: 12, flex: 1, minWidth: 0, overflow: "hidden" } satisfies CSSProperties,
+  code: {
+    margin: 0,
+    padding: 14,
+    fontSize: 11.5,
+    lineHeight: 1.6,
+    overflow: "auto",
+    flex: 1,
+    color: "var(--text-primary)",
+    background: "var(--code-bg)",
+    whiteSpace: "pre-wrap",
+  } satisfies CSSProperties,
+  runnerNote: {
+    padding: 14,
+    fontSize: 12.5,
+    color: "var(--text-muted)",
+    lineHeight: 1.6,
+  } satisfies CSSProperties,
+  paneMessage: { padding: 16 } satisfies CSSProperties,
+
+  /* -- Configure -- */
+  form: { maxWidth: 600 } satisfies CSSProperties,
+  triggerList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+  } satisfies CSSProperties,
+  secretsBox: {
+    border: "1px solid var(--border)",
+    borderRadius: 7,
+    overflow: "hidden",
+  } satisfies CSSProperties,
+  secretRow: (last: boolean): CSSProperties => ({
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "9px 12px",
+    borderBottom: last ? "none" : "1px solid var(--border)",
+    background: "var(--bg-elevated)",
+  }),
+  secretName: { fontSize: 12, fontWeight: 600, width: 190, flexShrink: 0 } satisfies CSSProperties,
+  secretNote: { fontSize: 12, color: "var(--text-muted)", flex: 1 } satisfies CSSProperties,
+
+  /* -- Install -- */
+  installCard: {
+    padding: 18,
+    borderRadius: 10,
+    border: "1.5px solid var(--accent)",
+    background: "var(--accent-bg)",
+    marginBottom: 12,
+  } satisfies CSSProperties,
+  installHead: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 8,
+  } satisfies CSSProperties,
+  installTitle: { fontSize: 14, fontWeight: 700 } satisfies CSSProperties,
+  installBody: {
+    fontSize: 12.5,
+    color: "var(--text-secondary)",
+    lineHeight: 1.5,
+  } satisfies CSSProperties,
+  note: (tone: "info" | "bad"): CSSProperties => ({
+    display: "flex",
+    gap: 9,
+    padding: "11px 13px",
+    borderRadius: 8,
+    border: "1px solid " + (tone === "bad" ? "var(--crit)" : "var(--border)"),
+    background: tone === "bad" ? "var(--crit-bg)" : "var(--bg-surface)",
+    fontSize: 12.5,
+    lineHeight: 1.5,
+    color: "var(--text-secondary)",
+    marginBottom: 12,
+  }),
+  noteReason: {
+    fontSize: 11.5,
+    color: "var(--text-muted)",
+    marginTop: 6,
+  } satisfies CSSProperties,
+  doneRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 12,
+  } satisfies CSSProperties,
+} as const;

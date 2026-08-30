@@ -1,12 +1,14 @@
-/* AgentEditor — the agent's Config (model + system prompt) and Skills (which
-   reusable rule blocks it reviews with, and in what order) tabs. Evals/Stats/CI
-   arrive with later lessons. Tab state lives in ?tab=. */
+/* AgentEditor — the agent's Config (model + system prompt), Skills (which
+   reusable rule blocks it reviews with, and in what order) and CI (where it runs
+   on pull requests) tabs. Evals/Stats arrive with later lessons. Tab state lives
+   in ?tab=. */
 "use client";
 
 import React from "react";
 import { useTranslations } from "next-intl";
 import { Tabs } from "@devdigest/ui";
 import type { Agent } from "@devdigest/shared";
+import { CiTab } from "./_components/CiTab";
 import { ConfigTab } from "./_components/ConfigTab";
 import { SkillsTab } from "./_components/SkillsTab";
 import { TABS } from "./constants";
@@ -21,7 +23,13 @@ export function AgentEditor({ agent, tab, onTab }: { agent: Agent; tab: string; 
         <Tabs tabs={tabs} value={tab} onChange={onTab} pad="0 24px" />
       </div>
       <div style={s.body}>
-        {tab === "skills" ? <SkillsTab agent={agent} /> : <ConfigTab agent={agent} />}
+        {tab === "ci" ? (
+          <CiTab agent={agent} />
+        ) : tab === "skills" ? (
+          <SkillsTab agent={agent} />
+        ) : (
+          <ConfigTab agent={agent} />
+        )}
       </div>
     </div>
   );
