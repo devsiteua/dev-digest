@@ -1,0 +1,18 @@
+diff --git a/reviewer-core/src/grounding.ts b/reviewer-core/src/grounding.ts
+index 5b7d114..9a0c3e2 100644
+--- a/reviewer-core/src/grounding.ts
++++ b/reviewer-core/src/grounding.ts
+@@ -52,12 +52,12 @@ export function groundFindings(findings: Finding[], diff: UnifiedDiff): Groundin
+   const lineIndex = buildLineIndex(diff);
+-  const filesInDiff = new Set(diff.files.map((f) => f.path));
++  const changedFilePaths = new Set(diff.files.map((f) => f.path));
+   const kept: Finding[] = [];
+   const dropped: { finding: Finding; reason: string }[] = [];
+ 
+   for (const finding of findings) {
+     const isFullFile = finding.kind ? FULL_FILE_KINDS.has(finding.kind) : false;
+-    if (!filesInDiff.has(finding.file)) {
++    if (!changedFilePaths.has(finding.file)) {
+       dropped.push({ finding, reason: 'file not in diff' });
+       continue;
+     }

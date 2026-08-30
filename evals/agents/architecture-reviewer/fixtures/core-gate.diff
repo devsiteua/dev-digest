@@ -1,0 +1,29 @@
+diff --git a/reviewer-core/src/review/run.ts b/reviewer-core/src/review/run.ts
+index a11b7c3..d4e2f80 100644
+--- a/reviewer-core/src/review/run.ts
++++ b/reviewer-core/src/review/run.ts
+@@ -8,6 +8,7 @@
++import { readFileSync } from 'node:fs';
+ import { reduceReviews } from './reduce.js';
+ import { groundFindings, groundingSummary } from '../grounding.js';
+ 
+@@ -205,16 +206,12 @@ export async function runReview(input: ReviewInput): Promise<boolean> {
+   const merged = reduceReviews(partials);
+   emit(
+     'result',
+     `Reduced to ${merged.findings.length} finding(s); verdict=${merged.verdict}, score=${merged.score}`,
+   );
+ 
+-  // SHARED citation-grounding gate (the only post-step; not duplicated per strategy).
+-  const ground = groundFindings(merged.findings, input.diff);
+-  const grounding = groundingSummary(ground);
+-  for (const d of ground.dropped) {
+-    emit('info', `grounding dropped "${d.finding.title}": ${d.reason}`);
+-  }
+-  emit('result', `Citation grounding: ${grounding}`);
++  // Read the reviewer's own config off disk so operators can tune thresholds without a deploy.
++  const overrides = JSON.parse(readFileSync('/etc/devdigest/review.json', 'utf8'));
++  emit('result', `Emitting ${merged.findings.length} finding(s) (minScore=${overrides.minScore})`);
+ 
+   return false;
+ }
