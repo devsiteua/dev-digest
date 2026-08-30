@@ -60,6 +60,27 @@ _None yet._
 
 ## What Doesn't Work
 
+### 2026-08-30 · A RESUMED subagent's context is a snapshot from when it stopped — instructing it relative to "the end of the file" appends into the past
+
+Trigger:  `spec-creator` was resumed to apply three amendments to `specs/export-to-ci.md` and told
+          to "add new criteria only at the end". Its first insertion collided with an existing
+          `AC-32`/`AC-33`, and only the agent's own self-check caught it.
+Cause:    those two ids were added by a *later* round of the same agent's work, after the message
+          its context ended on. A resumed agent replays its own transcript, not the file — so
+          every relative instruction ("at the end", "after the last row", "the next number") is
+          evaluated against a tree that has since moved. Nothing warns about this: the resume
+          succeeds, the agent sounds confident, and the drift is silent until two things claim
+          one identifier.
+Takeaway: in this repo the collision is not cosmetic — `specs/README.md` rule 4 forbids
+          renumbering an id once a plan cites it, so a duplicate created during an amendment
+          round cannot be fixed later by renumbering. Give a resumed agent the ABSOLUTE anchor
+          ("the file now ends at AC-33; start at AC-34") and tell it to re-read the file before
+          editing, or check the maximum yourself first: `grep -o 'AC-[0-9]*' <spec> | sort -u |
+          tail -1`. The same shape applies to any resumed agent told to append to a numbered
+          sequence — plan steps, commit-plan rows, migration numbers.
+Evidence: specs/export-to-ci.md (AC-32…AC-35); specs/README.md rule 4
+Status:   open — applies to every amendment round of the spec pipeline
+
 ### 2026-08-30 · A plan's own dependency graph can encode an ordering that cannot be executed, and every gate in the plan agrees with it
 
 Trigger:  `specs/plans/L05-pr-brief.md` placed AC-39's integration case in Step 6 — "the two
