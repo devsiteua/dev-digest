@@ -1,5 +1,9 @@
 /* FindingsPanel — severity counters/filter + hide-low-confidence + j/k navigation
-   + FindingCard list, wiring the accept/dismiss action hook (A2). */
+   + FindingCard list, wiring the accept/dismiss action hook (A2) and the
+   turn-into-eval-case mutation (L06).
+
+   The card itself never fetches: it calls `onCreateEvalCase` and the mutation
+   lives here, beside the accept/dismiss one it is a sibling of. */
 "use client";
 
 import React from "react";
@@ -9,6 +13,7 @@ import type { FindingRecord } from "@devdigest/shared";
 import { severityCounts, type SeverityKey } from "@/lib/severity";
 import { FindingCard } from "../FindingCard";
 import { useFindingAction } from "../../../../../../../lib/hooks/reviews";
+import { useCreateEvalCase } from "../../../../../../../lib/hooks/evals";
 import { SeverityFilterChips } from "./_components/SeverityFilterChips";
 import { KEY_TO_ACTION } from "./constants";
 import { confidenceFiltered, nextSelection, visibleFindings } from "./helpers";
@@ -30,6 +35,16 @@ export function FindingsPanel({
 }) {
   const t = useTranslations("prReview");
   const action = useFindingAction();
+
+  /**
+   * The eval-case mutation, and which card it is running for.
+   *
+   * `pendingEvalCase` is a finding id rather than a boolean, so only the card
+   * that was clicked shows its pending state — a shared boolean would disable
+   * every control in the list while one of them saved.
+   */
+  const createEvalCase = useCreateEvalCase(null);
+  const [pendingEvalCase, setPendingEvalCase] = React.useState<string | null>(null);
   const [hideLow, setHideLow] = React.useState(false);
   const [focusIdx, setFocusIdx] = React.useState(0);
   // Per-panel, deliberately: the accordion renders one FindingsPanel per review
@@ -145,6 +160,13 @@ export function FindingsPanel({
               repoFullName={repoFullName}
               headSha={headSha}
               onAction={(act) => action.mutate({ findingId: f.id, action: act, prId })}
+              evalCasePending={pendingEvalCase === f.id}
+              onCreateEvalCase={() => {
+                setPendingEvalCase(f.id);
+                createEvalCase.mutate(f.id, {
+                  onSettled: () => setPendingEvalCase(null),
+                });
+              }}
             />
           ))
         )}

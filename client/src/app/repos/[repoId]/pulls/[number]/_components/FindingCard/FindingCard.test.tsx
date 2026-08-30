@@ -89,3 +89,82 @@ describe("FindingCard — the target of ?findingId=", () => {
     expect(scrollIntoView).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * AC-03 — the eval control has three states, and the disabled one carries its
+ * reason.
+ *
+ * Asserted on the `disabled` ATTRIBUTE rather than on "the click did nothing".
+ * This package has no `@testing-library/user-event` (`client/INSIGHTS.md`,
+ * 2026-08-22), and `fireEvent` will happily click a disabled element — so a test
+ * written as "click and expect no callback" would pass even if the button were
+ * fully enabled and merely wired to nothing.
+ */
+describe("FindingCard — turn into eval case (AC-03)", () => {
+  /* Located by the NAMED label, which is what a browser flow has to use when a
+     pull request renders one of these per finding. */
+  const evalButton = () =>
+    screen.getByRole("button", {
+      name: "Turn the finding Hardcoded Stripe secret key into an eval case",
+    });
+
+  it("is disabled on an undecided finding, and says why", () => {
+    renderWithIntl(<FindingCard f={FINDING} defaultExpanded onCreateEvalCase={() => {}} />);
+    const btn = evalButton();
+    expect(btn).toBeDisabled();
+    expect(btn).toHaveAttribute(
+      "title",
+      "Accept or dismiss this finding first — an eval case records a decision you have already made.",
+    );
+  });
+
+  it("is enabled on an accepted finding, with no disabled reason", () => {
+    renderWithIntl(
+      <FindingCard
+        f={{ ...FINDING, accepted_at: "2026-08-30T10:00:00Z" }}
+        defaultExpanded
+        onCreateEvalCase={() => {}}
+      />,
+    );
+    expect(evalButton()).toBeEnabled();
+    expect(evalButton()).not.toHaveAttribute("title");
+  });
+
+  it("is enabled on a dismissed finding", () => {
+    renderWithIntl(
+      <FindingCard
+        f={{ ...FINDING, dismissed_at: "2026-08-30T10:00:00Z" }}
+        defaultExpanded
+        onCreateEvalCase={() => {}}
+      />,
+    );
+    expect(evalButton()).toBeEnabled();
+  });
+
+  it("calls the callback — and never fetches — when a decided finding is clicked", () => {
+    const onCreateEvalCase = vi.fn();
+    renderWithIntl(
+      <FindingCard
+        f={{ ...FINDING, accepted_at: "2026-08-30T10:00:00Z" }}
+        defaultExpanded
+        onCreateEvalCase={onCreateEvalCase}
+      />,
+    );
+    fireEvent.click(evalButton());
+    expect(onCreateEvalCase).toHaveBeenCalledTimes(1);
+  });
+
+  it("goes disabled while its own mutation is in flight", () => {
+    renderWithIntl(
+      <FindingCard
+        f={{ ...FINDING, accepted_at: "2026-08-30T10:00:00Z" }}
+        defaultExpanded
+        evalCasePending
+        onCreateEvalCase={() => {}}
+      />,
+    );
+    const btn = evalButton();
+    expect(btn).toBeDisabled();
+    expect(btn).toHaveTextContent("Creating the eval case…");
+  });
+});

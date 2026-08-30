@@ -30,6 +30,8 @@ export function FindingCard({
   focusTarget,
   onAction,
   pending,
+  onCreateEvalCase,
+  evalCasePending,
   repoFullName,
   headSha,
 }: {
@@ -47,6 +49,16 @@ export function FindingCard({
   focusTarget?: boolean;
   onAction?: (action: FindingActionKind, reply?: string) => void;
   pending?: boolean;
+  /**
+   * Freeze this finding into an eval case.
+   *
+   * A callback, never a `fetch`: the mutation and the query invalidation live in
+   * `FindingsPanel` and `lib/hooks/evals.ts`, which is where the card's siblings
+   * put accept and dismiss too.
+   */
+  onCreateEvalCase?: () => void;
+  /** True while THIS card's eval-case mutation is in flight. */
+  evalCasePending?: boolean;
   repoFullName?: string | null;
   headSha?: string | null;
 }) {
@@ -79,6 +91,19 @@ export function FindingCard({
   const accepted = !!f.accepted_at;
   const dismissed = !!f.dismissed_at;
   const muted = accepted || dismissed;
+
+  /**
+   * An eval case records a decision that has already been made, so a finding
+   * with neither an accept nor a dismiss has nothing to assert (AC-03).
+   *
+   * Derived HERE, from the two fields the card already reads, rather than passed
+   * down: the disabled state and the reason for it are the same fact, and
+   * splitting them across a prop boundary is how a control ends up disabled with
+   * no explanation. The reason is the button's `title`, so it is available to a
+   * pointer and to a screen reader without a tooltip component.
+   */
+  const decided = accepted || dismissed;
+  const evalCaseReason = decided ? undefined : t("finding.makeEvalCaseUndecided");
 
   return (
     <div ref={rootRef} data-finding-id={f.id} style={s.card(!!focused, sevColor, muted)}>
@@ -137,6 +162,25 @@ export function FindingCard({
               onClick={() => onAction?.("dismiss")}
             >
               {t("finding.dismiss")}
+            </Button>
+            <Button
+              kind="ghost"
+              size="sm"
+              icon="Gauge"
+              disabled={!decided || evalCasePending}
+              title={evalCaseReason}
+              /* The accessible name carries the FINDING, not just the verb. A
+                 pull request renders one of these per finding — ten on the
+                 seeded demo — and a browser flow locating a button by name can
+                 only ever mean "whichever the runner picks first" when ten of
+                 them share a label (`e2e/INSIGHTS.md`, 2026-08-23). The fix
+                 belongs here rather than in the flow: it is also the better
+                 label for a screen reader, which otherwise hears the same three
+                 words ten times with no idea which finding is which. */
+              aria-label={t("finding.makeEvalCaseNamed", { title: f.title })}
+              onClick={() => onCreateEvalCase?.()}
+            >
+              {evalCasePending ? t("finding.makeEvalCasePending") : t("finding.makeEvalCase")}
             </Button>
           </div>
         </div>
