@@ -4,7 +4,7 @@
  */
 
 import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
-import { EVAL_MODEL, MAX_TURNS, SPAWN_TOOLS } from "../config.js";
+import { EVAL_MODEL, MAX_TURNS, SPAWN_TOOLS, EVAL_DENIED_TOOLS } from "../config.js";
 import { REPO_ROOT } from "../artifacts/paths.js";
 import { subscriptionEnv } from "./env.js";
 
@@ -62,7 +62,11 @@ export async function runClaude(prompt: string, opts: RunOptions = {}): Promise<
   const options: Options = {
     model: opts.model ?? EVAL_MODEL,
     maxTurns: opts.maxTurns ?? MAX_TURNS,
-    permissionMode: "bypassPermissions", // safe: evals only read/plan and tools are allow-listed
+    permissionMode: "bypassPermissions",
+    // The allow-list above does NOT survive bypassPermissions — a session used Edit and rewrote a
+    // committed file. `disallowedTools` is enforced by the SDK regardless of permissionMode, so
+    // this is what keeps an eval read-only against the live repo. See config.ts.
+    disallowedTools: EVAL_DENIED_TOOLS,
     systemPrompt,
     allowedTools,
     cwd: opts.cwd ?? REPO_ROOT,

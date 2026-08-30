@@ -24,8 +24,31 @@ export const COST_REGRESSION_RATIO = 1.25; // candidate mean tokens > 125% of ba
 // --- Tool allow-lists -------------------------------------------------------
 // Subagent-spawning tool name varies by harness; count both.
 export const SPAWN_TOOLS = new Set(["Task", "Agent"]);
-// workflowTask runs against the LIVE repo with bypassPermissions — keep this read-only.
+// workflowTask runs against the LIVE repo — keep this read-only.
 export const WORKFLOW_ALLOWED_TOOLS = ["Read", "Grep", "Glob", "Task", "Agent", "Skill"];
+
+/**
+ * Hard deny list, applied to EVERY eval session.
+ *
+ * `allowedTools` is not a safety control here and never was. Runs use
+ * `permissionMode: "bypassPermissions"`, which bypasses the permission system that would have
+ * enforced the allow-list — so a session simply used whatever it wanted. Observed, not theorised:
+ * a workflow run of the `engineering-insights` activation case called `Edit` (absent from
+ * WORKFLOW_ALLOWED_TOOLS) and rewrote `server/INSIGHTS.md` in the working tree, DELETING a real
+ * entry to insert one invented from the eval's own prompt. Other runs used `Bash` and `SendMessage`.
+ *
+ * `disallowedTools` is enforced by the SDK independently of `permissionMode`, so this is the list
+ * that actually holds. No eval needs to mutate anything: the tiers read, plan and answer.
+ */
+export const EVAL_DENIED_TOOLS = [
+  "Write",
+  "Edit",
+  "NotebookEdit",
+  "Bash",
+  "BashOutput",
+  "KillShell",
+  "SendMessage",
+];
 
 // --- Output verbosity -------------------------------------------------------
 // Set EVAL_QUIET to suppress per-run trace/verdict spam during multi-run aggregation.
