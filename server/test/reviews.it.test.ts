@@ -12,7 +12,7 @@ import {
 } from '../src/adapters/mocks.js';
 import * as t from '../src/db/schema.js';
 import { MAX_WORKING_DIFF_CHARS } from '@devdigest/shared';
-import { eq } from 'drizzle-orm';
+import { count, eq } from 'drizzle-orm';
 import type { Review } from '@devdigest/shared';
 
 const hasDocker = await dockerAvailable();
@@ -683,5 +683,193 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     // seed has 2 enabled agents; we may have created more above in this PR's ws.
     expect(body.runs.length).toBeGreaterThanOrEqual(2);
     await app.close();
+  });
+
+  // ---- L07: the run trigger learns a third form -----------------------------
+
+  /**
+   * `RunRequest` gained `agentIds`, and with it a rule the route schema cannot
+   * express: exactly one of the three forms. A Zod route schema can only ever
+   * answer 422, so the count lives in the service and answers 400 with
+   * `invalid_run_request` — which is why these are integration cases and not
+   * contract ones.
+   *
+   * The whole point of the pair below is that the two SHIPPED forms did not
+   * change: every existing review in the product goes through one of them.
+   */
+  describe('L07 — the three forms of RunRequest', () => {
+    const agentRunCount = async (): Promise<number> => {
+      const [row] = await pg.handle.db.select({ n: count() }).from(t.agentRuns);
+      return row!.n;
+    };
+
+    const makeAgent = async (app: Awaited<ReturnType<typeof appWith>>, name: string) =>
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/agents',
+          payload: { name, provider: 'openai', model: 'gpt-4.1', system_prompt: 's' },
+        })
+      ).json();
+
+    it('answers `{ agentId }` exactly as before, with no parent run (AC-01, AC-05, AC-07)', async () => {
+      const app = await appWith(REVIEW_FIXTURE);
+      const { pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+      const agent = await makeAgent(app, 'Legacy single');
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/pulls/${pr.id}/review`,
+        payload: { agentId: agent.id },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      // The shape the client has always read: one target, its ids and its name.
+      expect(body.pr_id).toBe(pr.id);
+      expect(body.reviews).toEqual([]);
+      expect(body.runs).toHaveLength(1);
+      expect(body.runs[0].agent_id).toBe(agent.id);
+      expect(body.runs[0].agent_name).toBe('Legacy single');
+      expect(body.runs[0].run_id).toBeTruthy();
+      // The new field is additive and says "not part of a set".
+      expect(body.multi_agent_run_id).toBeNull();
+
+      await waitForPrRuns(pg.handle.db, pr.id, { expected: 1 });
+      const [run] = await pg.handle.db
+        .select()
+        .from(t.agentRuns)
+        .where(eq(t.agentRuns.id, body.runs[0].run_id));
+      expect(run!.status).toBe('done');
+      expect(run!.multiAgentRunId).toBeNull();
+
+      await app.close();
+    });
+
+    it('answers `{ all: true }` exactly as before, and hands back the run it grouped them under (AC-01, AC-04, AC-07)', async () => {
+      const app = await appWith(REVIEW_FIXTURE);
+      const { pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/pulls/${pr.id}/review`,
+        payload: { all: true },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.pr_id).toBe(pr.id);
+      expect(body.reviews).toEqual([]);
+      expect(body.runs.length).toBeGreaterThanOrEqual(2);
+      for (const target of body.runs) {
+        expect(target.run_id).toBeTruthy();
+        expect(target.agent_id).toBeTruthy();
+        expect(target.agent_name).toBeTruthy();
+      }
+      // A fan-out is a multi-agent run, whichever of the two forms asked for it.
+      expect(body.multi_agent_run_id).toBeTruthy();
+
+      const runs = await pg.handle.db
+        .select()
+        .from(t.agentRuns)
+        .where(eq(t.agentRuns.prId, pr.id));
+      expect(runs.every((r) => r.multiAgentRunId === body.multi_agent_run_id)).toBe(true);
+
+      await waitForPrRuns(pg.handle.db, pr.id, { expected: body.runs.length });
+      await app.close();
+    });
+
+    it('answers `{ agentIds }` with one target per named agent and one parent run (AC-04, AC-07)', async () => {
+      const app = await appWith(REVIEW_FIXTURE);
+      const { pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+      const a = await makeAgent(app, 'Set member A');
+      const b = await makeAgent(app, 'Set member B');
+
+      const body = (
+        await app.inject({
+          method: 'POST',
+          url: `/pulls/${pr.id}/review`,
+          payload: { agentIds: [a.id, b.id] },
+        })
+      ).json();
+
+      expect(body.runs.map((r: { agent_id: string }) => r.agent_id)).toEqual([a.id, b.id]);
+      expect(body.multi_agent_run_id).toBeTruthy();
+
+      await waitForPrRuns(pg.handle.db, pr.id, { expected: 2 });
+      await app.close();
+    });
+
+    it('rejects every malformed form with 400 `invalid_run_request` and writes no run (AC-02)', async () => {
+      const app = await appWith(REVIEW_FIXTURE);
+      const { pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+      const agent = await makeAgent(app, 'Rejection witness');
+
+      // `runReview` is the only INSERT into `agent_runs` on this path and it runs
+      // before the response returns, so a global count is stable here.
+      const before = await agentRunCount();
+
+      const cases: Record<string, unknown>[] = [
+        // Two forms at once, both pairings.
+        { agentId: agent.id, agentIds: [agent.id] },
+        { agentId: agent.id, all: true },
+        // No form at all.
+        {},
+        // A set of nothing is not "no set given" — it is a set, and it is empty.
+        { agentIds: [] },
+      ];
+
+      for (const payload of cases) {
+        const res = await app.inject({
+          method: 'POST',
+          url: `/pulls/${pr.id}/review`,
+          payload,
+        });
+        expect(res.statusCode).toBe(400);
+        expect(res.json().error.code).toBe('invalid_run_request');
+      }
+
+      expect(await agentRunCount()).toBe(before);
+      expect(await pg.handle.db.select().from(t.agentRuns).where(eq(t.agentRuns.prId, pr.id))).toHaveLength(0);
+
+      await app.close();
+    });
+
+    it('treats `all: false` as no form given rather than as a run of nothing (AC-02)', async () => {
+      const app = await appWith(REVIEW_FIXTURE);
+      const { pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/pulls/${pr.id}/review`,
+        payload: { all: false },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.code).toBe('invalid_run_request');
+      expect(await pg.handle.db.select().from(t.agentRuns).where(eq(t.agentRuns.prId, pr.id))).toHaveLength(0);
+
+      await app.close();
+    });
+
+    it('rejects an `agentIds` that is not an array of strings before any run is created (AC-02)', async () => {
+      // The 422 half of the same rule, and the reason the 400 above cannot come
+      // from the contract: `RunRequest` rejects the SHAPE, the service rejects
+      // the combination. A body Zod cannot parse never reaches the count.
+      const app = await appWith(REVIEW_FIXTURE);
+      const { pr } = await setupRepoAndPr(pg.handle.db, workspaceId);
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/pulls/${pr.id}/review`,
+        payload: { agentIds: 'not-an-array' },
+      });
+
+      expect(res.statusCode).toBe(422);
+      expect(res.json().error.code).toBe('validation_error');
+      expect(await pg.handle.db.select().from(t.agentRuns).where(eq(t.agentRuns.prId, pr.id))).toHaveLength(0);
+
+      await app.close();
+    });
   });
 });
