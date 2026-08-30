@@ -60,6 +60,36 @@ _None yet._
 
 ## What Doesn't Work
 
+### 2026-08-30 · A criterion verified on ONE surface reads as MET while another surface breaks it — and a shared guard component is what hides it
+
+Trigger:  AC-21 of the eval pipeline: "a metric with an empty denominator renders —,
+          never 100%". `plan-verifier` returned it MET. `/pr-self-review`'s frontend
+          lane then found the Eval Dashboard printing a confident RECALL 100% on a set
+          that had asserted nothing.
+Cause:    two failures that reinforce each other. (1) The criterion is implemented on
+          THREE screens — the Evals tab, the dashboard and the comparison — and the
+          verification asked "is there a test for this AC", found `EvalsTab.test.tsx`
+          asserting exactly the right thing, and stopped. One surface's test answered
+          for three. (2) The shared component was not the guard it looked like:
+          `MetricRow` renders `—` when `denominator === 0`, correct and covered, and two
+          of its three callers handed it `traces_total` — the count of rows that RAN,
+          which is not any metric's denominator. A set built only from dismissed
+          findings has `recall_denominator` 0 and a full `traces_total`, so the guard
+          was live, tested, and never fired. Extracting the rule into a component moved
+          the defect from the rule to the ARGUMENT, where nothing was looking.
+Takeaway: for any criterion phrased about "a screen", enumerate the screens before
+          accepting a verdict — `grep` for the component or the contract field rather
+          than trusting the one test the matrix names. And when a rule is extracted into
+          a shared component, the test that matters is not "does the component obey the
+          rule" but "does every caller pass it the input the rule is about": assert the
+          rendered output at each call site, or the extraction has bought a false sense
+          of coverage. The regression tests written for this were watched failing
+          against the old code first, which is the only reason they are worth anything.
+Evidence: client/src/components/metric-row/MetricRow.tsx;
+          client/src/app/eval/_components/EvalDashboardView/EvalDashboardView.tsx;
+          server/src/vendor/shared/contracts/eval-ci.ts (EvalDashboard.current)
+Status:   open — the pattern is general; only this instance is fixed
+
 ### 2026-08-30 · Three assertions in one test needed their literals updated, and the fourth looked identical — updating it would have deleted the control
 
 Trigger:  `seed.ts` now decides ten findings instead of four, so the per-file `finding_lines`
