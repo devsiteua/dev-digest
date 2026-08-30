@@ -78,8 +78,8 @@ const POPULATED: EvalDashboard = {
       citation_accuracy: 1,
       matched_count: 1,
       expected_count: 1,
-    reported_count: 3,
-    precision_denominator: 1,
+      reported_count: 3,
+      precision_denominator: 1,
       duration_ms: 1200,
       cost_usd: 0.005,
     },
@@ -98,8 +98,8 @@ const POPULATED: EvalDashboard = {
       citation_accuracy: null,
       matched_count: null,
       expected_count: null,
-    reported_count: null,
-    precision_denominator: null,
+      reported_count: null,
+      precision_denominator: null,
       duration_ms: 90,
       cost_usd: null,
     },
@@ -185,6 +185,36 @@ describe("EvalDashboardView (AC-23)", () => {
     const row = document.querySelector('[data-run-id]') as HTMLElement;
     expect(within(row).getAllByText("—").length).toBeGreaterThan(0);
     expect(within(row).queryByText("100%")).not.toBeInTheDocument();
+  });
+
+  it("precision reads its own denominator, not everything the agent said", () => {
+    // The regression this pins. `reported_count` is every finding the agent
+    // produced — most of a whole-PR diff is unjudged — and a cell reading it
+    // would print a confident percentage for a ratio computed over nothing.
+    // The fixture separates the two: three findings reported, none of them
+    // judged. Reading the wrong field turns the dash below into a third 100%.
+    dashboard.data = {
+      ...POPULATED,
+      recent_runs: [
+        {
+          ...POPULATED.recent_runs[0]!,
+          status: "passed",
+          recall: 1,
+          matched_count: 2,
+          expected_count: 2,
+          precision: 1,
+          precision_denominator: 0,
+          citation_accuracy: 1,
+          reported_count: 3,
+          cost_usd: 0.004,
+        },
+      ],
+    };
+    renderPage();
+
+    const row = document.querySelector("[data-run-id]") as HTMLElement;
+    expect(within(row).getAllByText("100%")).toHaveLength(2); // recall, citation
+    expect(within(row).getAllByText("—")).toHaveLength(1); // precision alone
   });
 
   it("says so when there are no runs, instead of an empty table", () => {
