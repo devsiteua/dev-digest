@@ -59,6 +59,7 @@ export type EvalsApi = Pick<
   | 'listBatchesForAgent'
   | 'dashboard'
   | 'compare'
+  | 'reapStaleBatches'
 >;
 
 export class EvalsService {
@@ -209,7 +210,7 @@ export class EvalsService {
   async getBatch(workspaceId: string, batchId: string): Promise<EvalRunBatchDetail> {
     const batch = await this.repo.getBatch(workspaceId, batchId);
     if (!batch) throw new NotFoundError('Eval run not found');
-    const runs = await this.repo.listRunsForBatches([batch.id]);
+    const runs = await this.repo.listRunsForBatches(workspaceId, [batch.id]);
     return { batch: toEvalRunBatch(batch), runs: runs.map(toEvalRunRecord) };
   }
 
@@ -244,7 +245,10 @@ export class EvalsService {
     const now = aggregateMetrics(current);
     const before = aggregateMetrics(previous);
 
-    const runs = await this.repo.listRunsForBatches(current.map((b) => b.id));
+    const runs = await this.repo.listRunsForBatches(
+      workspaceId,
+      current.map((b) => b.id),
+    );
     const ran = runs.filter((r) => r.status !== 'errored');
 
     return {
@@ -255,6 +259,14 @@ export class EvalsService {
         recall: now.recall,
         precision: now.precision,
         citation_accuracy: now.citationAccuracy,
+        // Each ratio's own denominator. `traces_total` below counts rows that
+        // ran and is NOT interchangeable with any of these: a set built only
+        // from dismissed findings has `recall_denominator` 0 and a full
+        // `traces_total`, and a screen guarding on the latter renders the
+        // vacuous 1 as 100%.
+        recall_denominator: now.recallDenominator,
+        precision_denominator: now.precisionDenominator,
+        citation_denominator: now.citationDenominator,
         traces_passed: ran.filter((r) => r.status === 'passed').length,
         traces_total: ran.length,
         cost_usd: now.costUsd,
@@ -269,8 +281,25 @@ export class EvalsService {
       },
       trend: [],
       alert: null,
-      recent_runs: runs.slice(0, 20).map(toEvalRunRecord),
+      // `listRunsForBatches` orders ASCENDING, because `getBatch` and `compare`
+      // both want a stable chronological list. This field does not: it is named
+      // `recent_runs` and slicing the head of an ascending read returns the
+      // OLDEST rows. Reverse before slicing.
+      recent_runs: runs
+        .slice()
+        .reverse()
+        .slice(0, 20)
+        .map(toEvalRunRecord),
     };
+  }
+
+  /**
+   * Boot-time cleanup, called once from `app.ts` beside its review twin. See
+   * `EvalsRepository.reapStaleBatches` for why a stuck row here is a lock rather
+   * than a cosmetic defect.
+   */
+  async reapStaleBatches(): Promise<number> {
+    return this.repo.reapStaleBatches();
   }
 
   /**
@@ -285,7 +314,7 @@ export class EvalsService {
     const b = await this.repo.getBatch(workspaceId, bId);
     if (!a || !b) throw new NotFoundError('Eval run not found');
 
-    const runs = await this.repo.listRunsForBatches([a.id, b.id]);
+    const runs = await this.repo.listRunsForBatches(workspaceId, [a.id, b.id]);
     const byCase = new Map<string, { name: string; a?: EvalRunStatusValue; b?: EvalRunStatusValue }>();
     for (const r of runs) {
       const entry = byCase.get(r.caseId) ?? { name: r.caseName ?? 'Deleted case' };

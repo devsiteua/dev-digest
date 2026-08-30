@@ -102,6 +102,19 @@ export const EvalRunRecord = z.object({
   /** The numerator and denominator behind `recall`, so a row is readable alone. */
   matched_count: z.number().int().nullable(),
   expected_count: z.number().int().nullable(),
+  /**
+   * How many findings the run reported for this case — `precision`'s denominator.
+   *
+   * Derived from the stored `actual_output`, not a column: the review was already
+   * persisted whole, so this needs no migration. It exists because a ratio whose
+   * denominator is 0 is stored as `1` (the contract cannot carry `null`), and a
+   * screen with no way to tell that `1` from a real 100% prints a number nobody
+   * measured. `citation_accuracy` has no denominator of its own on the row — its
+   * drop lists are not persisted — so it is guarded by this one, which is
+   * conservative in the safe direction: it can show a dash where a real value
+   * exists, never a fabricated percentage.
+   */
+  reported_count: z.number().int().nullable(),
   duration_ms: z.number().int().nullable(),
   cost_usd: z.number().nullable(),
 });
@@ -204,6 +217,20 @@ export const EvalDashboard = z.object({
     recall: z.number(),
     precision: z.number(),
     citation_accuracy: z.number(),
+    /**
+     * Each metric's OWN denominator, and not one shared count.
+     *
+     * `traces_total` below is the number of per-case rows that ran; it is not
+     * the denominator of any of the three ratios and must never be used as one.
+     * A set built only from dismissed findings asserts no `must_find`
+     * expectation at all, so `recall_denominator` is 0 while `traces_total` is
+     * the size of the set — and a screen that guards on the wrong one prints
+     * the vacuous `1` as a confident 100%, which is the single failure this
+     * whole feature exists to remove one level up.
+     */
+    recall_denominator: z.number().int(),
+    precision_denominator: z.number().int(),
+    citation_denominator: z.number().int(),
     traces_passed: z.number().int(),
     traces_total: z.number().int(),
     cost_usd: z.number().nullable(),

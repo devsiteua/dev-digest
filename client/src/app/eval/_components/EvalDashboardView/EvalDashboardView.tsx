@@ -22,7 +22,7 @@ import { useTranslations } from "next-intl";
 import { ErrorState, Skeleton } from "@devdigest/ui";
 import { AppShell } from "../../../../components/app-shell";
 import { useEvalDashboard } from "../../../../lib/hooks/evals";
-import { MetricRow } from "../../../agents/[id]/_components/AgentEditor/_components/EvalsTab/_components/MetricRow";
+import { MetricRow } from "@/components/metric-row";
 import { cellPercent } from "./helpers";
 import { s } from "./styles";
 
@@ -53,25 +53,33 @@ export function EvalDashboardView() {
           <Skeleton height={120} />
         ) : (
           <>
+            {/*
+              Each card is handed its OWN denominator, never `traces_total`.
+              They are different quantities: a set built only from dismissed
+              findings asserts no `must_find` expectation, so recall's
+              denominator is 0 while `traces_total` is the full size of the set.
+              Guarding on the latter renders the vacuous 1 as a confident 100%,
+              which is the one number this whole screen exists not to print.
+            */}
             <div style={s.metrics}>
               <MetricRow
                 label={t("metric.recall")}
                 value={data.current.recall}
-                denominator={data.current.traces_total}
+                denominator={data.current.recall_denominator}
                 delta={data.delta.recall}
                 color="var(--accent)"
               />
               <MetricRow
                 label={t("metric.precision")}
                 value={data.current.precision}
-                denominator={data.current.traces_total}
+                denominator={data.current.precision_denominator}
                 delta={data.delta.precision}
                 color="var(--ok)"
               />
               <MetricRow
                 label={t("metric.citationAccuracy")}
                 value={data.current.citation_accuracy}
-                denominator={data.current.traces_total}
+                denominator={data.current.citation_denominator}
                 delta={data.delta.citation_accuracy}
                 color="var(--warn)"
               />
@@ -95,9 +103,16 @@ export function EvalDashboardView() {
                   <div key={r.id} style={s.grid} data-run-id={r.id}>
                     <span style={s.mono}>{new Date(r.ran_at).toLocaleString()}</span>
                     <span>{r.case_name}</span>
-                    <span style={s.cell}>{cellPercent(r.recall, r.status)}</span>
-                    <span style={s.cell}>{cellPercent(r.precision, r.status)}</span>
-                    <span style={s.cell}>{cellPercent(r.citation_accuracy, r.status)}</span>
+                    {/* Each cell gets the denominator that ratio was computed
+                        over — recall's is the expectations it asserted, and a
+                        must_not_flag case asserts none. */}
+                    <span style={s.cell}>{cellPercent(r.recall, r.expected_count, r.status)}</span>
+                    <span style={s.cell}>
+                      {cellPercent(r.precision, r.reported_count, r.status)}
+                    </span>
+                    <span style={s.cell}>
+                      {cellPercent(r.citation_accuracy, r.reported_count, r.status)}
+                    </span>
                     <span>{t(`dashboard.${r.status === "passed" ? "pass" : r.status === "errored" ? "errored" : "fail"}`)}</span>
                     <span style={s.mono}>
                       {r.cost_usd == null ? "—" : `$${r.cost_usd.toFixed(4)}`}

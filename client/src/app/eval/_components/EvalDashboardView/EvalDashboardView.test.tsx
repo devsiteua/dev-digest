@@ -35,6 +35,9 @@ const EMPTY: EvalDashboard = {
     recall: 1,
     precision: 1,
     citation_accuracy: 1,
+    recall_denominator: 0,
+    precision_denominator: 0,
+    citation_denominator: 0,
     traces_passed: 0,
     traces_total: 0,
     cost_usd: null,
@@ -51,6 +54,9 @@ const POPULATED: EvalDashboard = {
     recall: 0.5,
     precision: 0.25,
     citation_accuracy: 1,
+    recall_denominator: 8,
+    precision_denominator: 12,
+    citation_denominator: 12,
     traces_passed: 4,
     traces_total: 8,
     cost_usd: 0.04,
@@ -72,6 +78,7 @@ const POPULATED: EvalDashboard = {
       citation_accuracy: 1,
       matched_count: 1,
       expected_count: 1,
+    reported_count: 3,
       duration_ms: 1200,
       cost_usd: 0.005,
     },
@@ -90,6 +97,7 @@ const POPULATED: EvalDashboard = {
       citation_accuracy: null,
       matched_count: null,
       expected_count: null,
+    reported_count: null,
       duration_ms: 90,
       cost_usd: null,
     },
@@ -124,6 +132,56 @@ describe("EvalDashboardView (AC-23)", () => {
     renderPage();
     expect(screen.getAllByText("—")).toHaveLength(3);
     expect(screen.queryByText("100%")).not.toBeInTheDocument();
+  });
+
+  it("AC-21: a vacuous 1 next to a non-empty traces_total still renders —", () => {
+    // The case the empty-workspace test cannot reach, and the one this screen
+    // got wrong: eight cases RAN, so `traces_total` is 8 and any guard keyed on
+    // it passes — but every case came from a dismissed finding, so the set
+    // asserts no `must_find` expectation at all and recall's own denominator is
+    // 0. The stored `1` is the contract refusing to carry null, not a result.
+    dashboard.data = {
+      ...POPULATED,
+      current: {
+        ...POPULATED.current,
+        recall: 1,
+        recall_denominator: 0,
+        traces_passed: 8,
+        traces_total: 8,
+      },
+    };
+    renderPage();
+
+    const recall = document.querySelector('[data-metric="RECALL"]') as HTMLElement;
+    expect(within(recall).getByText("—")).toBeInTheDocument();
+    expect(within(recall).queryByText("100%")).not.toBeInTheDocument();
+
+    // and the metrics that DO have a denominator are still shown
+    const precision = document.querySelector('[data-metric="PRECISION"]') as HTMLElement;
+    expect(within(precision).queryByText("—")).not.toBeInTheDocument();
+  });
+
+  it("AC-21: a must_not_flag row shows — for recall, not the 100% it never asserted", () => {
+    // Same lie one level down, in a table cell: the row is `passed`, its recall
+    // is the stored 1, and only `expected_count: 0` says the case asserted
+    // nothing about recall.
+    dashboard.data = {
+      ...POPULATED,
+      recent_runs: [
+        {
+          ...POPULATED.recent_runs[0]!,
+          recall: 1,
+          matched_count: 0,
+          expected_count: 0,
+          reported_count: 0,
+        },
+      ],
+    };
+    renderPage();
+
+    const row = document.querySelector('[data-run-id]') as HTMLElement;
+    expect(within(row).getAllByText("—").length).toBeGreaterThan(0);
+    expect(within(row).queryByText("100%")).not.toBeInTheDocument();
   });
 
   it("says so when there are no runs, instead of an empty table", () => {

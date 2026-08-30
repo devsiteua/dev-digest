@@ -80,6 +80,12 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   try {
     const reaped = await new ReviewService(container).reapStaleRuns();
     if (reaped > 0) app.log.info({ reaped }, 'reaped stale running agent_runs on boot');
+    // Same reasoning, and a sharper consequence: a batch stuck 'running' holds
+    // the partial unique index on (agent_id) and refuses every later eval run
+    // for that agent until a human edits the database.
+    const reapedBatches = await container.evals.reapStaleBatches();
+    if (reapedBatches > 0)
+      app.log.info({ reaped: reapedBatches }, 'reaped stale running eval_run_batches on boot');
   } catch (err) {
     app.log.warn({ err: (err as Error).message }, 'stale-run reaping failed (non-fatal)');
   }

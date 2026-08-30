@@ -22,7 +22,7 @@ import {
   useEvalRuns,
   useStartEvalRun,
 } from "@/lib/hooks/evals";
-import { MetricRow } from "./_components/MetricRow";
+import { MetricRow } from "@/components/metric-row";
 import { expectationOf, isIncomplete, previousBatch, sourceLabel } from "./helpers";
 import { s } from "./styles";
 
@@ -100,7 +100,19 @@ export function EvalsTab({ agent }: { agent: Agent }) {
                 label={`${t("evalsTab.delete")} ${c.name}`}
                 size={26}
                 danger
-                onClick={() => removeCase.mutate(c.id)}
+                // Confirmed, like every other destructive action in this client.
+                // Deleting a case cascades its `eval_runs`, so it takes the run
+                // history with it — and a case cut from a finding cannot be
+                // rebuilt from that finding, because the provenance in
+                // `input_meta` is a record, not a foreign key.
+                onClick={() => {
+                  // `IconBtn` is vendored and takes no `disabled`, so the guard
+                  // against a double click lives here.
+                  if (removeCase.isPending) return;
+                  if (window.confirm(t("evalsTab.deleteConfirm", { name: c.name }))) {
+                    removeCase.mutate(c.id);
+                  }
+                }}
               />
             </div>
           );

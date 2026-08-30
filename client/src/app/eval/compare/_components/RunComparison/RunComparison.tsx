@@ -25,7 +25,7 @@ import { Badge, ErrorState, Skeleton } from "@devdigest/ui";
 import type { EvalRunBatch } from "@devdigest/shared";
 import { AppShell } from "../../../../../components/app-shell";
 import { useEvalComparison } from "../../../../../lib/hooks/evals";
-import { MetricRow } from "../../../../agents/[id]/_components/AgentEditor/_components/EvalsTab/_components/MetricRow";
+import { MetricRow } from "@/components/metric-row";
 import { changed, deltaOf, isIncomplete, type MetricPair } from "./helpers";
 import { s } from "./styles";
 

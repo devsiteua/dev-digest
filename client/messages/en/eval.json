@@ -28,7 +28,8 @@
       "done": "done",
       "partial": "incomplete",
       "failed": "failed"
-    }
+    },
+    "deleteConfirm": "Delete the eval case \"{name}\"? Its run history goes with it, and a case built from a finding cannot be rebuilt from that finding."
   },
   "dashboard": {
     "title": "Eval Dashboard",

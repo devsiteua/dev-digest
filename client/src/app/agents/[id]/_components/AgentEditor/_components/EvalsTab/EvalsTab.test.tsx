@@ -109,13 +109,32 @@ describe("EvalsTab — the case set (AC-22)", () => {
   });
 
   it("offers Delete and no per-case Run or Edit — both are out of scope", () => {
+    // jsdom has no `window.confirm`; the delete is guarded by one, so it is
+    // stubbed rather than the guard being removed to suit the test.
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     cases.value = [CASE];
     renderTab();
 
     fireEvent.click(screen.getByRole("button", { name: /Delete Hardcoded Stripe/i }));
+    expect(confirm).toHaveBeenCalled();
     expect(deleteCase).toHaveBeenCalledWith("c1");
     expect(screen.queryByRole("button", { name: /^Edit/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Run case/i })).not.toBeInTheDocument();
+    confirm.mockRestore();
+  });
+
+  it("deletes NOTHING when the confirmation is declined", () => {
+    // The half worth pinning: deleting a case cascades its run history, and a
+    // case cut from a finding cannot be rebuilt from that finding. A guard that
+    // is only tested in its accepting direction is a guard nobody has tested.
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    cases.value = [CASE];
+    renderTab();
+
+    fireEvent.click(screen.getByRole("button", { name: /Delete Hardcoded Stripe/i }));
+    expect(confirm).toHaveBeenCalled();
+    expect(deleteCase).not.toHaveBeenCalled();
+    confirm.mockRestore();
   });
 
   it("shows an empty state rather than an empty list", () => {

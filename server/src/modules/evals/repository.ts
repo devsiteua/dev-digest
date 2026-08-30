@@ -12,12 +12,17 @@ import * as t from '../../db/schema.js';
  * source code. A miss returns `undefined`/`false`, which the service turns into a
  * 404 rather than a leak.
  *
- * The one method that cannot follow that rule is `insertRun`: `eval_runs` carries
- * no `workspace_id` of its own (`schema/eval.ts`) — it is a child of a batch, and
- * the batch is what holds the tenancy. Its scoping is therefore the caller's
- * `batchId`, which every call site derives from `insertBatch`'s own return value
- * inside a workspace-scoped `startRun`. Said out loud because a doc comment that
- * claims an invariant two methods below it do not keep is worse than no comment.
+ * `eval_runs` carries no `workspace_id` of its own (`schema/eval.ts`): it is a
+ * child of a batch, and the batch is what holds the tenancy. Reads of it are
+ * therefore scoped by an INNER JOIN onto `eval_run_batches` — see
+ * `listRunsForBatches` — rather than by trusting the ids the caller passed in.
+ *
+ * `insertRun` is the single method that cannot be scoped that way, because an
+ * INSERT has nothing to join against. Its safety is the caller's `batchId`,
+ * which every call site derives from `insertBatch`'s own return value inside a
+ * workspace-scoped `startRun`. It is named here, alone, because a doc comment
+ * that claims an invariant some method below it does not keep is worse than no
+ * comment at all — and this paragraph has already been wrong once.
  *
  * What is NOT here, on purpose: `eval_cases` keeps no foreign key to the pull
  * request or the finding it was cut from (`schema/eval.ts`). Provenance lives in
@@ -186,9 +191,34 @@ export class EvalsRepository {
       .orderBy(desc(t.evalRunBatches.startedAt), desc(t.evalRunBatches.id));
   }
 
+  /**
+   * Fail every batch left `running` by a process that died mid-run.
+   *
+   * Workspace-wide on purpose, and the one method here that is not scoped by a
+   * workspace, because it runs at boot before any request has a context. It is
+   * the eval twin of `ReviewService.reapStaleRuns` (`app.ts`), and it matters
+   * MORE than that one does: `eval_run_batches` carries a partial unique index
+   * on `(agent_id) WHERE status = 'running'`, so a row nobody will ever finish
+   * is not merely cosmetic — it is a permanent lock, and every later run of that
+   * agent answers 409 until someone edits the database by hand. Same
+   * single-API-instance assumption as its twin.
+   */
+  async reapStaleBatches(): Promise<number> {
+    const rows = await this.db
+      .update(t.evalRunBatches)
+      .set({
+        status: 'failed',
+        finishedAt: new Date(),
+        error: 'reaped on boot: the process running this batch did not survive it',
+      })
+      .where(eq(t.evalRunBatches.status, 'running'))
+      .returning({ id: t.evalRunBatches.id });
+    return rows.length;
+  }
+
   async updateBatch(
-    id: string,
     workspaceId: string,
+    id: string,
     values: Partial<EvalRunBatchRow>,
   ): Promise<void> {
     await this.db
@@ -223,6 +253,7 @@ export class EvalsRepository {
    * within milliseconds, and `ran_at` alone cannot order them reliably.
    */
   async listRunsForBatches(
+    workspaceId: string,
     batchIds: string[],
   ): Promise<(EvalRunRow & { caseName: string | null })[]> {
     if (batchIds.length === 0) return [];
@@ -246,6 +277,17 @@ export class EvalsRepository {
         caseName: t.evalCases.name,
       })
       .from(t.evalRuns)
+      // `eval_runs` carries no workspace of its own, so the scoping is an INNER
+      // join onto the batch that owns the row. Not the caller's job: a repository
+      // that trusts its caller to have scoped the ids it was handed is a
+      // repository whose invariant holds only until someone forgets.
+      .innerJoin(
+        t.evalRunBatches,
+        and(
+          eq(t.evalRunBatches.id, t.evalRuns.batchId),
+          eq(t.evalRunBatches.workspaceId, workspaceId),
+        ),
+      )
       .leftJoin(t.evalCases, eq(t.evalCases.id, t.evalRuns.caseId))
       .where(inArray(t.evalRuns.batchId, batchIds))
       .orderBy(t.evalRuns.ranAt, t.evalRuns.id);

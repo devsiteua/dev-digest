@@ -5,14 +5,15 @@ import type { PgFixture } from './pg.js';
 /**
  * Wait for an eval batch to reach a terminal status — and THROW when it does not.
  *
- * The throw is the whole point, and it is a deliberate departure from
- * `waitForPrRuns` next door. That helper's timeout branch is
- * `if (Date.now() - start > timeoutMs) return runs`: it hands back the rows it
- * happens to have, the test proceeds against a run the executor has not
- * finished, and the failure surfaces three lines later as
- * `Cannot read properties of undefined` in an assertion about content. Nothing
- * in that message mentions a timeout, which is why the first instinct is to
- * look for a logic bug (`server/INSIGHTS.md`, 2026-08-07 and 2026-08-28).
+ * The throw is the whole point, and it is the contract `waitForPrRuns` next door
+ * now keeps as well. That helper used to RETURN the rows it happened to have
+ * when its budget expired, so a test proceeded against a run the executor had
+ * not finished and failed three lines later with
+ * `Cannot read properties of undefined` in an assertion about content — a
+ * message naming nothing about a timeout, which is why the first instinct was to
+ * look for a logic bug (`server/INSIGHTS.md`, 2026-08-07 and 2026-08-28). It was
+ * changed in the same commit that added this file; neither helper hides a
+ * timeout any more.
  *
  * So this one reports the counts it actually saw. A slow lane then fails as
  * "the batch was still running after 15000 ms (8 of 8 cases written)", which

@@ -103,7 +103,7 @@ export class EvalRunExecutor {
     }
 
     const totals = scoreBatch(scores, grounding);
-    await this.repo.updateBatch(batchId, agent.workspaceId, {
+    await this.repo.updateBatch(agent.workspaceId, batchId, {
       status: errored === 0 ? 'done' : ran === 0 ? 'failed' : 'partial',
       finishedAt: new Date(),
       recall: totals.recall.value,
@@ -126,7 +126,7 @@ export class EvalRunExecutor {
    */
   async fail(batchId: string, workspaceId: string, message: string): Promise<void> {
     await this.repo
-      .updateBatch(batchId, workspaceId, {
+      .updateBatch(workspaceId, batchId, {
         status: 'failed',
         finishedAt: new Date(),
         error: message,

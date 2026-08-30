@@ -308,6 +308,19 @@ export interface EvalRunRowLike {
   costUsd: number | null;
 }
 
+/**
+ * How many findings a stored review reported, or `null` when the row cannot say.
+ *
+ * `actual_output` holds the whole `review` the executor wrote, so the count is
+ * already on disk and needs no column. Defensive about the shape because the
+ * column is `jsonb` and an older or hand-edited row is not this code's to trust.
+ */
+function reportedCountOf(actualOutput: unknown): number | null {
+  if (actualOutput === null || typeof actualOutput !== 'object') return null;
+  const findings = (actualOutput as { findings?: unknown }).findings;
+  return Array.isArray(findings) ? findings.length : null;
+}
+
 /** Row → DTO for one case's execution. */
 export function toEvalRunRecord(row: EvalRunRowLike): EvalRunRecord {
   return {
@@ -325,6 +338,7 @@ export function toEvalRunRecord(row: EvalRunRowLike): EvalRunRecord {
     citation_accuracy: row.citationAccuracy,
     matched_count: row.matchedCount,
     expected_count: row.expectedCount,
+    reported_count: reportedCountOf(row.actualOutput),
     duration_ms: row.durationMs,
     cost_usd: row.costUsd,
   };
