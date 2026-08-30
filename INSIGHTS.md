@@ -60,6 +60,59 @@ _None yet._
 
 ## What Doesn't Work
 
+### 2026-08-30 · Every integration lane in this repo runs `seed()` — and a step that UN-writes a fixture inverts the ordering check that catches it
+
+Trigger:  planning `specs/eval-pipeline.md`. Two ordering faults, one the mirror of the other.
+          `In scope` listed the seed extension tenth; the plan put it at Step 4. Then AC-30's
+          lane — "a finding whose review has no agent is refused" — needed a row that Step 4
+          had just deleted.
+Cause:    (a) `server/test/integration.it.test.ts:7,47` imports `seed` and runs it — and so does
+          every other file in the lane: `grep -L "db/seed" server/test/*.it.test.ts` returns
+          nothing, **15 of 15**. So EVERY integration lane asserts against seed output, whatever
+          its subject is, and every step owning such a lane depends on the seed step even when
+          nothing in its description mentions the seed.
+          (b) Step 4 backfills the demo review's `agent_id` `where agent_id is null`. AC-30's
+          lane needs a review WITH `agent_id` null. The lane would have been unrunnable *after*
+          the step it depends on — not before it, which is the direction the 2026-08-30 entry
+          below describes and the only direction its sweep can see. A sweep asking "which step
+          writes this row" returns nothing, because the answer is that a step removes it.
+Takeaway: two checks, and the second is the one nobody runs. First: in this repository the seed
+          step is a prerequisite of every persisted-row lane, so it belongs at the FRONT of a
+          plan regardless of where the spec lists it. Second: for each lane, also ask which step
+          DESTROYS its fixture — a backfill, a de-duplication, a `NOT NULL` migration, a cleanup
+          all qualify, and each is invisible to the write-side sweep. The fix is for the lane to
+          insert its own fixture (`t.reviews` with `agentId` omitted, the idiom already at
+          `server/test/reviews.it.test.ts:417`, `smart-diff.it.test.ts:147`,
+          `skills.it.test.ts:574`), never to weaken the step that does the destroying.
+Evidence: server/test/integration.it.test.ts:7,47; server/test/reviews.it.test.ts:417;
+          specs/plans/eval-pipeline.md § Coverage → the data-versus-lane sweep
+Status:   open — sharpens the entry below rather than replacing it; that one still owns the
+          write-side direction
+
+### 2026-08-30 · A requirements gap can sit BETWEEN two sections, with both of them reading correctly alone
+
+Trigger:  `specs/eval-pipeline.md` passed its own eight-point self-check — ids sequential, one
+          EARS pattern per row, no empty `How it is checked`, zero `[NEEDS CLARIFICATION]` — and
+          was approved and committed. `implementation-planner` then could not build Step 4 from
+          it.
+Cause:    § In scope promised the seed leaves "at least eight findings with real decisions";
+          AC-01 required a case set of ≥8 and its check counted `eval_cases`. Two different
+          populations, and eight decided findings do not become eight cases by themselves —
+          nothing else writes `eval_cases` during a seed. Each sentence is correct in isolation,
+          so no per-section check can fail: the defect exists only in the relation between them.
+          Pulling on it surfaced a real missing criterion (`reviews.agent_id` is nullable at
+          `server/src/db/schema/reviews.ts:28` while `eval_cases.owner_id` is `notNull` at
+          `schema/eval.ts:13`, so a finding can have no owner to give a case) which became AC-30
+          — after the spec had been called complete.
+Takeaway: a spec self-check that walks sections one at a time cannot find this class. Add one
+          cross-section pass: for every noun a prose section promises to produce, find the
+          criterion that counts it and check they count the SAME population. Cheap heuristic —
+          any two places naming the same number (here "eight") are the pair most likely to
+          disagree. Expect the planner to be the first reader who has to satisfy both at once;
+          that is not a planning failure, it is where this defect is designed to surface.
+Evidence: specs/eval-pipeline.md § In scope + AC-01, AC-09, AC-30; commits 2038e95 → 2378d54
+Status:   open
+
 ### 2026-08-30 · A plan's own dependency graph can encode an ordering that cannot be executed, and every gate in the plan agrees with it
 
 Trigger:  `specs/plans/L05-pr-brief.md` placed AC-39's integration case in Step 6 — "the two
