@@ -8,8 +8,61 @@
   "noRisks": "No notable risks flagged.",
   "noHistory": "No prior PRs overlap these files.",
   "overlap": "{count} overlap",
-  "unavailable": "Brief not available yet.",
-  "unavailableHint": "Run a review or open the PR to compute it.",
+  "unavailable": "No brief has been generated yet.",
+  "unavailableHint": "Generating one makes a single model call from this PR's intent, blast radius and file list.",
+  "card": {
+    "title": "PR brief",
+    "generate": "Generate brief",
+    "regenerate": "Regenerate",
+    "what": "What",
+    "why": "Why",
+    "risks": "Risk areas",
+    "focus": "Review focus",
+    "noFocus": "No files singled out to read first.",
+    "generatedBy": "written by {model}",
+    "usage": "{tokensIn}→{tokensOut} tokens · {cost}",
+    "unpriced": "unpriced",
+    "inputTokens": "{count} input tokens counted",
+    "stale": {
+      "title": "This brief describes an earlier state of the pull request.",
+      "body": "Its inputs have changed since it was written. Regenerate to bring it up to date.",
+      "action": "Regenerate"
+    },
+    "missingInputs": "Written without input it expected to read:",
+    "droppedRefs": "References the model named that this PR does not contain, and that were dropped:",
+    "trimmed": "The input did not fit the budget, so this was left out:",
+    "trimmedShort": "input trimmed",
+    "droppedRefsOnRisk": "Every reference this risk named was outside the pull request and was dropped.",
+    "focusFile": "Open {path} at line {line} in the Files tab",
+    "focusFileNoLine": "Open {path} in the Files tab",
+    "focusEndpoint": "{ref} — no file to open"
+  },
+  "timeline": {
+    "title": "Why Timeline",
+    "count": "{count} entries",
+    "at": "at {sha}",
+    "first": "The first brief for this pull request.",
+    "riskMoved": "risk {from} → {to}",
+    "riskSame": "risk unchanged",
+    "risksAdded": "risks added: {titles}",
+    "risksRemoved": "risks resolved: {titles}",
+    "focusAdded": "focus added: {refs}",
+    "focusRemoved": "focus dropped: {refs}",
+    "noChange": "Nothing changed but the inputs."
+  },
+  "kind": {
+    "security": "security",
+    "db_migration": "database migration",
+    "breaking_api": "breaking API change",
+    "perf": "performance",
+    "deps": "dependencies",
+    "other": "other"
+  },
+  "severity": {
+    "high": "high",
+    "medium": "medium",
+    "low": "low"
+  },
   "why": {
     "title": "git-why",
     "blame": "blame",
