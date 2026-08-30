@@ -268,6 +268,54 @@ export const IndexStatus = z.object({
 });
 export type IndexStatus = z.infer<typeof IndexStatus>;
 
+/**
+ * One project-context document — a file DevDigest stores for a repo and feeds
+ * to the reviewer's `## Project context` slot. `path_label` is a DISPLAY label
+ * (the uploaded filename), never a filesystem path: nothing under
+ * `repos.clone_path` is read or written for these.
+ *
+ * `body` is `.nullish()` because the LIST projection omits it — a set of 50
+ * documents at 256 KB each is not a list response. `GET /context/:id` is the
+ * one place it is populated.
+ */
+export const ProjectContextDoc = z.object({
+  id: z.string(),
+  title: z.string(),
+  path_label: z.string(),
+  body: z.string().nullish(),
+  enabled: z.boolean(),
+  order: z.number().int(),
+  size_bytes: z.number().int(),
+  updated_at: z.string(),
+});
+export type ProjectContextDoc = z.infer<typeof ProjectContextDoc>;
+
+/**
+ * Body for POST /repos/:id/context. Deliberately LOOSE: the extension, size,
+ * per-repo ceiling and empty-body rejections are thrown by the service with an
+ * explicit status (400 / 413 / 409 / 400), because a Zod route schema can only
+ * produce 422 and the criteria name four different ones.
+ */
+export const ProjectContextUpload = z.object({
+  filename: z.string().min(1).max(255),
+  content: z.string(),
+  title: z.string().min(1).max(255).optional(),
+});
+export type ProjectContextUpload = z.infer<typeof ProjectContextUpload>;
+
+/** Body for PATCH /context/:id — enable/disable and retitle, nothing else. */
+export const ProjectContextPatch = z.object({
+  enabled: z.boolean().optional(),
+  title: z.string().min(1).max(255).optional(),
+});
+export type ProjectContextPatch = z.infer<typeof ProjectContextPatch>;
+
+/** Body for PUT /repos/:id/context/order — the full id list, in the new order. */
+export const ProjectContextReorder = z.object({
+  ids: z.array(z.string()),
+});
+export type ProjectContextReorder = z.infer<typeof ProjectContextReorder>;
+
 // ---- Run request (review trigger; owned by A2, contract lives here) ----
 export const RunRequest = z.object({
   agentId: z.string().optional(),

@@ -1,12 +1,14 @@
 "use client";
 
 import React from "react";
-import { SectionLabel, Button } from "@devdigest/ui";
+import { useTranslations } from "next-intl";
+import { SectionLabel, Button, Icon } from "@devdigest/ui";
 import { DiffViewer, type DiffCommentApi } from "@/components/diff-viewer";
 import { usePrComments, useCreatePrComment } from "@/lib/hooks/reviews";
 import { useSmartDiff } from "@/lib/hooks/smart-diff";
 import { notify } from "@/lib/toast";
 import { SmartDiffViewer } from "../SmartDiffViewer";
+import { s } from "./styles";
 import type { FindingRecord, PrFile } from "@devdigest/shared";
 
 interface DiffTabProps {
@@ -26,6 +28,16 @@ interface DiffTabProps {
   findings?: FindingRecord[] | null;
   /** Opens a finding in the Findings tab — see `page.tsx` `openFinding`. */
   onOpenFinding?: (findingId: string) => void;
+  /**
+   * The file the URL asks this tab to focus (`?file=`), or `null`.
+   *
+   * A prop rather than a `useSearchParams` call here: the page owns the URL, and
+   * this tab is unmounted whenever another one is active, so a focus it read for
+   * itself could not survive the round trip anyway.
+   */
+  focusFile?: string | null;
+  /** The line inside `focusFile` to jump to (`?line=`), already parsed. */
+  focusLine?: number | null;
 }
 
 export function DiffTab({
@@ -35,7 +47,10 @@ export function DiffTab({
   canComment,
   findings,
   onOpenFinding,
+  focusFile,
+  focusLine,
 }: DiffTabProps) {
+  const t = useTranslations("prReview");
   const { data: comments } = usePrComments(prId);
   // Asked for only once the detail has resolved — `GET /pulls/:id` rewrites
   // `pr_files` as it loads, and a smart diff read mid-write would describe the
@@ -46,6 +61,12 @@ export function DiffTab({
   const [showComments, setShowComments] = React.useState(false);
 
   const commentCount = comments?.length ?? 0;
+
+  // A `?file=` naming a path this PR does not change. It reaches here from a
+  // hand-edited URL, a stale bookmark, or a brief written before a force-push
+  // removed the file. Saying so is the point: focusing nothing silently is
+  // indistinguishable from a broken jump.
+  const unknownFocusFile = !!focusFile && !files.some((f) => f.path === focusFile);
 
   const commenting: DiffCommentApi = {
     comments: comments ?? [],
@@ -83,6 +104,20 @@ export function DiffTab({
       >
         Files changed · {filesCount} files
       </SectionLabel>
+      {/* Above BOTH branches on purpose: an unknown path has to be reported
+          whether the smart diff resolved or the flat viewer is the fallback,
+          and the two branches would otherwise disagree about it. */}
+      {unknownFocusFile && (
+        <div style={s.notice} role="status">
+          <Icon.AlertTriangle size={16} style={s.noticeIcon} />
+          <div>
+            {t("diffFocus.unknownFile")}{" "}
+            <span className="mono" style={s.noticePath}>
+              {focusFile}
+            </span>
+          </div>
+        </div>
+      )}
       {smartDiff && smartDiff.groups.length > 0 ? (
         <SmartDiffViewer
           groups={smartDiff.groups}
@@ -91,6 +126,10 @@ export function DiffTab({
           findings={findings}
           commenting={commenting}
           onOpenFinding={onOpenFinding}
+          // Never sent when the path is unknown: the notice above is the answer,
+          // and a focus nothing can resolve would only bump a token forever.
+          focusFile={unknownFocusFile ? null : focusFile}
+          focusLine={focusLine}
         />
       ) : (
         // Nothing classified yet (a PR imported but never opened, or the request

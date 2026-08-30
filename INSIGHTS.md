@@ -39,240 +39,62 @@ An entry must be **non-obvious**, **specific** (names a file, symbol, or number)
 **actionable cold**, and **durable**. "Be careful with async" is noise, not a lesson.
 
 **Promotion rule:** an entry that saves us twice becomes a one-line rule in the relevant
-`CLAUDE.md` and is marked `→ promoted` here. Keep each file under ~250 lines; once promoted
-entries pile up, move them to `docs/insights-archive.md`.
+`CLAUDE.md` and is marked `→ promoted` here.
+
+**Archiving rule:** keep each file under ~250 lines. Over budget, spill to
+[`docs/insights-archive.md`](docs/insights-archive.md) — verbatim, under the same section, and
+leave a `> Archived …` blockquote at the foot of the section listing the dates that left, so a
+grep for a cited date still lands on a pointer. Only `→ promoted` and `resolved` entries whose
+lesson has shipped qualify. An `open` entry never moves, and neither does a resolved one an
+open entry points at ("the entry below") — the pair stays whole.
 
 ---
 
 ## What Works
 
-### 2026-08-28 · Unit-test a facade that builds its own repository by patching the FIELD, not the constructor
+_None yet._
 
-Trigger:  the two new `repoIntel` methods L04 is built on had to be proven never to reach
-          `container.codeIndex` (the ripgrep path), which is a claim about a code path and
-          cannot be made against a database.
-Cause:    `RepoIntelService`'s constructor takes only a `Container` and builds
-          `new RepoIntelRepository(container.db)` itself, so there is no seam in the
-          signature. `repo-intel-facade-degraded.test.ts` had already solved it:
-          `(svc as unknown as { repo: … }).repo = { … }` after construction, with a `container`
-          literal carrying only `config`, `db: {} as never` and the ports the path touches.
-          The second half is what makes it worth copying — the stubbed `codeIndex` THROWS on
-          every method rather than returning `[]`. A returning stub lets the fallback run and
-          pass, so "the ripgrep path is unreachable" would still be a claim; a throwing one
-          makes it an assertion.
-Takeaway: for any facade method that must NOT take a fallback, stub the fallback's port to
-          throw. And when a service builds its own repository, patch the field — the pattern
-          is established, it needs no DI change, and it keeps the unit lane Docker-free.
-Evidence: server/test/repo-intel-blast.test.ts (EXPLODING_CODE_INDEX, buildService);
-          server/test/repo-intel-facade-degraded.test.ts (the original)
-Status:   resolved
-
-### 2026-08-07 · A skills A/B lands on WHICH findings, not how many — count the demonstration wrong and it looks like nothing happened
-
-Trigger:  running the control experiment on PR #484 (API Contract Reviewer, deepseek-v4-flash),
-          expecting the armed arm to out-count the unarmed one
-Cause:    both arms returned exactly 6 findings, 5 blockers, same verdict, same PR score. Read
-          as a scoreboard the experiment is a null result. Read as a diff it is not: unarmed,
-          the agent found the five changes of COMMISSION — a narrowed enum, an optional field
-          gone required, a dropped response field — all of which are literally in the diff
-          text. Armed, it additionally found the two-copy `vendor/shared` trap ("server and
-          client will disagree"), which is a defect of OMISSION: the diff shows one edited copy
-          and says nothing about the other, so it is invisible unless a checklist says to look.
-          It also gained the stored-data axis and restated every remedy as a major bump or a
-          deprecation window. The freed slot came from merging two findings the unarmed run
-          had kept apart.
-Takeaway: when demonstrating that a skill works, compare finding CONTENT, never finding count —
-          and pick a defect of omission for the diff, because commission defects are exactly the
-          ones a bare agent finds anyway (`docs/skills-control-experiment.md` § "If the
-          unskilled run finds it anyway" says this about the diff; it is equally true of how you
-          READ the result). The cheap objective evidence lives in the trace, not the findings
-          list: `prompt_assembly.skills` is `null` versus 10 958 chars, the log line is absent
-          versus `skills: 4 skill(s), 2644 token(s) attached (…)`, and the user message goes
-          2 511 → 13 489 chars. Cost moved $0.0008 → $0.0010, so the arms are comparable.
-Evidence: docs/skills-control-experiment.md § "Recorded result — 2026-08-07, PR #484"
-Status:   resolved — the recipe generalises to experiment 1 and to any future skill demo
+> Archived 2026-08-29 → [`docs/insights-archive.md`](docs/insights-archive.md), verbatim under
+> this section: 2026-08-28, 2026-08-07. What stays here is `open`, plus any resolved entry an
+> open one points at.
 
 ## What Doesn't Work
 
-### 2026-08-28 · A constant whose name documents a rule the code does not implement — and no test can catch it while the method has no consumer
+### 2026-08-30 · A plan's own dependency graph can encode an ordering that cannot be executed, and every gate in the plan agrees with it
 
-Trigger:  wiring the first consumer of `repoIntel.getBlastRadius`. Its persistent path ended
-          with `callers.slice(0, MAX_CALLERS_PER_SYMBOL)` over the FLAT array, while
-          `constants.ts` documents that constant as "Caller fan-out cap per changed symbol".
-Cause:    the method had no consumer at all (`grep -rn "getBlastRadius" server/src` outside
-          `modules/repo-intel/` was empty), so nothing exercised the multi-symbol case and no
-          test pinned the behaviour. A global cap of 20 is invisible on a one-symbol diff and
-          only wrong on a PR touching several hot symbols — which then shows twenty rows
-          against the first and none against the rest, without saying so. The caller sort had
-          the same shape of defect: `b.rank - a.rank` alone, and two references from ONE file
-          carry the same `file_rank.rank` to the last bit.
-Takeaway: when you become the first consumer of a facade method, re-read what its constants
-          CLAIM before trusting what its code does — an unconsumed method's behaviour has
-          never been checked against its own documentation, and a green suite says nothing
-          about it. Both corrections were free precisely because there was no consumer to
-          break; a year later they would have been a behaviour change.
-Evidence: server/src/modules/repo-intel/constants.ts (MAX_CALLERS_PER_SYMBOL);
-          server/src/modules/repo-intel/service.ts (capPerSymbol, the caller sort)
-Status:   resolved
+Trigger:  `specs/plans/L05-pr-brief.md` placed AC-39's integration case in Step 6 — "the two
+          seeded `pr_brief` rows, read through `GET` at `stale: true`". Step 6 builds the
+          integration lane. The rows it reads are written by Step 10. Step 10 `Depends: Step 6`.
+Cause:    the plan had been swept for coverage in three directions — every criterion has a step,
+          no step invents a criterion, and (after a cross-model review round) every *lane* the
+          spec's `How it is checked` column names has a step. All three passed. None of them
+          asks whether the step that owns a lane can actually *run* it: the sweep matches lanes
+          to steps, never the data a lane reads to the step that produces it.
+Takeaway: when a lane asserts against data, check which step writes that data and whether the
+          dependency arrow points the right way. The same shape recurs wherever a test is placed
+          by subject rather than by prerequisite — fixtures, seeds, migrations. In execution the
+          honest fix is to move the case to the step that makes it possible and say so, not to
+          weaken the assertion so it fits where it was asked for.
+Evidence: specs/plans/L05-pr-brief.md · server/test/brief.it.test.ts
+Status:   open
 
-### 2026-08-28 · Shortening a wait does not make a review free — `POST /pulls/:id/review` is fire-and-forget
+### 2026-08-30 · A plan gate written as `grep -c <symbol> <file>` → N cannot distinguish an import line from a call site
 
-Trigger:  L04's own test plan says to exercise `run_agent_on_pr`'s timeout branch with
-          `DEVDIGEST_MCP_RUN_TIMEOUT_MS=1` "without spending a model call", and the live lane
-          was about to be written that way.
-Cause:    the trigger returns as soon as it has created the `agent_runs` rows;
-          `ReviewService.runReview` fires `executor.executeRuns` in the background. The
-          ceiling governs only how long the CALLER waits, so a 1 ms timeout produces a fast
-          `still_running` answer and a full, billed review that finishes minutes later. The
-          spec's sentence is wrong in a way that reads as a cost control.
-Takeaway: to exercise the timeout branch for free, intercept the POST itself and answer with
-          a run id that does not exist — that is both unpaid and deterministic. Assert the
-          interception (`triggers === 1`), not merely that nothing threw. More generally: any
-          automated thing that touches `run_agent_on_pr` must stub the trigger, never trust a
-          short deadline. The same fire-and-forget shape is why `reviews: []` in the response
-          is correct (`server/CLAUDE.md` § Gotchas).
-Evidence: server/src/modules/reviews/service.ts (runReview); mcp/test/mcp.live.test.ts
-          (the intercepted trigger); specs/L04-mcp-server.md § Test plan (the wrong sentence)
-Status:   resolved — the live lane intercepts; the spec sentence is the thing that misleads
-### 2026-08-25 · A gap held open on purpose gets cited as if it were closed — four files routed to an agent that did not exist
-
-Trigger:  a review noted `.claude/agents/security-reviewer.md` was missing. It had been left
-          out deliberately: `.claude/agents/README.md` § "What is deliberately not here" said
-          so, and `specs/four-new-subagents.md` § Out of scope deferred it to "a separate
-          decision, not за компанію".
-Cause:    the decision to leave a hole was recorded in two places, and then four other files
-          wrote as though it had been filled. `implementer.md` § "Not checked here" routed to
-          "the security review agent"; `planner.md` and `test-writer.md` both dropped the
-          `security` skill from their delta lists because it was "a separate agent's job";
-          `architecture-reviewer.md` § "Not checked" excluded security pointing at a README
-          bullet rather than at a destination. Every one of those sentences is written from
-          the point of view of the agent that must NOT do the work, so each is true about the
-          exclusion and silently wrong about where the work goes. Nothing greps for that:
-          `grep -rn security .claude/agents` shows four confident routing lines and one
-          bullet saying the target does not exist.
-Takeaway: when a README declares a deliberate gap, grep for the DESTINATION NAME across every
-          file that could route to it, and make each of those files say "nobody" in the same
-          words. A document that routes to a non-existent agent is worse than one that says
-          the work is unowned — the first reads as a plan, the second reads as a decision. And
-          when the gap is finally closed, the same grep is the checklist: this round changed
-          four files that had nothing to do with the new file itself.
-Evidence: .claude/agents/security-reviewer.md; .claude/agents/README.md § "What is deliberately
-          not here"; specs/L03-intent-layer.md § Round 3 (the audit row)
-Status:   resolved
-
-### 2026-08-24 · The pre-PR gate's own test harness is the fastest way to tell a false blocker from a real one
-
-Trigger:  `/pr-self-review` on the finished L03 branch returned two CRITICALs — a
-          "hand-edited migration" (`meta/_journal.json`) and a "contract changed without
-          its mirror" (`brief.ts`) — and both were argued to be false positives. Arguing
-          about a blocker is the state the gate exists to prevent.
-Cause:    `scripts/test-pr-self-review.sh` settles it in one run, and it was already
-          red: its FIRST case, "clean worktree produces no findings", was failing on
-          exactly those two sources. A check that fires on a branch doing nothing wrong
-          is a defect in the check, and the harness says so without anyone reasoning
-          about the diff. Both were structural, not incidental:
-            · drizzle-kit APPENDS to `meta/_journal.json` for every migration it
-              generates, so a legitimate new migration cannot exist without an M there —
-              the check fired on every PR that added one;
-            · `check:contract-mirror` compared the SETS of touched lines on the two
-              `vendor/shared` copies, which is a proxy for "do they agree afterwards".
-              The proxy is wrong for a change that RECONCILES drift: the side that was
-              behind touches more lines. Root `CLAUDE.md` records that drift as the
-              standing state, so this was going to recur for the rest of the course.
-Takeaway: before overriding a scripted CRITICAL, run the harness. A red baseline turns
-          "I believe this is a false positive" into "the check is broken, here is the
-          case that proves it" — and the fix is then bounded by a test rather than by an
-          override that has to be re-argued next lesson. Corollary when relaxing a check:
-          write BOTH sides of the new boundary. The journal exception got case 2b (a
-          journal edit with no new migration STILL fires) as well as 2c (one beside a new
-          migration does not), because a relaxation with only its negative tested is
-          indistinguishable from deleting the check.
-          Second corollary, learned the same run: do NOT compare the two `vendor/shared`
-          trees wholesale. `adapters.ts`, `contracts/eval-ci.ts` and
-          `contracts/productionize.ts` are drifted right now, and reconciling files a PR
-          never touched is nobody's errand — compare only the files the diff touches.
-Evidence: scripts/pr-self-review-checks.sh (checks 2 and 3);
-          scripts/test-pr-self-review.sh (cases 2b, 2c, and the drift-reconciliation
-          negative); 45 passed, 0 failed
-Status:   resolved
-
-### 2026-08-23 · An acceptance criterion written as a grep over source also polices the COMMENTS
-
-Trigger:  L03 Smart Diff's criterion "every pattern lives in `constants.ts`;
-          `grep -nE "package-lock|dist/|\.snap" .../{helpers,service,routes}.ts` finds
-          nothing". The module was correct — no pattern outside `constants.ts` — and the
-          grep still hit, on the line of `helpers.ts` that EXPLAINS why the lock check runs
-          before the wiring rules.
-Cause:    the criterion means "no classifying literal in code" but is written as a text
-          search over the whole file, and prose is text. Rewording the comment to say "a
-          lock file" and "its manifest" satisfied it, at the cost of a doc comment that can
-          no longer name the case it is about — a real, if small, loss.
-Takeaway: when a criterion is a grep, decide deliberately whether it should read code only
-          (`grep -v '^\s*[*/]'` first, or restrict to the assignment lines) and say so in
-          the spec. Otherwise expect it to bind on comments, and write the comment
-          accordingly rather than "fixing" the grep after the fact. Same family as
-          `server/INSIGHTS.md` (2026-08-22): a negative stated over a whole file proves less
-          and breaks more than one scoped to the thing that could carry the violation.
-Evidence: specs/L03-smart-diff.md § Acceptance criteria (the grep criterion);
-          server/src/modules/smart-diff/helpers.ts (`classifyPath` doc comment)
-Status:   resolved — the grep is clean and the criterion is ticked, with this cost recorded
-
-### 2026-08-22 · A plan's § Out of scope is a decision about EFFORT, never about the brief
-
-Trigger:  L03 Round 1 shipped, every one of its own acceptance criteria green. Auditing it
-          against the course brief afterwards found four requirements it did not meet — and the
-          most important of them, the scope filter, was sitting in the plan's own § Out of scope
-          marked "a product decision".
-Cause:    § Out of scope is written while planning, from the repository's constraints, and
-          nothing in the process ever diffs it against the document the work is graded on. So a
-          requirement can be declared out of scope by the same person who is supposed to deliver
-          it, and every later check — the plan's criteria, the tests, the self-review — measures
-          the narrowed plan rather than the brief. Round 1 went further and told the reviewing
-          model the opposite of the requirement in so many words ("it never narrows what you
-          review", `intent/helpers.ts`), which is what a plan sounds like once it has argued
-          itself out of a feature.
-Takeaway: before a lesson is called done, put the brief and the plan's § In scope / § Out of
-          scope side by side, item by item, and write the verdict down. A line in § Out of scope
-          is legitimate only when it says what will not be BUILT YET; it can never say what the
-          brief does not require. Round 2's audit table in `specs/L03-intent-layer.md` is the
-          shape to copy — one row per brief item, ✅/⚠️/❌, each with a `file:line`.
-Evidence: specs/L03-intent-layer.md § "Audit — every brief item against what Round 1 shipped"
-Status:   resolved
-
-### 2026-08-22 · `printf '%s' | tr | while read` silently skips a single-segment command — a guard that allowed everything
-
-Trigger:  `scripts/readonly-agent-guard.sh` was written, registered, and returned exit 0 for
-          `rm -rf server/dist`. Every deny case in its table failed at once; `bash -n` was clean.
-Cause:    `printf '%s'` emits no trailing newline, so `read` hits EOF on the only line, returns
-          non-zero with the data still unread, and the `while` body never runs. The script did
-          nothing and said nothing — exactly the failure mode a guard must not have.
-          `scripts/pr-self-review-gate.sh` has the same `printf '%s' | tr` shape and is fine only
-          because it pipes into `grep -q`, which does not care about the final newline.
-Takeaway: any `printf … | while read` loop needs `printf '%s\n'`. And a security control's first
-          test must be a DENY case that is known to fire: an allow-only table passes perfectly
-          against a script that does nothing at all.
-Evidence: scripts/readonly-agent-guard.sh:112 · server/test/readonly-agent-guard.test.ts
-Status:   resolved
-
-### 2026-08-02 · Building a screen from design screenshots — the prototype's source says things a PNG cannot
-
-Trigger:  re-doing the L01 severity feature against the unpacked design prototype, after
-          round 1 had shipped from two screenshots of it
-Cause:    three of the five gaps were invisible in a still image. Both counter surfaces open a
-          hover popover listing the findings behind the numbers
-          (`src/12-prdetail_runs.jsx:38-54`); the chip row *rests* with all three severities
-          active (`src/10-findings.jsx:105`), and a screenshot of that is indistinguishable
-          from a screenshot taken after one click; and the counters are bare text on a dotted
-          rule, which at screenshot scale reads as a filled pill. A fourth trap runs the other
-          way — `FindingsPanel` is defined in the prototype but mounted on **no** screen
-          (`src/main.jsx` renders only Overview / Agent runs / Files changed), so a component
-          existing there is not evidence it belongs anywhere.
-Takeaway: get the prototype's source before building, and ask for it when only images are
-          offered — the redo cost more than the original build. Grep `src/main.jsx` for what is
-          actually mounted, then read the screen file end to end: hover states, empty states
-          and resting states live in the source and nowhere else.
-Evidence: DevDigest-Design-unpacked/src/{10-findings,12-prdetail_runs,14-screen_dashboard,main}.jsx
-Status:   resolved for L01 — applies to every remaining lesson
+Trigger:  a step's `Verify` read `grep -c "briefStateOf" server/src/modules/brief/service.ts`
+          → **2**, "any other number means the two paths have stopped hashing the same string".
+          The real count is 3, and always would have been.
+Cause:    `grep -c` counts matching *lines*, and the `import { … briefStateOf … }` line is one
+          of them. The floor for "two call sites of an imported function" is three. The gate was
+          unreachable as written, so an implementer following it literally sees a mismatch with
+          no way to tell a regression from the plan being wrong.
+Takeaway: a gate meant to count call sites greps for the call — `grep -c "symbol("` — or states
+          its arithmetic out loud ("2 call sites plus 1 import = 3"). More generally, a gate a
+          plan writes for itself is never run before the plan is approved, so any gate with a
+          hard-coded number should be executed against the current tree while the plan is being
+          written, even when the code it will check does not exist yet: the count of what is
+          already there is checkable today.
+Evidence: specs/plans/L05-pr-brief.md · server/src/modules/brief/service.ts:21,87,124
+Status:   open
 
 ### 2026-08-01 · Docs drift found during the first full repo walkthrough
 
@@ -293,30 +115,49 @@ Status:   open — fix opportunistically when touching those files
 > Archived 2026-08-06: *inheriting a neighbouring column's aggregation rule* (2026-08-04,
 > resolved with L01's cost column) → [`docs/insights-archive.md`](docs/insights-archive.md).
 
+> Archived 2026-08-29 → [`docs/insights-archive.md`](docs/insights-archive.md), verbatim under
+> this section: 2026-08-28 ×2, 2026-08-25, 2026-08-24, 2026-08-23, 2026-08-22 ×2, 2026-08-02.
+> What stays here is `open`, plus any resolved entry an open one points at.
+
 ## Codebase Patterns
 
-### 2026-08-28 · A `done` spec can be live code — `mcp/test/copy.test.ts` asserts the L04 Appendix byte for byte, character count included
+### 2026-08-29 · `.default()` on a Zod contract field is optional on input and REQUIRED on `z.infer` — a "purely additive" mirror edit breaks every literal in both packages
 
-Trigger:  a mentor review asked for `provider` to be dropped from `list_agents`. The tool
-          description naming it lives in `mcp/src/copy.ts`, so the edit looked like one line
-          in one package.
-Cause:    `mcp/test/copy.test.ts` re-reads `specs/L04-mcp-server.md` § Appendix AT TEST TIME,
-          parses its fenced blocks, and asserts each tool description matches byte for byte —
-          plus the character count declared in the block's own `### … — NNN chars` heading.
-          Editing `copy.ts` alone turns that lane red; editing the Appendix without
-          recomputing the count does too. `specs/README.md` rule 5 ("never delete a spec;
-          history explains why the code looks the way it does") reads as though every closed
-          spec is inert, and for this one section it is the opposite.
-Takeaway: before changing any string in `mcp/src/copy.ts`, `grep -n "chars" specs/L04-mcp-server.md`
-          and move the Appendix first — the file's own rule is "the Appendix changes first and
-          `copy.ts` follows". Recompute the count mechanically rather than by eye (632 → 622
-          for a ten-character deletion). More generally: before assuming a `specs/` file is
-          history, grep the test suites for its path — a spec a test reads is a source file.
-          A round that edits a closed spec still appends its own `# Round N` section and
-          leaves the prose as written; the Appendix is the one part that moves in place, and
-          the round says why it had to.
-Evidence: mcp/test/copy.test.ts:22 (SPEC_PATH), :98-107 (the character-count assertion);
-          specs/L04-mcp-server.md § Appendix, § Round 2 D18
+Trigger:  adding `project_context: z.boolean().default(true)` to `Agent` in
+          `vendor/shared/contracts/knowledge.ts` and its mirror. The edit looked additive; the
+          next `pnpm typecheck` was red in **both** packages with four `TS2741 Property
+          'project_context' is missing` — one server mapper and three client test fixtures.
+Cause:    `.default()` makes a field optional for `.parse()` **input** and required on the
+          inferred output type. Every place that builds the object as a literal — rather than
+          parsing one — must gain the key in the same breath.
+Takeaway: before adding any field to a shared contract, sweep the producers:
+          `grep -rn ": <Type> = {" server/src server/test client/src`. Every pure literal it
+          finds belongs to the same step and the same commit as the contract edit; a *mapper*
+          may be deferred only if a later step is named for it out loud. A plan step whose
+          `Verify` runs `pnpm typecheck` but whose `Files:` omits those literals asserts a gate
+          it cannot pass, and stops a correct implementation dead.
+Evidence: server/src/vendor/shared/contracts/knowledge.ts:381; server/src/modules/agents/helpers.ts:20;
+          client/src/app/agents/_components/AgentCard/AgentCard.test.tsx:11
+Status:   resolved — the sweep is now a rule in `specs/plans/L05-project-context-folder.md` § Gate discipline
+
+### 2026-08-29 · `wrapUntrusted` is applied by `assemblePrompt`, not by its callers — and it escapes, so a server-side pre-wrap corrupts what the user sees
+
+Trigger:  a plan step said "every body through `wrapUntrusted()`" before handing documents to
+          `PromptParts.specs`. Doing that would have been wrong.
+Cause:    `assemblePrompt` already wraps each `parts.specs[i]` as `spec-N`
+          (`reviewer-core/src/prompt.ts:149-151`), and `wrapUntrusted` **escapes** any
+          `</untrusted>` inside its input (`:29-32`). A pre-wrap therefore does not merely
+          double-delimit — the outer wrap escapes the inner one, and the mangled `<\/untrusted>`
+          is persisted into `run_traces.prompt_assembly`, which the Run Trace drawer renders to
+          the user. `renderSkillBlocks` **does** wrap, correctly, because the engine does *not*
+          wrap `parts.skills`. The two renderers look symmetrical and are not.
+Takeaway: check which slots `assemblePrompt` wraps before wrapping anything yourself. Today:
+          `specs`, `repoMap`, `callers` and `diff` are wrapped by the engine; `skills` is not.
+          Pin the decision with a test that asserts the block leaves the server unwrapped **and**
+          that exactly one delimiter reaches the assembled prompt, so a later well-meaning wrap
+          fails loudly instead of quietly corrupting a trace.
+Evidence: reviewer-core/src/prompt.ts:29-32,149-151,161-162; server/src/modules/reviews/helpers.ts:181-207;
+          server/test/context-prompt.test.ts:88-116
 Status:   resolved
 
 ### 2026-08-28 · Three silent narrowings sit between a real call site and a row in the blast map
@@ -345,29 +186,6 @@ Evidence: server/src/modules/repo-intel/repository.ts (resolveReferences, getRes
 Status:   open — (c) is a real under-count; correcting it means keying on the line when the
           enclosing symbol is unknown, which no consumer needs yet
 
-### 2026-08-23 · Seeded `patch` text is a contract with the CLIENT's parser — and nothing checks it
-
-Trigger:  seeding PR #482's nine files so a findings badge could scroll the diff to
-          `config.ts:12`, `webhooks.ts:61`, `users.ts:45`, `ratelimit.ts:28`
-Cause:    which line a patch renders is decided by `client/src/components/diff-viewer/
-          helpers.ts` `parsePatch`: it takes the NEW-side start from each `@@ -a,b +c,d @@`
-          and increments once per `+`/context line, never on a `-`. So a finding's
-          `start_line` is only reachable if the hunk header and the lines above it add up
-          to that number. Nothing on either side asserts this — the server does not read
-          patches, and the client has no fixture tying a seeded finding to a seeded hunk.
-          Two of the four headers were off by exactly the net size of an earlier hunk.
-Takeaway: when seeding or editing `patch` text that a feature jumps into, replay the
-          parser's numbering over it before committing (a dozen lines of script: reset the
-          counter at `@@`, skip `-` lines, record the number of every rendered line, assert
-          each finding's `start_line` is in the map). Treat the hunk header as data under
-          test, not as decoration. The degraded path — scroll to the card header when no
-          rendered line matches — is what saves the reader when this is wrong, so build it
-          in the same change.
-Evidence: server/src/db/seed.ts (PR_482_FILES);
-          client/src/components/diff-viewer/FileCard/FileCard.tsx (the focus effect);
-          client/.../SmartDiffViewer.test.tsx ("falls back to the card header")
-Status:   resolved
-
 ### 2026-08-22 · The onion skill's own review checklist ends on a question `arch:check` cannot answer
 
 Trigger:  writing `architecture-reviewer`'s procedure on top of
@@ -388,28 +206,6 @@ Evidence: .claude/skills/onion-architecture/tooling.md § "Review checklist for 
           item 9; server/.dependency-cruiser-onion.cjs:96-98; server/package.json:11-12
 Status:   open — the skill is hand-authored and ours to edit, but changing a review checklist
           is its own decision; `architecture-reviewer.md` § Step 1 states the correction instead
-
-### 2026-08-21 · The canonical path -> skills routing table lives inside a REVIEW skill, so anything else that needs it must point, not copy
-
-Trigger:  authoring `.claude/agents/planner.md` and `.claude/agents/implementer.md`, both of
-          which need to know which project skill applies to which file
-Cause:    the only maintained path -> skills map in this repo is section 3 of
-          `.claude/skills/pr-self-review/SKILL.md` ("Route by path *and* by status"). Its name
-          and its location say "pre-PR gate", so the obvious move when writing a new agent is
-          to write a fresh table into the agent file - and then two tables drift, exactly the
-          way `vendor/shared` does. That skill already carries the correct instinct in its own
-          words ("Repo conventions are read, never copied") and the discovery command that
-          keeps it honest: `ls -d .claude/skills/*/`, never `skills-lock.json`, which names
-          skills that are not on disk and misses several that are.
-Takeaway: any new agent, skill or doc that routes work to skills cites that section by path
-          instead of restating it, and states only its DELTAS. For implementation-time use the
-          deltas are three: add `design-reference` on UI steps (before the code, not after),
-          drop `security` and drop `engineering-insights` - a self-reviewing implementer
-          produces a green that hides findings, and two agents appending to `INSIGHTS.md` in
-          parallel is how it gets a conflict.
-Evidence: .claude/skills/pr-self-review/SKILL.md:55-89; .claude/agents/planner.md step 4;
-          .claude/agents/implementer.md step 2
-Status:   resolved - both new agents reference the table rather than duplicating it
 
 ### 2026-08-12 · Nothing persisted attributes a finding — or a run — to a SKILL, so every per-skill metric in the design is an agent-level approximation
 
@@ -453,7 +249,10 @@ Takeaway: for a feature whose module is being written now, `getFeatureModelOverr
           code behind them.
 Evidence: server/src/vendor/shared/contracts/platform.ts:73-79;
           server/src/modules/settings/feature-models.ts:30-35; specs/L02-conventions-extractor.md
-Status:   open — `resolveFeatureModel` still has no caller; the first one should re-check this
+Status:   → promoted to `server/CLAUDE.md` § Conventions on 2026-08-30, at its second sighting:
+          `risk_brief` was already in `FeatureModelId` with an `openai / gpt-4.1` default and a
+          rendered Settings row pointing at nothing, so the PR brief CLAIMED the slot rather than
+          creating one. `resolveFeatureModel` still has no caller; the first one should re-check this
 
 ### 2026-08-05 · One dependency-cruiser run over `server/src` also polices `reviewer-core`'s purity
 
@@ -544,21 +343,6 @@ Takeaway: iterate severities from `SEVERITY_KEYS` (`client/src/lib/severity.ts`)
 Evidence: client/src/vendor/ui/primitives/tokens.ts:3; client/src/lib/severity.ts
 Status:   open — harmless as long as nothing enumerates the UI type
 
-### 2026-08-02 · e2e flows assert seed literals, so `seed.ts` is part of their contract
-
-Trigger:  adding findings to the demo review, from the server package
-Cause:    `e2e/specs/04-pr-findings.flow.json` waits on the literal strings `"2 findings"` and
-          `"Hardcoded Stripe secret key in commit"`. Neither `seed.ts` nor anything in
-          `server/` mentions this; the coupling is only visible from the e2e side. Changing
-          the number of seeded findings silently breaks a flow in another package.
-Takeaway: after editing `server/src/db/seed.ts`, grep `e2e/specs/*.json` for the values you
-          changed. Note also that flows follow the home redirect to the **first** repo, so
-          they need a freshly seeded single-repo DB — the dev DB will not do.
-Evidence: e2e/specs/04-pr-findings.flow.json; server/src/db/seed.ts
-Status:   → promoted to `CLAUDE.md` (Gotchas) on 2026-08-06, after the L02 conventions seed
-          made it the second edit to `seed.ts` that had to be checked against the flows.
-          Kept here for now — the flow/DB detail in the takeaway does not fit one line
-
 > Moved to [`docs/insights-archive.md`](docs/insights-archive.md), which keeps their reasoning:
 > on **2026-08-02**, two promoted entries from 2026-08-01 — *the two `vendor/shared` trees have
 > already diverged* and *an empty table in the schema is a future lesson*; on **2026-08-06**,
@@ -567,164 +351,11 @@ Status:   → promoted to `CLAUDE.md` (Gotchas) on 2026-08-06, after the L02 con
 > one pair — the second amends the first, so they moved together).
 > Every rule they produced is live in `CLAUDE.md` (Gotchas).
 
+> Archived 2026-08-29 → [`docs/insights-archive.md`](docs/insights-archive.md), verbatim under
+> this section: 2026-08-28, 2026-08-23, 2026-08-21, 2026-08-02. What stays here is `open`,
+> plus any resolved entry an open one points at.
+
 ## Tool & Library Notes
-
-### 2026-08-28 · `.mcp.json` takes a per-server `timeout`, and it is one half of a pair that nothing else keeps ordered
-
-Trigger:  a mentor review: `.mcp.json` declares no `timeout`, so a client can give up while
-          `run_agent_on_pr` is still legitimately waiting.
-Cause:    Claude Code supports a per-server `timeout` in milliseconds (≥ 1000) in each
-          `.mcp.json` entry; it overrides `MCP_TOOL_TIMEOUT` for that server alone, and
-          `claude mcp get devdigest` prints it back as `Timeout: 180000ms`. The reason it had
-          never bitten locally is worth knowing before diagnosing one: Claude Code's own
-          default tool timeout is hours long, so it is other clients — the Inspector included
-          — whose defaults are shorter than a 120 s review. The real hazard is that the bound
-          was implicit, and that the two numbers that must stay ordered
-          (`.mcp.json` `timeout` > `DEVDIGEST_MCP_RUN_TIMEOUT_MS`) sit in different files with
-          nothing between them. If the client wins that race, the model never sees the
-          `still_running` sentence naming `get_findings`, and its next move is a second paid
-          run.
-Takeaway: declare `timeout` explicitly for any tool that blocks on purpose, keep it strictly
-          above the server's own wait, and pin the ordering with a test that READS
-          `.mcp.json` rather than restating the number — `mcp/test/config.test.ts` does, and
-          it was verified by lowering the value to parity and watching the lane go red. A
-          guard for an invariant nobody has seen fail is worth one deliberate failure.
-Evidence: .mcp.json (timeout: 180000); mcp/src/config.ts (DEFAULT_RUN_TIMEOUT_MS);
-          mcp/test/config.test.ts § "the client's timeout in .mcp.json"
-Status:   resolved
-
-### 2026-08-28 · dependency-cruiser omits `import type` — so `file_edges` has no row for a type-only dependency
-
-Trigger:  L04's spec named a "direction control": the demo PR's changed file
-          `src/auth/authorization.ts` imports `../domain/models`, so an inverted traversal
-          would put `domain/models.ts` in the blast map. The criterion passed — and then
-          `select … from file_edges where from_file='src/auth/authorization.ts'` returned
-          NOTHING at all.
-Cause:    the file's one import is `import type { Order, User } from '../domain/models'`, and
-          `cruise()` runs with `tsPreCompilationDeps` at its default of `false`
-          (`server/src/adapters/depgraph/index.ts` sets `exclude`, `doNotFollow` and
-          `tsConfig`, and nothing else). Type-only imports vanish at compile time, so
-          dependency-cruiser does not report them. The edge is not filtered by our adapter —
-          it is never emitted.
-Takeaway: `file_edges` is the RUNTIME import graph, not the TypeScript one. Anything reading
-          it — blast, PageRank, `resolveReferences` — is blind to a type-only dependency, so
-          a file that is imported only for its types has no rank and no dependents. And a
-          test whose whole point is a graph edge must assert that the edge EXISTS before
-          trusting what its absence proves; here the control was vacuous and the criterion
-          still went green.
-Evidence: server/src/adapters/depgraph/index.ts (the cruise options);
-          server/test/blast.it.test.ts (the seeded direction control that replaced it)
-Status:   resolved — the control moved into a test that seeds its own edge
-
-### 2026-08-28 · The char count in an Appendix heading is load-bearing — `copy.test.ts` asserts it
-
-Trigger:  rewriting `get_blast_radius`'s tool description when the stub became real. The
-          fenced block and `mcp/src/copy.ts` were updated together, and `pnpm test` still
-          failed.
-Cause:    `mcp/test/copy.test.ts` parses `### \`<tool>\` — NNN chars` out of the heading and
-          asserts `block.text.length === NNN`, on top of the byte-for-byte comparison against
-          `copy.ts`. Changing a description therefore touches THREE places, and the heading is
-          the one that reads like decoration. A second assertion in the same file pinned the
-          old CONTENT ("keeps get_blast_radius announcing itself as not implemented"), which
-          is correct while the tool is a stub and has to be inverted when it stops being one.
-Takeaway: to change a tool description: edit the Appendix fence, recompute its length, update
-          the heading's count, mirror into `copy.ts`, then re-read `copy.test.ts` for an
-          assertion about that tool's WORDING. The guard is doing its job — it is just wider
-          than "the two copies agree".
-Evidence: mcp/test/copy.test.ts ("matches the character count each Appendix heading declares");
-          specs/L04-mcp-server.md § Appendix
-Status:   resolved
-
-### 2026-08-28 · A cross-package `paths` alias does not force a Zod major — the `zod` SELF-PIN beside it does
-
-Trigger:  `mcp/` needs Zod 4 (`@modelcontextprotocol/server@2.0.0` requires `^4.2.0` for
-          Standard Schema, which Zod 3 does not implement) while `server/` and
-          `reviewer-core/` are on `zod@^3.24.1`. Copying `reviewer-core/tsconfig.json`'s
-          paths block — the `@devdigest/shared` alias PLUS its `zod` self-pin — made
-          `cd mcp && pnpm typecheck` fail with one error, in the server's source:
-          `contracts/platform.ts(97,72): TS2769` on
-          `z.record(FeatureModelId, FeatureModelChoice).default({})`.
-Cause:    Zod 4 infers an EXHAUSTIVE `Record<K, V>` for an enum-keyed record, so `{}` stops
-          being a legal default. The contract is correct under the Zod 3 its package runs.
-          The plan (L04 D14) read this as "the alias makes tsc compile Zod 3 source under
-          Zod 4" and offered two fallbacks, both of which spend something: drop the alias
-          and hand-copy the shapes, or fall back to the older SDK line. Both were
-          unnecessary. `mcp/` and `server/` are separate package trees, so with NO `zod`
-          entry in `paths` each side resolves its own Zod by ordinary node resolution
-          (`mcp/` 4.4.3, `server/` 3.25.76) and the alias compiles clean. The self-pin is
-          the whole cause; `reviewer-core` carries it harmlessly only because it is *also*
-          Zod 3.
-Takeaway: when a cross-package alias fails across a dependency major, delete the self-pin
-          before dropping the alias — one tsconfig line versus a growing file of hand-copied
-          types. Verify BOTH directions rather than arguing: flip the line, re-run typecheck,
-          and prove the coupling still bites with a deliberate error (`a.slug` on `Agent`
-          must produce TS2339). That coupling is the only drift guard `mcp/` has, since no CI
-          workflow covers it.
-Evidence: mcp/tsconfig.json (paths — alias, no zod); server/src/vendor/shared/contracts/platform.ts:97;
-          mcp/CLAUDE.md § Gotchas
-Status:   resolved
-### 2026-08-25 · A vendored skill can be written for a stack this repo does not have — correct it in a delta table, never by forking
-
-Trigger:  writing `security-reviewer` on top of `.claude/skills/security/`, which is vendored
-          and locked by hash in `skills-lock.json`.
-Cause:    the skill is "OWASP Top 10:2025 for React + Express + MongoDB + JWT". This repo is
-          Fastify 5 + Postgres/Drizzle and has NO user auth at all — `LocalNoAuthProvider`
-          returns the default workspace and system user. Applied literally, three of its ten
-          categories aim at code that does not exist: A05 operator injection (Drizzle
-          parameterises), A07 token verification (there are no tokens), and its secrets advice
-          points at `process.env` while this repo's rule is one chokepoint at
-          `adapters/secrets/local.ts`. It also has no category at all for the surface that
-          matters most here — untrusted text reaching a prompt.
-Takeaway: check a vendored skill's assumed stack before routing work to it, and record the
-          mismatch as a delta table inside the CONSUMER (the agent, the routing rule), not by
-          editing the skill: a locked skill is re-pulled by hash and a fork puts a second copy
-          under maintenance. Keep the skill's own confidence ladder — HIGH reports, MEDIUM
-          notes, LOW is not reported — because that part is stack-independent. The same check
-          is owed to any other vendored skill whose frontmatter names a framework.
-Evidence: .claude/agents/security-reviewer.md § "Step 1 — load the skill, then correct it for
-          this repository"; .claude/skills/security/SKILL.md (frontmatter + § OWASP Top 10);
-          server/src/modules/_shared/context.ts:10-12
-Status:   resolved
-
-### 2026-08-22 · Subagent frontmatter has no `hooks:` — but every hook payload carries `agent_type`
-
-Trigger:  three agent files and `.claude/agents/README.md` all claimed the subagent frontmatter
-          schema "accepts `disallowedTools` and a `hooks:` block scoped to a single agent",
-          citing it as the known upgrade that would make `Bash`-read-only a real boundary.
-Cause:    half of it was wrong. The subagent definition schema in Claude Code 2.1.240 carries
-          `description`, `tools`, `disallowedTools`, `prompt`, `model`, `mcpServers`,
-          `criticalSystemReminder_EXPERIMENTAL`, `skills`, `initialPrompt`, `maxTurns`,
-          `background`, `memory`, `effort`, `permissionMode`, `observer`, `observerMessage`.
-          There is no `hooks:` field. `disallowedTools` is real.
-Takeaway: to scope a `PreToolUse` rule to one agent, register ONE repo-level hook and branch on
-          `agent_type` inside it — the shared payload builder sets `agent_type` and `agent_id` on
-          every hook event, `PreToolUse` included, so the script can see both the agent and the
-          command string. That is the only place a per-agent argument rule can live. Verify a
-          frontmatter field against the installed binary before writing prose about it:
-          `strings -a "$(readlink -f "$(which claude)")" | grep -oE "disallowedTools:.{0,1500}"`
-          prints the schema with its `.describe()` strings.
-Evidence: scripts/readonly-agent-guard.sh:10-18 · .claude/agents/README.md § Permissions
-Status:   resolved
-
-### 2026-08-22 · `grep -E '(Write|Edit)'` on an agent's `tools:` line always fires — `TodoWrite` contains `Write`
-
-Trigger:  verifying that the new read-only `architecture-reviewer` really lacks write access,
-          with the check the plan had specified:
-          `grep -E '^tools:' <file> | grep -Eq '(Write|Edit)' && echo FAIL || echo OK`
-Cause:    the line is `tools: Read, Grep, Glob, Bash, Skill, TodoWrite`. Every agent in this
-          repository carries `TodoWrite`, and a substring match on `Write` hits it, so the
-          check reports FAIL on a file that is correct — and, worse, would report FAIL just as
-          loudly on a file that is genuinely broken. It cannot distinguish the two.
-Takeaway: `tools:` is a comma-separated list, so verify it as a list, not as a string. Split
-          and match whole entries:
-          `grep -E '^tools:' f | sed 's/^tools: *//' | tr ',' '\n' | sed 's/ //g' | grep -qx Write`.
-          The same trap is waiting for `Read` (`ReadMcpResource`) and any future tool whose
-          name contains another's. Applies to every "does this agent lack tool X" assertion in
-          a plan's `Verify:` line.
-Evidence: .claude/agents/architecture-reviewer.md:4; .claude/agents/plan-verifier.md:4;
-          specs/four-new-subagents.md § "Implementation plan" Step 1 (the check as originally
-          written)
-Status:   resolved — the four new agent files were verified with the list-aware form
 
 ### 2026-08-06 · `seed.ts` never converges on rename: a skill dropped from `SEED_SKILLS` survives, still linked, and its checklist is still in the prompt
 
@@ -773,24 +404,28 @@ Takeaway: a per-request timeout only binds on OpenAI/Anthropic. To change it for
           constructor.
 Evidence: reviewer-core/src/llm/openrouter.ts:54; server/src/adapters/llm/openai.ts:66;
           server/src/platform/container.ts (buildLlm); server/src/modules/conventions/constants.ts
-Status:   open — documented in the L02 spec's Risks; fix only if a scan actually times out
-
-### 2026-08-06 · Drizzle's `text(name, { enum })` emits a bare `text` column — widening an enum needs no migration
-
-Trigger:  L02 needed a fifth `SkillSource` (`imported_file`) and the plan budgeted a migration
-          for it, on the assumption that the enum was enforced in the database
-Cause:    `text('source', { enum: [...] })` is a TYPE-level narrowing only. `0000_init.sql`
-          defines the column as plain `"source" text NOT NULL`, and `grep -c CHECK` over that
-          file returns 0 — the schema has no CHECK constraint anywhere. Nothing in Postgres
-          knows the allowed values, so adding one is a TypeScript edit plus the matching Zod
-          enum, and `git status src/db/migrations` stays clean.
-Takeaway: before planning a migration for an enum change, check whether the column is a real
-          PG enum or a `text` with a TS-side `{ enum }`. In this repo it is always the latter.
-          The corollary is the warning: an existing row can hold a value the enum no longer
-          lists, and only the Zod parse at the edge will notice — so NARROWING one is the
-          change that needs care, not widening.
-Evidence: server/src/db/schema/skills.ts:13, server/src/db/migrations/0000_init.sql:316
-Status:   resolved
+Status:   resolved 2026-08-30 — a scan did not time out, but a BRIEF did, and in front of a
+          user: `POST /pulls/:id/brief` ran 126 s against a 60 s `BRIEF_TIMEOUT_MS`.
+          Three changes, because the bug was three-layered:
+          1. `completeStructured` now enforces `req.timeoutMs` as a WALL-CLOCK budget with an
+             AbortController, so the field binds on OpenRouter too. AbortController and not the
+             siblings' `Promise.race`: racing abandons the request but leaves it in flight,
+             still spending tokens nobody is waiting for. One signal covers every attempt, so a
+             retry does not restart the budget. Five tests in
+             `reviewer-core/test/openrouter-timeout.test.ts`, four of which go red without it.
+          2. `Container.buildLlm` now passes `timeoutMs: 30_000` — the PER-ATTEMPT value this
+             entry said was the place to set it. The library's 90 s default was LONGER than any
+             caller's budget, so the SDK could never retry inside one.
+          3. `BRIEF_TIMEOUT_MS` 60 s → 90 s. The two above are not enough on their own:
+             30 + 30 = 60 was exactly the old ceiling, so a stalled attempt still failed with a
+             retry that had no room to finish.
+          **The number that made all three legible: a healthy call is 14-28 s** (five
+          consecutive live runs), while OpenRouter intermittently stalls one outright. Without
+          measuring the healthy case, any of the three could have been "fixed" to a number that
+          merely hid the other two.
+          Still true and NOT changed: `maxRetries` keeps the same asymmetry — OpenRouter reads
+          `req.maxRetries` for schema reprompts while network retries come from the SDK
+          constructor.
 
 ### 2026-08-06 · `/pr-self-review --override` cannot unblock a scripted CRITICAL, though both the skill and the checks say it can
 
@@ -812,7 +447,21 @@ Takeaway: for a scripted CRITICAL there are only two real options — change the
           from a TS-only enum widening. Either teach section 3 about the override, or stop
           suggesting it there.
 Evidence: scripts/pr-self-review-gate.sh:60-78, .claude/skills/pr-self-review/SKILL.md §7
-Status:   open
+Status:   resolved 2026-08-30 — section 3 now reads the override before it blocks, taking the
+          entry's own first option ("teach section 3 about the override"). It is honoured only
+          when `override.reason` is present AND the verdict's `diff_sha` equals the current
+          digest, so it still retires itself on the next edit; a digest that cannot be computed
+          is not a match, deliberately unlike the file's general "an internal error allows the
+          command" policy, because here an error would wave a CRITICAL through.
+          `scripts/test-pr-self-review.sh` goes 41 passed / 4 failed → 42 / 3: it fixes
+          "a recorded override releases a failing verdict" and breaks nothing. The three that
+          remain share one cause the suite names itself in its first line —
+          "clean worktree already fires: check:vendor-ui" — the same authorised `nav.ts` edit,
+          which makes the two "a passing verdict allows" cases fail downstream. They go green
+          when that edit stops firing, not through this file.
+          The second half of the takeaway still stands and is NOT done: `check:contract-mirror`
+          comparing changed lines, and `check:schema-migration` unable to tell DDL from a TS-only
+          enum widening, are still heuristics that cannot see intent.
 
 ### 2026-08-02 · The seed now creates one `agent_run`, and the guard that made it upgradeable
 
@@ -865,6 +514,10 @@ Status:   open — the lock is stale in both directions; left untouched on purpo
 > pipefail` and the empty digest*, *`--name-status` letters are relative to the merge-base*,
 > *a rule that matches nothing looks like a rule that passes*), and *`defaultNow()` is
 > transaction start time* (2026-08-02), now a `CLAUDE.md` Gotcha.
+
+> Archived 2026-08-29 → [`docs/insights-archive.md`](docs/insights-archive.md), verbatim under
+> this section: 2026-08-28 ×4, 2026-08-25, 2026-08-22 ×2, 2026-08-06. What stays here is
+> `open`, plus any resolved entry an open one points at.
 
 ## Recurring Errors & Fixes
 

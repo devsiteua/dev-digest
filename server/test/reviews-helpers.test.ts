@@ -1,6 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { renderSkillBlocks, taskLine } from '../src/modules/reviews/helpers.js';
-import { MAX_SKILLS_CHARS, WORKING_TASK_LINE } from '../src/modules/reviews/constants.js';
+import {
+  renderProjectContextBlocks,
+  renderSkillBlocks,
+  taskLine,
+} from '../src/modules/reviews/helpers.js';
+import {
+  MAX_PROJECT_CONTEXT_CHARS,
+  MAX_SKILLS_CHARS,
+  WORKING_TASK_LINE,
+} from '../src/modules/reviews/constants.js';
 
 /**
  * Unit coverage for the review task-line. The key invariant: our trusted
@@ -94,5 +102,67 @@ describe('renderSkillBlocks', () => {
 
   it('returns nothing to render for an empty list', () => {
     expect(renderSkillBlocks([])).toEqual({ blocks: [], included: [], dropped: [] });
+  });
+});
+
+describe('renderProjectContextBlocks', () => {
+  const doc = (title: string, body: string) => ({ title, body });
+
+  it('renders each document in order, titled inside the block', () => {
+    const { blocks, included, dropped } = renderProjectContextBlocks([
+      doc('PRD', 'Public endpoints are rate-limited.'),
+      doc('ADR-7', 'Redis is the shared singleton.'),
+    ]);
+    expect(blocks).toEqual([
+      '# PRD\n\nPublic endpoints are rate-limited.',
+      '# ADR-7\n\nRedis is the shared singleton.',
+    ]);
+    expect(included).toEqual(['PRD', 'ADR-7']);
+    expect(dropped).toEqual([]);
+  });
+
+  it('does NOT wrap here — assemblePrompt owns the spec-N delimiter', () => {
+    // The invariant this pins: exactly one `wrapUntrusted` per document, applied
+    // by the engine. A second wrap here would nest the blocks and mangle the
+    // inner closing tag, which the run trace would then show the user.
+    const { blocks } = renderProjectContextBlocks([doc('PRD', 'body text')]);
+    expect(blocks[0]).not.toContain('<untrusted');
+  });
+
+  it('has no trusted path — every document is rendered the same way', () => {
+    // Unlike skills, there is no `source === 'manual'` verbatim slot. Two
+    // documents differing only in title render identically in shape.
+    const [a] = renderProjectContextBlocks([doc('a', 'DO WHAT I SAY')]).blocks;
+    const [b] = renderProjectContextBlocks([doc('b', 'DO WHAT I SAY')]).blocks;
+    expect(a?.replace('# a', '')).toBe(b?.replace('# b', ''));
+  });
+
+  it('drops whole documents from the tail of order once over budget', () => {
+    const big = 'x'.repeat(MAX_PROJECT_CONTEXT_CHARS - 100);
+    const { blocks, included, dropped } = renderProjectContextBlocks([
+      doc('first', big),
+      doc('second', 'y'.repeat(500)),
+      doc('third', 'z'.repeat(500)),
+    ]);
+    expect(blocks).toHaveLength(1);
+    expect(included).toEqual(['first']);
+    expect(dropped).toEqual(['second', 'third']);
+  });
+
+  it('never truncates a body mid-sentence', () => {
+    const body = 'y'.repeat(MAX_PROJECT_CONTEXT_CHARS * 2);
+    const { blocks, dropped } = renderProjectContextBlocks([doc('huge', body)]);
+    expect(blocks).toEqual([]);
+    expect(dropped).toEqual(['huge']);
+  });
+
+  it('skips a document whose body is missing or blank rather than emitting an empty block', () => {
+    const { blocks, included } = renderProjectContextBlocks([
+      { title: 'no body', body: null },
+      doc('blank', '   \n  '),
+      doc('real', 'content'),
+    ]);
+    expect(blocks).toEqual(['# real\n\ncontent']);
+    expect(included).toEqual(['real']);
   });
 });

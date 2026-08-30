@@ -121,14 +121,57 @@ export type BlastRadius = z.infer<typeof BlastRadius>;
 export const RiskSeverity = z.enum(['high', 'medium', 'low']);
 export type RiskSeverity = z.infer<typeof RiskSeverity>;
 
+/**
+ * What KIND of risk a risk is — a closed set, not free text.
+ *
+ * The card renders it through an unguarded `RISK_ICON[r.kind]` lookup, so an open
+ * string is a crash waiting for the first model that answers `"database"` instead
+ * of `"db_migration"`. `other` is deliberate rather than a dustbin: a real risk
+ * that fits none of the five stays expressible instead of being mislabelled as
+ * whichever neighbour is closest, and the model is never pushed into a wrong
+ * bucket to be accepted at all.
+ *
+ * A reply outside the six is normalised to `other` rather than rejected — a paid
+ * call is not thrown away over one enum value.
+ */
+export const RiskKind = z.enum([
+  'security',
+  'db_migration',
+  'breaking_api',
+  'perf',
+  'deps',
+  'other',
+]);
+export type RiskKind = z.infer<typeof RiskKind>;
+
 export const Risk = z.object({
-  kind: z.string(),
+  kind: RiskKind,
   title: z.string(),
   explanation: z.string(),
   severity: RiskSeverity,
   file_refs: z.array(z.string()),
 });
 export type Risk = z.infer<typeof Risk>;
+
+/**
+ * One "read this first" pointer — where a reviewer should start, and why.
+ *
+ * `ref` is checked against an allow-list built from the pull request's own files
+ * and its blast map before it is ever stored, so a pointer at a file nobody
+ * touched cannot reach the card.
+ *
+ * `line` is meaningful ONLY for `kind: 'file'`. An endpoint has no line to jump
+ * to, which is also why an endpoint row does not navigate: there is nothing in
+ * the diff viewer to open.
+ */
+export const ReviewFocusItem = z.object({
+  kind: z.enum(['file', 'endpoint']),
+  ref: z.string(),
+  /** Only for `kind: 'file'` — an endpoint row carries no line and does not navigate. */
+  line: z.number().int().nullable().optional(),
+  why: z.string(),
+});
+export type ReviewFocusItem = z.infer<typeof ReviewFocusItem>;
 
 export const Risks = z.object({
   risks: z.array(Risk),

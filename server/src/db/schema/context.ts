@@ -124,3 +124,37 @@ export const onboarding = pgTable('onboarding', {
   json: jsonb('json').notNull(),
   generatedAt: timestamp('generated_at', { withTimezone: true }).defaultNow().notNull(),
 });
+
+/**
+ * `project_context_docs` — the project documents DevDigest owns for a repo
+ * (PRD, ADR, style guide). They are the user's, not the repository's: nothing
+ * here comes from or is written back to `repos.clone_path`, and `path_label` is
+ * a DISPLAY string only — never a filesystem path.
+ *
+ * `order` is the user's stated priority and the only sort key that means
+ * anything; read it as `order, id`, because `defaultNow()` ties a batch insert
+ * to the microsecond and `updated_at` cannot break the tie.
+ */
+export const projectContextDocs = pgTable(
+  'project_context_docs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    repoId: uuid('repo_id')
+      .notNull()
+      .references(() => repos.id, { onDelete: 'cascade' }),
+    title: text('title').notNull(),
+    /** Display label only — the uploaded filename, shown, never resolved. */
+    pathLabel: text('path_label').notNull(),
+    body: text('body').notNull(),
+    enabled: boolean('enabled').notNull().default(true),
+    order: integer('order').notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    repoOrderIdx: index('project_context_docs_repo_order_idx').on(t.repoId, t.order),
+  }),
+);

@@ -26,6 +26,21 @@ export const REVIEW_STRATEGY = 'single-pass' as const;
 export const MAX_SKILLS_CHARS = 24_000;
 
 /**
+ * Character budget for the assembled `## Project context` section (L05).
+ *
+ * It matches the skills slot today and has **no independent justification
+ * yet** — stated plainly so the next person changes it with evidence rather
+ * than defending it as a decision. It is a separate constant precisely so that
+ * evidence can move one slot without touching the other.
+ *
+ * Over budget, WHOLE documents are dropped from the tail of `order` — never a
+ * body truncated mid-sentence, for the reason the skills budget gives: half a
+ * document still reads as a complete statement about the project. What was
+ * dropped goes to the run log.
+ */
+export const MAX_PROJECT_CONTEXT_CHARS = 24_000;
+
+/**
  * The task line for a review with no pull request behind it.
  *
  * `taskLine(pull)` names the PR, its title and its author, and none of those

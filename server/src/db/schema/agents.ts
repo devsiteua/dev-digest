@@ -29,6 +29,11 @@ export const agents = pgTable('agents', {
   // + file-rank note) injected into the prompt. Default on; the global
   // REPO_INTEL_ENABLED flag is the second gate (facade degrades when off).
   repoIntel: boolean('repo_intel').notNull().default(true),
+  // Whether this agent's reviews get the repo's project-context documents
+  // injected into the prompt's `## Project context` slot. Default on; the
+  // global PROJECT_CONTEXT_ENABLED flag is the second gate (no section at all
+  // when it is off, whatever this column says).
+  projectContext: boolean('project_context').notNull().default(true),
   enabled: boolean('enabled').notNull().default(true),
   version: integer('version').notNull().default(1),
   createdBy: uuid('created_by').references(() => users.id),

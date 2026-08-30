@@ -64,7 +64,7 @@ You need a scope that resolves to a file list. Check:
    list**, a **package**, or a named **surface** (see the table in Step 2) that you can turn
    into a file list yourself with one `grep`.
 2. It is code that **exists**. "Is this design safe" before the code is written is
-   `planner`'s question, with the `security` skill loaded.
+   `implementation-planner`'s question, with the `security` skill loaded.
 3. The question is a **verdict**, not an explanation. "How does the injection guard work" is
    `researcher`.
 

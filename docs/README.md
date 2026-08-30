@@ -26,6 +26,7 @@ it does not get archived.
 | [`agent-prompts/`](agent-prompts/README.md) | How a reviewer agent's `system_prompt` becomes the messages a model sees, and what belongs in a skill instead of a prompt | see the warning below |
 | [`skills-control-experiment.md`](skills-control-experiment.md) | How do you demonstrate that a skill changes what an agent finds | a one-off writeup; extend rather than repeat |
 | [`insights-archive.md`](insights-archive.md) | Which entries were moved out of an active `INSIGHTS.md` to keep it short | the `engineering-insights` skill, in the main session |
+| [`retro/ledger.md`](retro/ledger.md) | What each multi-agent pipeline run cost — agents, order, tokens, what was duplicated, what was missed | the `/workflow-retro` skill, in the main session |
 
 Package-local authoring guides live with their package, not here:
 
@@ -45,6 +46,9 @@ Package-local authoring guides live with their package, not here:
   `agent-prompts/README.md` is prose you may edit as documentation.
 - **`insights-archive.md` belongs to `engineering-insights`.** Nothing else writes there, for
   the same reason nothing else writes to `INSIGHTS.md`: two writers, one append-only file.
+- **`retro/ledger.md` belongs to `/workflow-retro`.** Same reason, same shape: one
+  append-only file, one writer. Entries are appended and never rewritten — a ledger that
+  tidies its own history cannot be compared against itself.
 
 ## There is no ADR convention here
 

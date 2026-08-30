@@ -2,6 +2,11 @@ import 'dotenv/config';
 import { createDb, type Db } from './client.js';
 import * as t from './schema.js';
 import { eq, and } from 'drizzle-orm';
+// TYPE-only, and the one thing `src/db/` may reach for above itself: it is a
+// contract, not a module. Typing the seeded `pr_brief.json` as the shape the
+// server parses back out of it means a later contract change breaks this file
+// at `pnpm typecheck` rather than at the first `GET`.
+import type { PrBriefRecord } from '@devdigest/shared';
 import {
   GENERAL_REVIEWER_PROMPT,
   SECURITY_REVIEWER_PROMPT,
@@ -46,6 +51,20 @@ const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash';
  */
 const DEMO_INTENT_SENTENCE =
   'Throttle the public, unauthenticated API surface so one client cannot exhaust it.';
+
+/**
+ * The demo PR's seeded brief — the NEWEST of the two rows, which is the one the
+ * card renders.
+ *
+ * Named for the same two reasons `DEMO_INTENT_SENTENCE` is: the insert and the
+ * on-conflict update must agree on one literal, and `e2e/specs/10-pr-brief.flow.json`
+ * waits for these exact strings. Change either and grep `e2e/specs/` before
+ * committing (root `CLAUDE.md` § Gotchas).
+ */
+const DEMO_BRIEF_WHAT =
+  'Puts a token-bucket rate limiter in front of the public API, bucketing anonymous callers by IP and authenticated ones by account.';
+const DEMO_BRIEF_WHY =
+  'One client has been able to exhaust the public surface for everyone, and the limiter is where that stops being possible.';
 
 export const DEFAULT_WORKSPACE_NAME = 'default';
 export const SYSTEM_USER_EMAIL = 'you@local';
@@ -934,6 +953,195 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
         target: t.prIntent.prId,
         set: { ...demoIntent, generatedAt: new Date() },
       });
+  }
+
+  // ---- L05: two briefs for the demo PR ----
+  // Two rows rather than one, because the Why Timeline is the half of this
+  // feature a single row cannot demonstrate: a delta needs something to differ
+  // from. They are written in ONE transaction on purpose — that is exactly the
+  // condition AC-27 is read against, and `generated_at` is the transaction's
+  // timestamp, so the two tie to the microsecond and only `seq` can order them.
+  //
+  // Both `state_key`s are SENTINELS that can never equal a SHA-256 hex, so the
+  // card always shows a seeded brief as STALE. That is the honest state: nobody
+  // ran the assembler over this PR, so the product cannot claim the brief still
+  // describes it, and a fake 64-hex key would be a claim of freshness we cannot
+  // prove (AC-39).
+  //
+  // Outside the `if (!pr)` block, and an UPSERT on `(pr_id, state_key)`, for the
+  // reason the intent block above is one: fixture data has not converged while a
+  // row with the same key holds different contents. The `set` carries no `id`
+  // and no `seq` — the insert shape never mentions either, both come from
+  // defaults — because a second `pnpm db:seed` that renumbered `seq` would
+  // reorder the timeline it just seeded.
+  //
+  // Every reference below is a path in `PR_482_FILES` or an endpoint of it, so
+  // the whole fixture is one the grounding allow-list would have allowed.
+  if (demoPr) {
+    // Typed as a slice of the contract rather than `as const`: `as const` would
+    // make the three empty arrays `readonly []`, which is not assignable to the
+    // `string[]` the record declares.
+    const briefBase: Pick<
+      PrBriefRecord,
+      | 'pr_id'
+      | 'head_sha'
+      | 'missing_inputs'
+      | 'dropped_refs'
+      | 'trimmed'
+      | 'provider'
+      | 'model'
+      | 'cost_usd'
+    > = {
+      pr_id: demoPr.id,
+      head_sha: demoPr.headSha,
+      // Nothing was missing, nothing was dropped and nothing was trimmed: this
+      // is a fixture, and saying otherwise would demo a caveat that never
+      // happened.
+      missing_inputs: [],
+      dropped_refs: [],
+      trimmed: [],
+      provider: DEFAULT_PROVIDER,
+      model: DEFAULT_MODEL,
+      cost_usd: 0.0003,
+    };
+
+    // The FIRST brief: written before the webhook file joined the PR, so it has
+    // no security risk and settles at `medium`. Its whole purpose is to give the
+    // newer row a delta worth reading.
+    const briefV1: PrBriefRecord = {
+      ...briefBase,
+      what: 'Adds a token-bucket rate limiter to the public API endpoints.',
+      why: 'The public surface has no throttle, so a single client can exhaust it.',
+      risk_level: 'medium',
+      risks: [
+        {
+          kind: 'perf',
+          title: 'A Redis round-trip on every public request',
+          explanation:
+            'Each public request now does an INCR and an EXPIRE. Co-located Redis keeps that under a millisecond; a cross-AZ hop would show up in p99.',
+          severity: 'medium',
+          file_refs: ['src/middleware/ratelimit.ts:40'],
+        },
+        {
+          kind: 'deps',
+          title: 'New dependency: ioredis',
+          explanation:
+            'Adds ioredis for the shared token bucket. Read the lockfile diff — it is the only place the transitive set is visible.',
+          severity: 'low',
+          file_refs: ['package.json'],
+        },
+      ],
+      review_focus: [
+        {
+          kind: 'file',
+          ref: 'src/middleware/ratelimit.ts',
+          line: 40,
+          why: 'The bucket arithmetic is the change; everything else wires it in.',
+        },
+        {
+          kind: 'file',
+          ref: 'src/config.ts',
+          line: 12,
+          why: 'Where the per-endpoint budgets are read from.',
+        },
+      ],
+      state_key: 'seed:v1',
+      input_tokens: 2_940,
+      tokens_in: 3_012,
+      tokens_out: 268,
+      duration_ms: 2_180,
+      generated_at: '2026-08-28T09:12:00.000Z',
+    };
+
+    // The SECOND brief: the limiter now sits in front of the webhook route, so
+    // the auth surface is touched and the level rises to `high`. That transition
+    // is the one delta a reader wants without expanding anything.
+    const briefV2: PrBriefRecord = {
+      ...briefBase,
+      what: DEMO_BRIEF_WHAT,
+      why: DEMO_BRIEF_WHY,
+      risk_level: 'high',
+      risks: [
+        {
+          kind: 'security',
+          title: 'Auth surface touched',
+          explanation:
+            'The middleware reads the Authorization header to decide which bucket a caller falls into, and it now sits in front of the webhook route. A mistake here changes who gets through, not just how fast.',
+          severity: 'high',
+          file_refs: ['src/middleware/ratelimit.ts:12', 'src/api/public/webhooks.ts'],
+        },
+        {
+          kind: 'perf',
+          title: 'A Redis round-trip on every public request',
+          explanation:
+            'Each public request now does an INCR and an EXPIRE. Co-located Redis keeps that under a millisecond; a cross-AZ hop would show up in p99.',
+          severity: 'medium',
+          file_refs: ['src/middleware/ratelimit.ts:40'],
+        },
+        {
+          kind: 'deps',
+          title: 'New dependency: ioredis',
+          explanation:
+            'Adds ioredis for the shared token bucket. Read the lockfile diff — it is the only place the transitive set is visible.',
+          severity: 'low',
+          file_refs: ['package.json'],
+        },
+      ],
+      review_focus: [
+        {
+          kind: 'file',
+          ref: 'src/middleware/ratelimit.ts',
+          line: 12,
+          why: 'Where a caller is bucketed — the line that decides who gets through.',
+        },
+        {
+          kind: 'file',
+          ref: 'src/api/public/webhooks.ts',
+          line: 18,
+          why: 'The route that gained the limiter without gaining a test.',
+        },
+        {
+          kind: 'file',
+          ref: 'test/ratelimit.test.ts',
+          line: 6,
+          why: 'The only coverage the limiter has; check what it does not assert.',
+        },
+      ],
+      state_key: 'seed:v2',
+      input_tokens: 3_310,
+      tokens_in: 3_384,
+      tokens_out: 402,
+      duration_ms: 2_640,
+      generated_at: '2026-08-29T14:41:00.000Z',
+    };
+
+    const briefRows: Array<typeof t.prBrief.$inferInsert> = [
+      {
+        prId: demoPr.id,
+        stateKey: briefV1.state_key,
+        headSha: briefV1.head_sha,
+        json: briefV1,
+        generatedAt: new Date(briefV1.generated_at),
+      },
+      {
+        prId: demoPr.id,
+        stateKey: briefV2.state_key,
+        headSha: briefV2.head_sha,
+        json: briefV2,
+        generatedAt: new Date(briefV2.generated_at),
+      },
+    ];
+
+    await db.transaction(async (tx) => {
+      for (const row of briefRows) {
+        await tx
+          .insert(t.prBrief)
+          .values(row)
+          // ONE literal per row, used by both halves: an insert and an update
+          // describing different rows is how fixture data diverges from itself.
+          .onConflictDoUpdate({ target: [t.prBrief.prId, t.prBrief.stateKey], set: row });
+      }
+    });
   }
 
   // NOTE: deliberately no `lastReviewedSha` on the demo PR. Setting it would flip

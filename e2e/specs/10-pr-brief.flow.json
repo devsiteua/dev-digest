@@ -1,0 +1,24 @@
+{
+  "name": "PR detail Overview renders the seeded PR brief as stale, and a review-focus row opens that file in the diff",
+  "description": "From PR #482, confirm the PR Brief card (L05) is the first block of the Overview tab and renders the newer of the two seeded pr_brief rows — its `what` and `why` literals, and its STALENESS banner, which is the honest state because a `seed:`-prefixed state_key can never equal a SHA-256 hex (AC-39). Loading the page generates nothing: the only model call this feature makes is behind the Regenerate button, which no step here touches (AC-07). Then click the first review-focus row BY ITS OWN accessible name — three rows would otherwise share one locator — and land on the Files tab with ?tab=diff&file=&line= set in one navigation, the file expanded (AC-33); reload and confirm the same URL and the same file come back, which is the whole point of the focus living in the URL rather than in SmartDiffViewer's state (AC-34). Exercises usePrBrief → PrBriefCard → ReviewFocusList → page.openFile → DiffTab → SmartDiffViewer → FileCard over GET /pulls/:id/brief, which makes zero model calls. Read-only seeded data; every asserted string is a seed literal (server/src/db/seed.ts, DEMO_BRIEF_WHAT / DEMO_BRIEF_WHY and the seed:v2 row) or a message-file literal (client/messages/en/brief.json). Assumes a freshly-seeded DB where acme/payments-api (PR #482) is the first repo — guaranteed by e2e-web.yml; run locally via the hermetic stack (see e2e/README.md).",
+  "steps": [
+    { "cmd": ["open", "{BASE}/"], "label": "load the app root" },
+    { "cmd": ["wait", "--url", "/pulls"], "label": "land on the PR list" },
+    { "cmd": ["wait", "--text", "Add rate limiting to public API endpoints"], "label": "the PR list has rendered its rows" },
+    { "cmd": ["find", "text", "Add rate limiting to public API endpoints", "click"], "label": "open the PR row" },
+    { "cmd": ["wait", "--url", "/pulls/482"], "label": "navigate to the PR detail route" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "PR detail data settles" },
+    { "cmd": ["wait", "--text", "Puts a token-bucket rate limiter in front of the public API"], "label": "the brief card renders the seeded `what` of the NEWER row" },
+    { "cmd": ["wait", "--text", "One client has been able to exhaust the public surface for everyone"], "label": "…and its seeded `why`" },
+    { "cmd": ["wait", "--text", "Auth surface touched"], "label": "the seeded risk that only the newer brief carries" },
+    { "cmd": ["wait", "--text", "This brief describes an earlier state of the pull request."], "label": "a seeded brief is reported STALE — its state_key can never equal a SHA-256 hex" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Open src/middleware/ratelimit.ts at line 12 in the Files tab"], "label": "click the first review-focus row, by the file and line it names" },
+    { "cmd": ["wait", "--url", "tab=diff"], "label": "one navigation moved the tab" },
+    { "cmd": ["wait", "--url", "line=12"], "label": "…and carried the line in the same navigation" },
+    { "cmd": ["wait", "--text", "src/middleware/ratelimit.ts"], "label": "the focused file is on screen in the Files tab" },
+    { "cmd": ["reload"], "label": "reload the page on that URL" },
+    { "cmd": ["wait", "--url", "tab=diff"], "label": "the tab survives the reload" },
+    { "cmd": ["wait", "--url", "line=12"], "label": "…and so does the line, because the focus lives in the URL" },
+    { "cmd": ["wait", "--text", "src/middleware/ratelimit.ts"], "label": "the same file is focused again after the reload" }
+  ]
+}

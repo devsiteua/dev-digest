@@ -1,6 +1,10 @@
 import type { LLMProvider, Provider } from '@devdigest/shared';
 import type { Container } from '../../platform/container.js';
-import { renderSkillBlocks } from './helpers.js';
+import {
+  renderSkillBlocks,
+  renderProjectContextBlocks,
+  type RenderedProjectContext,
+} from './helpers.js';
 
 /**
  * The inputs a review is assembled from, independent of what is being reviewed.
@@ -87,6 +91,55 @@ export async function buildSkillBlocks(
     return blocks;
   } catch (err) {
     progress?.info(`skills: resolution failed — ${(err as Error).message}`);
+    return undefined;
+  }
+}
+
+/**
+ * The repo's project-context documents, resolved to prompt blocks (L05).
+ *
+ * Reads through `container.projectContext` rather than importing
+ * `modules/context/` — the cross-module import the onion guard warns about, and
+ * one it would only WARN about, so the discipline comes from the container.
+ *
+ * Returns `undefined` when nothing survives, so the spread at the call site adds
+ * no key and the assembled prompt stays byte-identical to the pre-L05 shape
+ * (AC-15). Any failure degrades to `undefined` for the same reason the skills
+ * and repo-intel builders do: an enrichment must never be able to fail a review.
+ *
+ * The included titles come back to the caller because they are what
+ * `RunTrace.specs_read` records (AC-19) — the log line alone is prose, and the
+ * trace needs a list.
+ */
+export async function buildProjectContextBlocks(
+  container: Container,
+  workspaceId: string,
+  repoId: string,
+  progress?: InputProgress,
+): Promise<RenderedProjectContext | undefined> {
+  try {
+    const docs = await container.projectContext.listForPrompt(workspaceId, repoId);
+    if (docs.length === 0) {
+      progress?.info('project context: no enabled documents — no project context block');
+      return undefined;
+    }
+
+    const rendered = renderProjectContextBlocks(docs);
+    if (rendered.blocks.length === 0) return undefined;
+
+    const tokens = container.tokenizer.count(rendered.blocks.join('\n\n'));
+    progress?.info(
+      `project context: ${rendered.blocks.length} document(s), ${tokens} token(s) attached ` +
+        `(${rendered.included.join(', ')})`,
+    );
+    // Never let a budget cut be invisible — a silently shortened prompt reads as
+    // "the reviewer ignored my PRD".
+    if (rendered.dropped.length > 0) {
+      progress?.info(`project context: dropped over budget — ${rendered.dropped.join(', ')}`);
+    }
+    return rendered;
+  } catch (err) {
+    progress?.info(`project context: resolution failed — ${(err as Error).message}`);
     return undefined;
   }
 }

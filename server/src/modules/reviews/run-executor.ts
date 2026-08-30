@@ -6,8 +6,12 @@ import * as schema from '../../db/schema.js';
 import type { AgentRow } from '../../db/rows.js';
 import type { ReviewRepository, FindingRow, PullRow, ReviewRow } from './repository.js';
 import { REVIEW_STRATEGY } from './constants.js';
-import { taskLine } from './helpers.js';
-import { buildSkillBlocks, resolveAgentProvider } from './inputs.js';
+import { projectContextGate, taskLine } from './helpers.js';
+import {
+  buildProjectContextBlocks,
+  buildSkillBlocks,
+  resolveAgentProvider,
+} from './inputs.js';
 import { loadDiff } from './diff-loader.js';
 
 /** Thrown by a run when the user cancels it mid-flight (between map files). */
@@ -198,6 +202,21 @@ export class ReviewRunExecutor {
       // repository context.
       const skillBlocks = await buildSkillBlocks(this.container, agent.id, runLog);
 
+      // L05 — the repo's project-context documents. TWO gates, and the log says
+      // which one was shut: the agent's own switch (`agents.project_context`,
+      // read as `!== false` so a row from before the column existed reads as on)
+      // and the global PROJECT_CONTEXT_ENABLED. Off either way, no section is
+      // built at all and the prompt is byte-identical to the pre-L05 shape.
+      const gate = projectContextGate(
+        agent.projectContext,
+        this.container.config.projectContextEnabled,
+      );
+      if (!gate.on) runLog.info(gate.reason);
+      const projectContext = gate.on
+        ? await buildProjectContextBlocks(this.container, workspaceId, pull.repoId, runLog)
+        : undefined;
+      const specBlocks = projectContext?.blocks;
+
       const task = taskLine(pull) + rankNote;
 
       // ---- Engine: assemble → single-pass → grounding -----------------------
@@ -215,6 +234,11 @@ export class ReviewRunExecutor {
         // L02 — linked skill bodies. Undefined when the agent has none, which
         // keeps the assembled prompt byte-identical to the pre-L02 shape.
         ...(skillBlocks ? { skills: skillBlocks } : {}),
+        // L05 — project-context document bodies, in the user's order. Passed
+        // UNWRAPPED: assemblePrompt wraps each one as `spec-N` itself. Undefined
+        // when the repo has no enabled documents or either gate is shut, which
+        // keeps the assembled prompt byte-identical to the pre-L05 shape.
+        ...(specBlocks ? { specs: specBlocks } : {}),
         // T1.3 — pass the callers digest only when we built one. assemblePrompt
         // omits the section when this is empty/undefined.
         ...(callersDigest ? { callers: callersDigest } : {}),
@@ -307,7 +331,10 @@ export class ReviewRunExecutor {
         })),
         raw_output: outcome.raw,
         memory_pulled: [],
-        specs_read: [],
+        // L05 — the documents this run actually read, in the order they were
+        // sent. `prompt_assembly.specs` beside it keeps the TEXT, so deleting a
+        // document later changes neither (AC-19, AC-20).
+        specs_read: projectContext?.included ?? [],
         // Persisted log = the run's FULL event buffer (incl. shared pre-work:
         // diff load + intent), not just events recorded inside this method.
         log: runLog.logFor(runId),
@@ -505,6 +532,9 @@ export class ReviewRunExecutor {
       tool_calls: [],
       raw_output: '',
       memory_pulled: [],
+      // Stays empty on purpose. This is the failure/cancel trace, whose
+      // `prompt_assembly.specs` is null — a run that never assembled a prompt
+      // read no documents, and saying otherwise would make the trace lie.
       specs_read: [],
       log: this.container.runBus.buffer(runId).map((e) => ({ t: e.t, kind: e.kind, msg: e.msg })),
     };

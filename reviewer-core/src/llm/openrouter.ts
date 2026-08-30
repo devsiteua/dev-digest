@@ -13,7 +13,7 @@ import { toJsonSchema, parseWithRepair } from './structured.js';
  * The single OpenAI-compatible structured provider, owned by the engine because
  * BOTH consumers need it: the CI runner (the GitHub Action runs reviewer-core
  * directly) and the studio server's openrouter path. Centralizing it here means
- * session grouping, the no-choices guard, request timeouts, and the
+ * session grouping, the no-choices guard, the wall-clock timeout, and the
  * parse-with-repair loop live in ONE place instead of being duplicated.
  *
  * OpenRouter is OpenAI-compatible, so we drive it with the OpenAI SDK pointed at
@@ -24,12 +24,27 @@ import { toJsonSchema, parseWithRepair } from './structured.js';
 
 const NOT_SUPPORTED = 'OpenRouterProvider only implements completeStructured';
 
+/** Matches `DEFAULT_TIMEOUT` in the server's openai/anthropic adapters. */
+const DEFAULT_TIMEOUT_MS = 60_000;
+
+/** Thrown when `req.timeoutMs` runs out. Named so a caller can tell it from a 5xx. */
+export class LlmTimeoutError extends Error {
+  constructor(ms: number) {
+    super(`OpenRouter call exceeded its ${ms}ms budget`);
+    this.name = 'LlmTimeoutError';
+  }
+}
+
 export interface OpenRouterProviderOptions {
   /** OpenAI-compatible base URL (default: OpenRouter). */
   baseURL?: string;
   /** Provider id for traces/gating (default 'openrouter'). */
   id?: 'openai' | 'openrouter';
-  /** Per-request timeout (ms) — the SDK retries on timeout/5xx/429 with backoff. */
+  /**
+   * PER-ATTEMPT socket timeout (ms) handed to the SDK, which retries on
+   * timeout/5xx/429 with backoff — so it does NOT bound how long a call takes.
+   * The wall-clock bound is `StructuredRequest.timeoutMs`, enforced below.
+   */
   timeoutMs?: number;
   maxRetries?: number;
   /** Injected cost estimator; returns USD or null when the model is unknown. */
@@ -65,54 +80,87 @@ export class OpenRouterProvider implements LLMProvider {
     let costFromApi: number | null = null;
     let lastRaw = '';
 
-    for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
-      const res = await this.client.chat.completions.create({
-        model: req.model,
-        messages,
-        temperature: req.temperature ?? 0,
-        ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
-        response_format: {
-          type: 'json_schema',
-          json_schema: { name: req.schemaName, schema: jsonSchema.schema, strict: true },
-        },
-        // OpenRouter session grouping — extra body field (spread is exempt from
-        // excess-property checks). Only sent when talking to OpenRouter.
-        ...(this.id === 'openrouter' && req.sessionId ? { session_id: req.sessionId } : {}),
-        // OpenRouter usage accounting — ask it to return the REAL generation
-        // cost (USD) in `usage.cost`, instead of estimating from a price book.
-        ...(this.id === 'openrouter' ? { usage: { include: true } } : {}),
-      });
-
-      // OpenRouter can return HTTP 200 with no `choices` (an upstream provider
-      // error / moderation / free-tier limit in the body) — surface it.
-      const choice = res.choices?.[0];
-      if (!choice) {
-        const errMsg = (res as unknown as { error?: { message?: string } }).error?.message;
-        throw new Error(`OpenRouter returned no choices for ${req.schemaName}${errMsg ? `: ${errMsg}` : ''}`);
-      }
-      lastRaw = choice.message?.content ?? '';
-      tokensIn += res.usage?.prompt_tokens ?? 0;
-      tokensOut += res.usage?.completion_tokens ?? 0;
-      // `usage.cost` is an OpenRouter extension (USD), absent from the OpenAI SDK type.
-      const apiCost = (res.usage as { cost?: number } | null | undefined)?.cost;
-      if (typeof apiCost === 'number') costFromApi = (costFromApi ?? 0) + apiCost;
-
-      const parsed = parseWithRepair(req.schema, lastRaw);
-      if (parsed.ok) {
-        return {
-          data: parsed.data,
+    /**
+     * `req.timeoutMs` is a WALL-CLOCK budget for the whole call, and it is
+     * enforced here because nothing else can enforce it.
+     *
+     * The constructor's `timeout` is the SDK's PER-ATTEMPT limit, and the SDK
+     * retries on timeout / 5xx / 429 (`maxRetries`, default 2). The repair loop
+     * below then re-runs all of that up to `maxRetries + 1` times more on a
+     * schema miss. Three inside three is nine, so the 90 s default never bounded
+     * anything a caller waits on: a real `POST /pulls/:id/brief` measured 126 s
+     * against a 60 s `BRIEF_TIMEOUT_MS`, with neither number doing any work.
+     *
+     * An AbortController rather than the `Promise.race` the server's sibling
+     * adapters use: racing abandons the request but leaves it in flight, still
+     * spending tokens nobody is waiting for. This cancels it. ONE signal covers
+     * every attempt, so a retry does not restart the budget.
+     */
+    const budgetMs = req.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    const abort = new AbortController();
+    const deadline = budgetMs > 0 ? setTimeout(() => abort.abort(), budgetMs) : undefined;
+    try {
+      for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+        // The SDK surfaces an abort as its own opaque error; check first so the
+        // caller gets a timeout it can name.
+        if (abort.signal.aborted) throw new LlmTimeoutError(budgetMs);
+        const res = await this.client.chat.completions.create({
           model: req.model,
-          tokensIn,
-          tokensOut,
-          costUsd: costFromApi ?? this.estimateCost?.(req.model, tokensIn, tokensOut) ?? null,
-          raw: lastRaw,
-          attempts: attempt,
-        };
+          messages,
+          temperature: req.temperature ?? 0,
+          ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
+          response_format: {
+            type: 'json_schema',
+            json_schema: { name: req.schemaName, schema: jsonSchema.schema, strict: true },
+          },
+          // OpenRouter session grouping — extra body field (spread is exempt from
+          // excess-property checks). Only sent when talking to OpenRouter.
+          ...(this.id === 'openrouter' && req.sessionId ? { session_id: req.sessionId } : {}),
+          // OpenRouter usage accounting — ask it to return the REAL generation
+          // cost (USD) in `usage.cost`, instead of estimating from a price book.
+          ...(this.id === 'openrouter' ? { usage: { include: true } } : {}),
+        },
+        // The signal is what makes the budget real: without it the deadline only
+        // rejects the promise while the request keeps running and keeps billing.
+        { signal: abort.signal });
+
+        // OpenRouter can return HTTP 200 with no `choices` (an upstream provider
+        // error / moderation / free-tier limit in the body) — surface it.
+        const choice = res.choices?.[0];
+        if (!choice) {
+          const errMsg = (res as unknown as { error?: { message?: string } }).error?.message;
+          throw new Error(`OpenRouter returned no choices for ${req.schemaName}${errMsg ? `: ${errMsg}` : ''}`);
+        }
+        lastRaw = choice.message?.content ?? '';
+        tokensIn += res.usage?.prompt_tokens ?? 0;
+        tokensOut += res.usage?.completion_tokens ?? 0;
+        // `usage.cost` is an OpenRouter extension (USD), absent from the OpenAI SDK type.
+        const apiCost = (res.usage as { cost?: number } | null | undefined)?.cost;
+        if (typeof apiCost === 'number') costFromApi = (costFromApi ?? 0) + apiCost;
+
+        const parsed = parseWithRepair(req.schema, lastRaw);
+        if (parsed.ok) {
+          return {
+            data: parsed.data,
+            model: req.model,
+            tokensIn,
+            tokensOut,
+            costUsd: costFromApi ?? this.estimateCost?.(req.model, tokensIn, tokensOut) ?? null,
+            raw: lastRaw,
+            attempts: attempt,
+          };
+        }
+        messages.push({ role: 'assistant', content: lastRaw });
+        messages.push({ role: 'user', content: parsed.repromptMessage });
       }
-      messages.push({ role: 'assistant', content: lastRaw });
-      messages.push({ role: 'user', content: parsed.repromptMessage });
+      throw new Error(`OpenRouter structured output failed schema validation for ${req.schemaName}`);
+    } catch (err) {
+      // An abort reaching here is ours, not the caller's: translate, never leak.
+      if (abort.signal.aborted) throw new LlmTimeoutError(budgetMs);
+      throw err;
+    } finally {
+      if (deadline) clearTimeout(deadline);
     }
-    throw new Error(`OpenRouter structured output failed schema validation for ${req.schemaName}`);
   }
 
   /**

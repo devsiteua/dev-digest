@@ -36,6 +36,11 @@ Test lane split is in the root `CLAUDE.md`.
   so encapsulated module plugins inherit them.
 - Route schemas come from `@devdigest/shared`; invalid input is rejected with 422 before the
   handler runs.
+- A module written AFTER `FEATURE_MODELS` reads `featureModelOverride(ws, <slot>)` and falls
+  back to its own constant — never `resolveFeatureModel`. The registry's defaults promise to
+  mirror each module's constants, a promise it cannot keep for a module that did not exist
+  when it was written, so its default is a model nobody chose. Seen twice: `conventions`,
+  `risk_brief`.
 
 ## Gotchas
 
