@@ -608,6 +608,71 @@ Status:   resolved
 
 ## Codebase Patterns
 
+### 2026-08-29 · `.default()` on a Zod contract field is optional on input and REQUIRED on `z.infer` — a "purely additive" mirror edit breaks every literal in both packages
+
+Trigger:  adding `project_context: z.boolean().default(true)` to `Agent` in
+          `vendor/shared/contracts/knowledge.ts` and its mirror. The edit looked additive; the
+          next `pnpm typecheck` was red in **both** packages with four `TS2741 Property
+          'project_context' is missing` — one server mapper and three client test fixtures.
+Cause:    `.default()` makes a field optional for `.parse()` **input** and required on the
+          inferred output type. Every place that builds the object as a literal — rather than
+          parsing one — must gain the key in the same breath.
+Takeaway: before adding any field to a shared contract, sweep the producers:
+          `grep -rn ": <Type> = {" server/src server/test client/src`. Every pure literal it
+          finds belongs to the same step and the same commit as the contract edit; a *mapper*
+          may be deferred only if a later step is named for it out loud. A plan step whose
+          `Verify` runs `pnpm typecheck` but whose `Files:` omits those literals asserts a gate
+          it cannot pass, and stops a correct implementation dead.
+Evidence: server/src/vendor/shared/contracts/knowledge.ts:381; server/src/modules/agents/helpers.ts:20;
+          client/src/app/agents/_components/AgentCard/AgentCard.test.tsx:11
+Status:   resolved — the sweep is now a rule in `specs/plans/L05-project-context-folder.md` § Gate discipline
+
+### 2026-08-29 · `wrapUntrusted` is applied by `assemblePrompt`, not by its callers — and it escapes, so a server-side pre-wrap corrupts what the user sees
+
+Trigger:  a plan step said "every body through `wrapUntrusted()`" before handing documents to
+          `PromptParts.specs`. Doing that would have been wrong.
+Cause:    `assemblePrompt` already wraps each `parts.specs[i]` as `spec-N`
+          (`reviewer-core/src/prompt.ts:149-151`), and `wrapUntrusted` **escapes** any
+          `</untrusted>` inside its input (`:29-32`). A pre-wrap therefore does not merely
+          double-delimit — the outer wrap escapes the inner one, and the mangled `<\/untrusted>`
+          is persisted into `run_traces.prompt_assembly`, which the Run Trace drawer renders to
+          the user. `renderSkillBlocks` **does** wrap, correctly, because the engine does *not*
+          wrap `parts.skills`. The two renderers look symmetrical and are not.
+Takeaway: check which slots `assemblePrompt` wraps before wrapping anything yourself. Today:
+          `specs`, `repoMap`, `callers` and `diff` are wrapped by the engine; `skills` is not.
+          Pin the decision with a test that asserts the block leaves the server unwrapped **and**
+          that exactly one delimiter reaches the assembled prompt, so a later well-meaning wrap
+          fails loudly instead of quietly corrupting a trace.
+Evidence: reviewer-core/src/prompt.ts:29-32,149-151,161-162; server/src/modules/reviews/helpers.ts:181-207;
+          server/test/context-prompt.test.ts:88-116
+Status:   resolved
+
+### 2026-08-06 · `FEATURE_MODELS` says its defaults "mirror each module's constants" — for `conventions` there is no module to mirror
+
+Trigger:  picking the model for the conventions extractor, and reaching for
+          `resolveFeatureModel(container, ws, 'conventions')` because that is the function with
+          the obvious name
+Cause:    the registry's own doc comment (`contracts/platform.ts:31-36`) promises "the defaults
+          MIRROR each module's constants, so behaviour is unchanged until a model is explicitly
+          picked". Four of the five entries are `gpt-4.1` or a deepseek flash. `conventions` is
+          `openai / gpt-5.4` — the priciest default in the file — and it mirrors nothing, because
+          no conventions module existed to have a constant. `resolveFeatureModel` would have
+          silently bought that model on every scan. The escape is already documented one file over
+          (`modules/settings/feature-models.ts:30-35`: "callers that keep their own dynamic default
+          (e.g. conventions) use this directly"), but it reads as a style note, not a bill.
+Takeaway: for a feature whose module is being written now, `getFeatureModelOverride` + a
+          module-local constant — never `resolveFeatureModel`. Check the registry's default before
+          trusting the "unchanged behaviour" promise: it only holds where the old constant exists.
+          Note the registry is duplicated in `client/src/lib/feature-models.ts` (the client cannot
+          import the runtime value), so the Settings row is already visible for features with no
+          code behind them.
+Evidence: server/src/vendor/shared/contracts/platform.ts:73-79;
+          server/src/modules/settings/feature-models.ts:30-35; specs/L02-conventions-extractor.md
+Status:   → promoted to `server/CLAUDE.md` § Conventions on 2026-08-30, at its second sighting:
+          `risk_brief` was already in `FeatureModelId` with an `openai / gpt-4.1` default and a
+          rendered Settings row pointing at nothing, so the PR brief CLAIMED the slot rather than
+          creating one. `resolveFeatureModel` still has no caller; the first one should re-check this
+
 ### 2026-08-01 · The two `vendor/shared` trees have already diverged
 
 Trigger:  comparing `server/src/vendor/shared` with `client/src/vendor/shared`
@@ -940,6 +1005,42 @@ Evidence: client/src/app/repos/[repoId]/pulls/styles.ts (tableCard);
 Status:   resolved
 
 ## Tool & Library Notes
+
+### 2026-08-06 · `/pr-self-review --override` cannot unblock a scripted CRITICAL, though both the skill and the checks say it can
+
+Trigger:  L02 ended with three scripted CRITICALs, all verified false positives — a
+          user-authorised `vendor/ui/nav.ts` edit, a contract mirror whose two copies are now
+          byte-identical, and a schema change `pnpm db:generate` confirms needs no migration
+Cause:    `scripts/pr-self-review-gate.sh` section 3 re-runs the checks and `exit 2`s on any
+          CRITICAL **before** it ever opens `last-verdict.json`. The override lives in that
+          file and is only consulted in section 6, which section 3 never reaches. So the
+          escape hatch the checks themselves advertise ("or run: /pr-self-review --override")
+          does nothing for the findings that print it. Verified by feeding the gate a
+          `gh pr create` payload: exit 2 with an override recorded.
+Takeaway: for a scripted CRITICAL there are only two real options — change the code so the
+          check stops firing (the right answer for the secret-literal one: a test fixture did
+          not need a credential-shaped string), or `DEVDIGEST_SKIP_PR_REVIEW=1`. Three of the
+          twelve checks are heuristics that cannot see intent: `check:contract-mirror`
+          compares changed LINES, so repairing pre-existing drift on one side trips it even
+          though the files end up identical; `check:schema-migration` cannot tell a DDL change
+          from a TS-only enum widening. Either teach section 3 about the override, or stop
+          suggesting it there.
+Evidence: scripts/pr-self-review-gate.sh:60-78, .claude/skills/pr-self-review/SKILL.md §7
+Status:   resolved 2026-08-30 — section 3 now reads the override before it blocks, taking the
+          entry's own first option ("teach section 3 about the override"). It is honoured only
+          when `override.reason` is present AND the verdict's `diff_sha` equals the current
+          digest, so it still retires itself on the next edit; a digest that cannot be computed
+          is not a match, deliberately unlike the file's general "an internal error allows the
+          command" policy, because here an error would wave a CRITICAL through.
+          `scripts/test-pr-self-review.sh` goes 41 passed / 4 failed → 42 / 3: it fixes
+          "a recorded override releases a failing verdict" and breaks nothing. The three that
+          remain share one cause the suite names itself in its first line —
+          "clean worktree already fires: check:vendor-ui" — the same authorised `nav.ts` edit,
+          which makes the two "a passing verdict allows" cases fail downstream. They go green
+          when that edit stops firing, not through this file.
+          The second half of the takeaway still stands and is NOT done: `check:contract-mirror`
+          comparing changed lines, and `check:schema-migration` unable to tell DDL from a TS-only
+          enum widening, are still heuristics that cannot see intent.
 
 ### 2026-08-05 · `set -euo pipefail` turns a vanishing untracked file into a silently empty digest
 
@@ -1428,8 +1529,13 @@ Status:   → promoted to `CLAUDE.md` (Gotchas)
 
 ## Where the line budget actually stands
 
+After the 2026-08-30 batch (L06 eval lab): the root `INSIGHTS.md` is **~660 lines** and the
+diagnosis below has only hardened — 22 of its entries are now `open`. Four more moved here on
+2026-08-30 and that bought ~85 lines; everything else that qualifies is either from the same
+day as the session that wrote it or pinned to an open pair. Root shrinks by CLOSING open items.
+
 After the 2026-08-29 batch: `server/INSIGHTS.md` 193 lines, `client/INSIGHTS.md` 109 — both
-comfortably under the ~250 budget. The root `INSIGHTS.md` is **419 and cannot go lower by
+comfortably under the ~250 budget. The root `INSIGHTS.md` was **419 and could not go lower by
 archiving**: 15 of its entries are `open`, one more is pinned to an open pair, and together
 they are ~300 lines on top of a 52-line header. Root shrinks by *closing* open items, not by
 moving them. `mcp/` (181), `e2e/` (106) and `reviewer-core/` (71) were left untouched — they are
