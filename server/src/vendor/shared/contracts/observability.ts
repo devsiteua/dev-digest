@@ -6,9 +6,13 @@ import { Severity } from './findings.js';
  *
  * These are NEW contracts (A5 owns this file; the barrel re-exports it). They
  * sit alongside A2's `review-api.ts`:
- *   - MultiAgentRun        the response of POST /pulls/:id/multi-agent-run
+ *   - MultiAgentRun        the response of GET /pulls/:id/multi-agent. A multi-agent
+ *                          run is STARTED by POST /pulls/:id/review with `agentIds`;
+ *                          there is no POST /pulls/:id/multi-agent-run route.
  *   - AgentColumn          one agent's column in the multi-agent view
+ *   - FindingGroup         the same place, flagged by several agents
  *   - Conflict / ConflictTake  where agents disagree on the same file:line
+ *   - RunEstimate          what one agent's next run is likely to cost
  *   - AgentStats           per-agent quality aggregates (GET /agents/:id/stats)
  *   - CuratorResult        the cross-session memory curator outcome
  *
@@ -27,6 +31,11 @@ export const AgentColumnFinding = z.object({
   title: z.string(),
   file: z.string(),
   start_line: z.number().int(),
+  end_line: z.number().int(),
+  rationale: z.string(),
+  /** Null when the model proposed no fix — `findings.suggestion` is nullable. */
+  suggestion: z.string().nullable(),
+  confidence: z.number().min(0).max(1),
   kind: z.string().nullish(),
 });
 export type AgentColumnFinding = z.infer<typeof AgentColumnFinding>;
@@ -38,7 +47,9 @@ export const AgentColumn = z.object({
   agent_name: z.string(),
   provider: z.string().nullable(),
   model: z.string().nullable(),
-  status: z.enum(['done', 'failed', 'running']),
+  status: z.enum(['running', 'done', 'failed', 'cancelled']),
+  /** Failure reason, carried straight from `agent_runs.error`. Null unless failed. */
+  error: z.string().nullable(),
   verdict: z.string().nullable(),
   score: z.number().int().nullable(),
   summary: z.string().nullable(),
@@ -47,6 +58,42 @@ export const AgentColumn = z.object({
   findings: z.array(AgentColumnFinding),
 });
 export type AgentColumn = z.infer<typeof AgentColumn>;
+
+/**
+ * One agent's finding inside a group. The original text is carried VERBATIM —
+ * nothing is rewritten, shortened or merged — so a reader can always reach what
+ * each agent actually said about the place the group names.
+ */
+export const FindingGroupMember = z.object({
+  finding_id: z.string(),
+  agent_id: z.string(),
+  agent_name: z.string(),
+  run_id: z.string(),
+  title: z.string(),
+  rationale: z.string(),
+  suggestion: z.string().nullable(),
+  severity: Severity,
+  confidence: z.number().min(0).max(1),
+});
+export type FindingGroupMember = z.infer<typeof FindingGroupMember>;
+
+/**
+ * Findings from several agents about the same place. Derived from persisted
+ * findings on every read; not stored. A single finding is a valid group of one,
+ * and every finding belongs to exactly one group.
+ *
+ * `title`, `severity` and the line are the group's REPRESENTATIVE — the first
+ * member in the group's own deterministic order — never a synthesised summary.
+ */
+export const FindingGroup = z.object({
+  key: z.string(),
+  file: z.string(),
+  start_line: z.number().int(),
+  title: z.string(),
+  severity: Severity,
+  members: z.array(FindingGroupMember),
+});
+export type FindingGroup = z.infer<typeof FindingGroup>;
 
 /** One agent's stance on a contended file:line. */
 export const ConflictTake = z.object({
@@ -71,19 +118,48 @@ export const Conflict = z.object({
 });
 export type Conflict = z.infer<typeof Conflict>;
 
-/** Response of POST /pulls/:id/multi-agent-run and GET /pulls/:id/multi-agent. */
+/**
+ * Response of GET /pulls/:id/multi-agent — the LATEST multi-agent run of one PR.
+ * A run is started by POST /pulls/:id/review with `agentIds`, which answers with
+ * `multi_agent_run_id`; nothing posts to this resource.
+ */
 export const MultiAgentRun = z.object({
   id: z.string(),
   pr_id: z.string(),
   pr_number: z.number().int().nullish(),
   ran_at: z.string(),
+  /** Every agent the run was started with, whatever became of it. */
   agent_count: z.number().int(),
+  /** How many of those finished (`status === 'done'`). Groups and conflicts speak for these only. */
+  agents_considered: z.number().int(),
   total_duration_ms: z.number().int(),
   total_cost_usd: z.number().nullable(),
   columns: z.array(AgentColumn),
+  groups: z.array(FindingGroup),
   conflicts: z.array(Conflict),
 });
 export type MultiAgentRun = z.infer<typeof MultiAgentRun>;
+
+/**
+ * What one agent's next run on this PR is likely to cost, averaged over its own
+ * completed runs. Response of GET /pulls/:id/multi-agent/estimate — one entry per
+ * agent in the workspace, so the picker can say "no data yet" per agent.
+ *
+ * `null` on either average means "no completed run to average", which is a
+ * different fact from `0` — the same null-vs-zero rule `agent_runs.cost_usd` uses.
+ */
+export const RunEstimate = z.object({
+  agent_id: z.string(),
+  agent_name: z.string(),
+  enabled: z.boolean(),
+  runs_sampled: z.number().int(),
+  avg_duration_ms: z.number().int().nullable(),
+  avg_cost_usd: z.number().nullable(),
+});
+export type RunEstimate = z.infer<typeof RunEstimate>;
+
+export const RunEstimateResponse = z.array(RunEstimate);
+export type RunEstimateResponse = z.infer<typeof RunEstimateResponse>;
 
 // ---------------------------------------------------------------------------
 // Per-agent Stats (GET /agents/:id/stats)
