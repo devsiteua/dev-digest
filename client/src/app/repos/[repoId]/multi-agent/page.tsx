@@ -28,13 +28,13 @@ import { usePulls } from "@/lib/hooks/core";
 import { usePrReviews, useRunEvents } from "@/lib/hooks/reviews";
 import { isNoMultiAgentRun, useMultiAgentRun } from "@/lib/hooks/multi-agent";
 import { useActiveRepo, useRepoNotFound } from "@/lib/repo-context";
-import { formatCost } from "@/lib/format";
+import { formatCost, formatDurationMs } from "@/lib/format";
 import { MultiAgentPicker } from "../pulls/[number]/_components/MultiAgentPicker";
 import RunTraceDrawer from "../pulls/[number]/_components/RunTraceDrawer";
 import { ColumnsView } from "./_components/ColumnsView";
 import { DisagreeBlock } from "./_components/DisagreeBlock";
 import { TabsDetailView } from "./_components/TabsDetailView";
-import { formatDurationMs, liveStatusByRun, runningRunIds, withLiveStatus } from "./helpers";
+import { liveStatusByRun, runningRunIds, withLiveStatus } from "./helpers";
 
 type Mode = "columns" | "tabs";
 

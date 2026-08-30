@@ -39,13 +39,3 @@ export function summariseEstimate(
   return { durationMs, costUsd, runsSampled };
 }
 
-/**
- * Seconds-formatted duration, or `null` when there is no duration to format.
- *
- * Deliberately returns `null` rather than a dash: the caller decides which
- * sentence stands in for a number it does not have, and that sentence is copy.
- */
-export function formatDurationMs(ms: number | null | undefined): string | null {
-  if (ms == null || !Number.isFinite(ms)) return null;
-  return `${(ms / 1000).toFixed(1)}s`;
-}

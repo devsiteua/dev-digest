@@ -66,7 +66,23 @@ export function FindingDetailCard({
 
   return (
     <div style={s.card(sevColor, acted !== null)}>
-      <div onClick={() => setExpanded((e) => !e)} style={s.head}>
+      {/* A real control, not a clickable div: expanding is the ONLY way to reach
+          this finding's rationale, its suggested fix and its four actions, so a
+          keyboard or screen-reader user who cannot open it cannot use the card
+          at all. `aria-expanded` is what makes the state audible. */}
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        onClick={() => setExpanded((e) => !e)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setExpanded((v) => !v);
+          }
+        }}
+        style={s.head}
+      >
         <SeverityBadge severity={finding.severity as Severity} compact />
         <div style={s.headMain}>
           <div style={s.titleRow}>

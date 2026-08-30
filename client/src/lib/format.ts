@@ -28,3 +28,19 @@ export function formatCost(usd: number | null | undefined): string {
 export function formatTokenCount(n: number): string {
   return n.toLocaleString("en-US");
 }
+
+/**
+ * A duration in seconds to one decimal: 14051 → "14.1s".
+ *
+ * Here for the same reason `formatCost` is: it is rendered from two sibling
+ * trees — the agent picker on the pull-request page and the Multi-Agent Review
+ * route — and it was briefly written out twice before the second consumer
+ * arrived in the same change.
+ *
+ * Deliberately returns `null` rather than a dash: the caller decides which
+ * sentence stands in for a number it does not have, and that sentence is copy.
+ */
+export function formatDurationMs(ms: number | null | undefined): string | null {
+  if (ms == null || !Number.isFinite(ms)) return null;
+  return `${(ms / 1000).toFixed(1)}s`;
+}

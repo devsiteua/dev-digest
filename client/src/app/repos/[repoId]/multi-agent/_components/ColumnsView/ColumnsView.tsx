@@ -17,8 +17,8 @@ import React from "react";
 import { useTranslations } from "next-intl";
 import { Badge, CircularScore, Icon, MonoLink, SEV, type Severity } from "@devdigest/ui";
 import type { AgentColumn } from "@devdigest/shared";
-import { formatCost, NO_VALUE } from "@/lib/format";
-import { elapsedSeconds, formatDurationMs } from "../../helpers";
+import { formatCost, formatDurationMs, NO_VALUE } from "@/lib/format";
+import { elapsedSeconds } from "../../helpers";
 import { STATUS_TONE } from "./constants";
 import { s } from "./styles";
 

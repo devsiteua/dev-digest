@@ -53,11 +53,6 @@ export function withLiveStatus(
   });
 }
 
-/** Seconds-formatted duration, or `null` when there is nothing to format. */
-export function formatDurationMs(ms: number | null | undefined): string | null {
-  if (ms == null || !Number.isFinite(ms)) return null;
-  return `${(ms / 1000).toFixed(1)}s`;
-}
 
 /**
  * How long a still-running column has been going, in whole seconds.

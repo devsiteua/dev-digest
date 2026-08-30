@@ -17,10 +17,10 @@ import { Button, Checkbox, EmptyState, Icon, SectionLabel, Skeleton } from "@dev
 import { useAgents } from "@/lib/hooks/agents";
 import { usePulls } from "@/lib/hooks/core";
 import { useRunEstimate, useStartMultiAgentRun } from "@/lib/hooks/multi-agent";
-import { formatCost } from "@/lib/format";
+import { formatCost, formatDurationMs } from "@/lib/format";
 import { ApiError } from "@/lib/api";
 import { AGENTS_HREF, resultsHref } from "./constants";
-import { formatDurationMs, summariseEstimate } from "./helpers";
+import { summariseEstimate } from "./helpers";
 import { s } from "./styles";
 
 export interface MultiAgentPickerProps {
