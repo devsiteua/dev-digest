@@ -41,3 +41,17 @@ export const EVAL_ERRORS = {
   /** AC-13 — that agent already has a batch in flight. */
   runInFlight: 'eval_run_already_running',
 } as const;
+
+/**
+ * Wall-clock budget for one case's model call.
+ *
+ * `reviewer-core` defaults to 60 s, which is right for an interactive review and
+ * wrong here: a case replays the WHOLE PR diff, and the first live run over the
+ * seeded eight measured a median of ~50 s per case with two of the eight tripping
+ * the 60 s budget outright. A case lost to the budget is not an honest failure —
+ * it removes that case's expectation from the denominator, so two runs of the same
+ * set end up measuring different populations and stop being comparable, which is
+ * the single property this feature exists to provide. A genuine stall still fails
+ * the case and leaves the batch `partial`.
+ */
+export const EVAL_CASE_TIMEOUT_MS = 180_000;

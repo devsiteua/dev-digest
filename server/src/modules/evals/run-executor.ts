@@ -1,5 +1,6 @@
 import type { EvalExpectation } from '@devdigest/shared';
 import { reviewPullRequest } from '@devdigest/reviewer-core';
+import { EVAL_CASE_TIMEOUT_MS } from './constants.js';
 import type { Container } from '../../platform/container.js';
 import type { AgentRow } from '../../db/rows.js';
 import { parseUnifiedDiff } from '../../adapters/index.js';
@@ -52,6 +53,7 @@ export class EvalRunExecutor {
           diff,
           llm,
           strategy: agent.strategy ?? 'single-pass',
+          timeoutMs: EVAL_CASE_TIMEOUT_MS,
           sessionId: `eval:${batchId}:${evalCase.id}`,
         });
 
