@@ -63,7 +63,7 @@ What already exists and is therefore not built again.
 
 | Already true | Where |
 |---|---|
-| the whole CI runner: `ncc`-bundled to one `dist/index.js`, same `reviewer-core` pipeline, mandatory grounding gate, deterministic verdict from grounded findings + `ci_fail_on`, writes `devdigest-result.json`, exits non-zero iff the gate requested changes — 23 green tests | `agent-runner/` (`README.md`, `CLAUDE.md`, commit `5530da3`) |
+| the whole CI runner: `ncc`-bundled into `dist/` — three files, not one: `index.js` (1 604 629 B), a lazily imported chunk `300.index.js` (5 796 B) and a generated `package.json` whose whole contents are `{"type": "module"}` — same `reviewer-core` pipeline, mandatory grounding gate, deterministic verdict from grounded findings + `ci_fail_on`, writes `devdigest-result.json`, exits non-zero iff the gate requested changes — 23 green tests | `agent-runner/` (`README.md`, `CLAUDE.md`, commit `5530da3`) |
 | the runner reads `OPENROUTER_API_KEY` / `GITHUB_TOKEN` / `GITHUB_REPOSITORY` / `PR_NUMBER` / `DEVDIGEST_POST_AS` from `process.env`, deliberately outside the server's `SecretsProvider` chokepoint | `agent-runner/CLAUDE.md` § "Why This Package Intentionally Breaks the `SecretsProvider` Rule" |
 | the runner resolves skill bodies from `.devdigest/skills/<slug>.md` and hands them to the engine **already resolved and unwrapped** | `agent-runner/src/skills.ts`, `agent-runner/src/run.ts:94,124` |
 | `AgentManifest` — one Zod schema for studio and runner | `server/src/vendor/shared/contracts/eval-ci.ts:152` |
@@ -101,10 +101,15 @@ new adapter.
     persist the `ci_installations` row (`CiExportInput` → `CiExport`);
   - `GET /ci/runs` — the CI Runs list;
   - `GET /agents/:id/ci` — installations + recent CI runs for the agent CI tab;
+  - `GET /agents/:id/export-ci/preview` — the read-only preview: the same `CiFile[]` the export
+    would commit, produced by the same pure generator, with no GitHub call and no row written
+    (`action: 'files'` stays out of scope — this route replaces the reason anyone wanted it);
   - `POST /ci/ingest` — the single authenticated way a CI result enters the studio.
 - **Bundle generation**: `.devdigest/agents/<slug>.yaml` (an `AgentManifest`), one
   `.devdigest/skills/<slug>.md` per attached skill, `.github/workflows/devdigest-review.yml`,
-  and `.devdigest/runner/index.js` read from `agent-runner/dist/index.js` on local disk.
+  and **all three** files `ncc` emits into `agent-runner/dist/` — `index.js`, the lazily
+  imported chunk `300.index.js`, and the generated `package.json` — copied under
+  `.devdigest/runner/` with their names preserved.
 - **The Export Wizard** on the agent page: `Target → Preview → Configure → Install`, built on
   `ExportWizardSteps`; GitHub Actions is the only target; Preview is read-only; Configure covers
   the `pull_request` event list and the publish mode; Install opens the PR.
@@ -146,6 +151,12 @@ demonstrably works end to end. Everything below is deliberately not done.
   five filter chips and a trace link; a CI run has no `run_traces` row on this machine, so the
   link would go nowhere. *Iteration 2.*
 - **Pagination on CI Runs.** A capped list (NFR) instead. *Iteration 2.*
+- **Per-severity finding chips on a CI run.** The counters exist in `CiResultArtifact`, but
+  neither `ci_runs` nor `agent_runs` has anywhere to keep them and AC-31 fixes the migration at
+  exactly two columns. A third severity tally would also have to choose a counting rule on
+  purpose — two already coexist deliberately in this repository (root `INSIGHTS.md`,
+  2026-08-02) — which is not a decision a thin first pass should be making. The list shows the
+  total, which is what the graded requirement names. *Iteration 2.*
 - **The PR title column on CI Runs.** The target repository need not be imported into the studio,
   so we have no title of our own — and taking one from the ingest envelope would render
   attacker-controlled text from someone else's repository in our UI for no benefit. The row shows
@@ -193,7 +204,7 @@ English. Five patterns and the reference: `README.md` § EARS.
 |---|---|---|---|
 | AC-01 | event-driven | КОЛИ користувач натискає **Add to CI** на сторінці агента, система повинна (shall) відкрити модальний Export Wizard із чотирма кроками Target → Preview → Configure → Install, відрендереними компонентом `ExportWizardSteps`. | client component test on the wizard |
 | AC-02 | optional feature | ДЕ для цілі CI справді реалізовано генератор файлів, система повинна (shall) показувати цю ціль на кроці Target; у першому проході реалізовано лише GitHub Actions, тому CircleCI, Jenkins і Generic CLI не показуються взагалі. | client component test: exactly one target card is rendered |
-| AC-03 | ubiquitous | Крок Preview повинен (shall) перелічувати файли до створення — `.devdigest/agents/<slug>.yaml`, по одному `.devdigest/skills/<slug>.md` на кожен приєднаний скіл, `.github/workflows/devdigest-review.yml` і `.devdigest/runner/index.js` — показувати вміст лише перших трьох і лише для читання, а для бандла раннера показувати тільки шлях і розмір у байтах. | client component test + server unit over the generated bundle |
+| AC-03 | ubiquitous | Крок Preview повинен (shall) перелічувати файли до створення — `.devdigest/agents/<slug>.yaml`, по одному `.devdigest/skills/<slug>.md` на кожен приєднаний скіл, `.github/workflows/devdigest-review.yml` і три файли раннера `.devdigest/runner/index.js`, `.devdigest/runner/300.index.js` та `.devdigest/runner/package.json` — показувати вміст лише маніфесту, скілів і workflow, і лише для читання, а для кожного з трьох файлів раннера показувати тільки шлях і розмір у байтах. | client component test + server unit over `GET /agents/:id/export-ci/preview` |
 | AC-04 | ubiquitous | Згенерований `.devdigest/agents/<slug>.yaml` повинен (shall) розбиратися схемою `AgentManifest` без помилок. | server unit: `AgentManifest.parse(YAML.parse(file))` |
 | AC-05 | ubiquitous | Тіло експортованого файлу скіла повинно (shall) дослівно збігатися з тілом скіла, якщо його `source` — `manual`, і бути обгорнутим `wrapUntrusted('skill:<name>', body)` для будь-якого іншого `source`. | server unit, one case per branch |
 | AC-06 | ubiquitous | Згенерований workflow повинен (shall) оголошувати блок `permissions` рівно з двома записами: `contents: read` і `pull-requests: write`. | server unit (assertion over the generated YAML) |
@@ -206,7 +217,7 @@ English. Five patterns and the reference: `README.md` § EARS.
 | AC-13 | optional feature | ДЕ в цільовому репозиторії задано секрет `DEVDIGEST_INGEST_URL`, згенерований workflow повинен (shall) надіслати результат на ingest студії; інакше крок надсилання пропускається і не робить job червоним. | server unit over the step's `if:` and `continue-on-error` |
 | AC-14 | event-driven | КОЛИ користувач підтверджує крок Install, система повинна (shall) закомітити згенеровані файли в гілку `devdigest/ci` цільового репозиторію й відкрити pull request у базову гілку, ніколи не комітячи в базову гілку напряму. | `*.it.test.ts` with the mock GitHub adapter: `commitFiles` called with `branch: 'devdigest/ci'`, `openPullRequest` called once |
 | AC-15 | event-driven | КОЛИ Install повторюється для тієї самої пари агент + репозиторій, система повинна (shall) перевикористати наявний рядок `ci_installations` і наявний відкритий pull request замість створення другого. | `*.it.test.ts`: two calls → one row, `findOpenPr` consulted, `openPullRequest` called once |
-| AC-16 | unwanted | ЯКЩО зібраного бандла раннера немає на диску, ТОДІ система повинна (shall) відхилити експорт повідомленням, що треба виконати `pnpm build` в `agent-runner/`, і не створити ні гілки, ні pull request, ні рядка `ci_installations`. | `*.it.test.ts` |
+| AC-16 | unwanted | ЯКЩО зібраної теки `agent-runner/dist/` немає на диску або в ній бракує будь-якого з трьох файлів (`index.js`, `300.index.js`, `package.json`), ТОДІ система повинна (shall) відхилити експорт повідомленням, що треба виконати `pnpm build` в `agent-runner/`, і не створити ні гілки, ні pull request, ні рядка `ci_installations`. | `*.it.test.ts`, one case per missing file |
 | AC-17 | unwanted | ЯКЩО GitHub повертає помилку під час коміту файлів або відкриття pull request, ТОДІ система повинна (shall) не створювати рядка `ci_installations` і повернути помилку з причиною. | `*.it.test.ts` with a failing mock adapter |
 | AC-18 | unwanted | ЯКЩО запит на ingest не несе дійсного bearer-токена — зокрема коли токен у студії взагалі не налаштовано — ТОДІ система повинна (shall) відповісти 401 і не записати жодного рядка. | `*.it.test.ts`, three cases: no header, wrong token, secret unset |
 | AC-19 | unwanted | ЯКЩО тіло ingest не проходить валідацію контракту, або `commit_sha` не є 40-символьним hex, або `repo` не відповідає жодній інсталяції, ТОДІ система повинна (shall) відповісти 4xx і не записати жодного рядка. | `*.it.test.ts`, one case per condition |
@@ -214,7 +225,7 @@ English. Five patterns and the reference: `README.md` § EARS.
 | AC-21 | unwanted | ЯКЩО той самий результат надходить удруге (та сама інсталяція, `pr_number` і `commit_sha`), ТОДІ система повинна (shall) не створювати другої пари рядків. | `*.it.test.ts`: two identical posts → one `agent_runs`, one `ci_runs` |
 | AC-22 | ubiquitous | Ingest повинен (shall) відхиляти невідомі ключі тіла і зберігати лише поля, оголошені контрактом. | `*.it.test.ts`: a body with an extra key is rejected |
 | AC-23 | ubiquitous | Ingest повинен (shall) визначати `workspace_id` запуску через інсталяцію та її агента, ніколи не з тіла запиту. | `*.it.test.ts` |
-| AC-24 | ubiquitous | Сторінка CI Runs повинна (shall) показувати для кожного запуску репозиторій, номер pull request, агента, статус, кількість знахідок за severity, вартість, тривалість і посилання на job GitHub Actions. | client component test over a fixture row |
+| AC-24 | ubiquitous | Сторінка CI Runs повинна (shall) показувати для кожного запуску репозиторій, номер pull request, агента, статус, загальну кількість знахідок, вартість, тривалість і посилання на job GitHub Actions. | client component test over a fixture row |
 | AC-25 | state-driven | ПОКИ жодного CI-запуску не записано, сторінка CI Runs повинна (shall) показувати порожній стан «No CI runs yet» із CTA на експорт агента. | client component test |
 | AC-26 | unwanted | ЯКЩО `feat/multi-agent-review` ще не змержено в базову гілку, ТОДІ цей потік не повинен (shall) змінювати `client/src/vendor/ui/nav.ts`. | shell, reading the OUTPUT and never the exit code (root `INSIGHTS.md`, 2026-08-22): `git diff --name-only lesson-07...HEAD > /tmp/f` — `vendor/ui/nav.ts` absent from that list before the rebase onto merged L07-A, present after |
 | AC-27 | ubiquitous | Вкладка CI на сторінці агента повинна (shall) показувати перелік інсталяцій із репозиторієм, ціллю і часом установлення, версію раннера з константи `RUNNER_VERSION` під підписом «Runner v<N>», останні CI-запуски цього агента і контрол `Fail CI on` — і не читати жодного стовпця, якого немає в `ci_installations`. | client component test |
@@ -224,16 +235,21 @@ English. Five patterns and the reference: `README.md` § EARS.
 | AC-31 | ubiquitous | Схема бази повинна (shall) змінитися рівно однією згенерованою міграцією, що додає до `ci_runs` два nullable-стовпці — `agent_run_id` і `commit_sha` — і не чіпає жодної іншої таблиці. | `pnpm db:generate` after the change emits no further diff; `*.it.test.ts` writes and reads both columns |
 | AC-32 | ubiquitous | Згенерований workflow повинен (shall) вивантажувати `devdigest-result.json` як артефакт запуску кроком `actions/upload-artifact`, що виконується незалежно від вердикту рев'ю, — щоб результат можна було внести в студію вручну, коли її не видно з GitHub. | server unit over the generated YAML: the step exists, its `if:` does not depend on the review job's outcome, and its `uses:` is SHA-pinned (AC-08) |
 | AC-33 | unwanted | ЯКЩО імена двох приєднаних скілів зводяться до одного slug, ТОДІ система повинна (shall) відхилити експорт повідомленням, яке називає обидва скіли, і не створити ні файлів, ні гілки, ні pull request, ні рядка `ci_installations`. | server unit over the slug derivation + `*.it.test.ts` for the refusal |
+| AC-34 | ubiquitous | `GET /agents/:id/export-ci/preview` повинен (shall) повертати ті самі файли, що закомітив би експорт, не роблячи жодного виклику до GitHub і не записуючи жодного рядка. | `*.it.test.ts`: the mock GitHub adapter records zero calls, `ci_installations` stays empty, and the result equals the export's `files` for the same input |
+| AC-35 | ubiquitous | Закомічений у цільовий репозиторій бандл повинен (shall) містити всі три файли з `agent-runner/dist/` під `.devdigest/runner/` зі збереженням імен, включно з `package.json`, що оголошує `"type": "module"`. | `*.it.test.ts`: assert the paths and the `package.json` contents passed to `commitFiles` |
 
 ## Edge cases
 
-- **The runner bundle is not built.** `agent-runner/dist/` is git-ignored, so it is absent on a
-  fresh clone. Covered by AC-16 — refuse before any GitHub call.
+- **The runner bundle is not built, or is built incompletely.** `agent-runner/dist/` is
+  git-ignored, so it is absent on a fresh clone, and a partial directory is worse than an empty
+  one: a bundle missing `package.json` still commits and still fails at the first line of the
+  job. Covered by AC-16 — refuse before any GitHub call, on any of the three files.
 - **The target repository does not exist, or the token cannot write to it.** GitHub errors on the
   first Git Data call. Covered by AC-17 — no installation row is left behind.
 - **The `gh` / studio token lacks the `workflow` scope.** Pushing a `.github/workflows/*` file is
   rejected by GitHub. This surfaces through the same path as AC-17 and has no separate criterion:
-  the fix is `gh auth refresh -h github.com -s workflow`, recorded under Inputs and provenance.
+  the fix is `gh auth refresh -h github.com -s workflow`; this machine's token already carries the
+  scope, so it is a fresh-clone failure mode rather than an open task. See Inputs and provenance.
 - **The branch `devdigest/ci` already exists.** `commitFiles` fast-forwards it rather than failing
   (`octokit.ts:264`), and `findOpenPr` reuses the open PR. Covered by AC-15.
 - **The agent has no skills attached.** The manifest's `skills` normalizes a missing key or an
@@ -308,7 +324,7 @@ this feature is undesigned, so nothing here is derived from an imagined artboard
 **3. How the involved modules talk**
 
 `client` (wizard) → `POST /agents/:id/export-ci` → `ci` service → `agents` data (manifest) +
-`skills` data (bodies) + local disk (`agent-runner/dist/index.js`) → `GitHubPort.commitFiles` /
+`skills` data (bodies) + local disk (`agent-runner/dist/`, all three files) → `GitHubPort.commitFiles` /
 `findOpenPr` / `openPullRequest` → `ci_installations`. Then, entirely outside this process:
 target repo's GitHub Actions → `node .devdigest/runner/index.js` → `reviewer-core` → PR review +
 `devdigest-result.json` → an HTTP POST back to `POST /ci/ingest` → `agent_runs` (`source='ci'`) +
@@ -316,9 +332,10 @@ target repo's GitHub Actions → `node .devdigest/runner/index.js` → `reviewer
 `AgentManifest` on the way out and `CiResultArtifact` on the way back. That is the whole reason
 both are single Zod schemas shared by both ends, and the reason this pass changes neither.
 
-The one hop that is neither a contract nor a network call is `agent-runner/dist/index.js` — a file
-on the developer's disk that the server reads and that no schema describes. It is the most likely
-thing to be stale (nothing rebuilds it) and it is why AC-16 exists.
+The one hop that is neither a contract nor a network call is `agent-runner/dist/` — three files on
+the developer's disk that the server reads and that no schema describes. It is the most likely
+thing to be stale (nothing rebuilds it) and it is why AC-16 exists. It is also the hop where the
+runner's module system crosses into a repository that has its own: see Risks.
 
 **4. UX improvements proposed** (proposals, not requirements — do not plan them as work)
 
@@ -335,8 +352,8 @@ thing to be stale (nothing rebuilds it) and it is why AC-16 exists.
 
 | Limit | Value | Why this number |
 |---|---|---|
-| runner bundle accepted for export | ≤ 8 MB | `commitFiles` sends every file's contents inline in one `createTree` request (`octokit.ts:264-300`); GitHub's blob limit is far higher, but an 8 MB ceiling keeps one export inside one request and fails loudly if `ncc` output ever balloons |
-| runner bundle bytes crossing the API | 0 | the bundle is listed by path and size in `CiExport.files`, never by contents — the client has no use for it and `client`'s query cache would hold megabytes per preview |
+| runner bundle accepted for export | ≤ 8 MB across the three files (`index.js` is 1.6 MB today) | `commitFiles` sends every file's contents inline in one `createTree` request (`octokit.ts:264-300`); GitHub's blob limit is far higher, but an 8 MB ceiling keeps one export inside one request and fails loudly if `ncc` output ever balloons |
+| runner bundle bytes crossing the API | 0 | each of the three runner files is listed by path and size in `CiExport.files`, never by contents — the client has no use for it and `client`'s query cache would hold megabytes per preview |
 | `POST /agents/:id/export-ci` latency | p95 ≤ 20 s | three to five sequential GitHub calls (get ref, get commit, create tree, create commit, update/create ref) plus a PR creation, each already wrapped in the adapter's retry + timeout |
 | ingest request body | ≤ 64 KB | `CiResultArtifact` is nine numeric/string counters plus a small envelope; the app-wide `bodyLimit` is 1 MB (`server/src/app.ts`), so a tighter per-route cap is a real guard rather than a restatement |
 | ingest token length | ≥ 32 characters, compared in constant time | shorter than 32 is guessable at the rate an unauthenticated local endpoint permits; a non-constant-time comparison leaks the prefix |
@@ -349,10 +366,10 @@ thing to be stale (nothing rebuilds it) and it is why AC-16 exists.
 |---|---|---|---|
 | agent config (name, provider, model, system prompt, strategy, `ci_fail_on`) | `agents` row, this workspace | the moment the agent is edited after an export — the installed manifest is a snapshot, and re-export is manual | the route 404s, as `GET /agents/:id` already does |
 | attached skill bodies | `skills` + `agent_skills`, ordered | same as above | an agent with no skills exports a manifest with `skills: []` (valid) |
-| runner bundle | `agent-runner/dist/index.js`, produced by `pnpm build` (`ncc`), git-ignored | whenever `agent-runner/src` or `reviewer-core` changed since the last build — nothing detects this | AC-16: refuse the export and name the command |
+| runner bundle | `agent-runner/dist/` — `index.js`, `300.index.js`, `package.json` — produced by `pnpm build` (`ncc`), git-ignored | whenever `agent-runner/src` or `reviewer-core` changed since the last build — nothing detects this | AC-16: refuse the export and name the command |
 | target repository `owner/name` | typed by the user in the wizard | never | the wizard's own validation rejects it before any request |
-| GitHub write credentials | `SecretsProvider` → `GITHUB_TOKEN` (`~/.devdigest/secrets.json`, mode 0600) | when the token expires or its scopes change; the `workflow` scope is required and is **not** in the default `gist, read:org, repo` set | AC-17's path — a GitHub error with its reason |
-| `OPENROUTER_API_KEY` in the target repository | the target repo's Actions Secrets, added by a human | never, from our side | the runner's first model call fails and the job goes red; the studio never sees it and cannot |
+| GitHub write credentials | `SecretsProvider` → `GITHUB_TOKEN` (`~/.devdigest/secrets.json`, mode 0600) | when the token expires or its scopes change; the `workflow` scope is required to push a `.github/workflows/*` file, and this machine's token already carries it (`gist, read:org, repo, workflow`, per `gh auth status`) — `reference/lessons/WORKING-ORDER.md` still lists that refresh as an outstanding prerequisite and is stale | AC-17's path — a GitHub error with its reason |
+| `OPENROUTER_API_KEY` in the target repository | the target repo's Actions Secrets, added by a human — already present in `devsiteua/devdigest-review-fixtures`, with Actions enabled (`gh api repos/…/actions/secrets`), so `WORKING-ORDER.md` is stale here too | never, from our side | the runner's first model call fails and the job goes red; the studio never sees it and cannot |
 | `DEVDIGEST_CI_TOKEN` | `SecretsProvider`, this machine; the same value pasted into the target repo's Actions Secrets by a human | when either copy is rotated without the other | AC-18: ingest rejects every request |
 | `DEVDIGEST_INGEST_URL` | the target repo's Actions Secrets | when the studio's address changes | AC-13: the workflow skips the ingest step |
 | `devdigest-result.json` | written by the runner in the target repo's CI (`agent-runner/src/artifact.ts`) | never — it describes one commit | no artifact means the run hard-failed; nothing is posted and no row is created, which is the runner's documented behaviour |
@@ -408,8 +425,9 @@ This feature has real ones, on both legs of the round trip.
 
 | Risk | How we would notice | What we do |
 |---|---|---|
+| the target repository declares `"type": "commonjs"` (or no `type` at all), so `node .devdigest/runner/index.js` dies with `Cannot use import statement outside a module` | every CI run fails at the runner's first line, before any review, with an error about our file in someone else's repository | removed by construction rather than papered over: the export copies `ncc`'s generated `dist/package.json` (`{"type": "module"}`) into `.devdigest/runner/` (AC-35), which scopes the module type to that directory whatever the target repo declares. Verified, not assumed — `dist/index.js` line 1 is an `import`, and our own target repo `devsiteua/devdigest-review-fixtures` already declares `"type": "module"`, so this failure class was invisible along the entire demo path and would have shipped |
 | the exported manifest drifts from the agent it was exported from (the agent is edited afterwards) | a CI review behaves unlike the local one for the same PR | accept it in this pass — the manifest is a snapshot by design (the lab says so); the CI tab shows the installation time, and "Update CI config" is out of scope |
-| `agent-runner/dist/index.js` is stale rather than missing — built once, never rebuilt | a CI run behaves like an old `reviewer-core` | AC-16 catches absent, not stale. Recorded here deliberately; a build-freshness check is iteration 2 |
+| `agent-runner/dist/` is stale rather than missing — built once, never rebuilt | a CI run behaves like an old `reviewer-core` | AC-16 catches absent, not stale. Recorded here deliberately; a build-freshness check is iteration 2 |
 | the contract mirror edit breaks literals in both packages — `.default()` fields are optional on input and **required** on `z.infer` (root `INSIGHTS.md`, 2026-08-29) | `pnpm typecheck` red in server *and* client, with `TS2741` | `AgentManifest` is a new export rather than a new field on an existing type, so no existing literal gains a key; the two `'openrouter'` widenings only widen unions. Sweep with `grep -rn ": AgentManifest = {" server/src client/src` before committing anyway |
 | `check:contract-mirror` in `/pr-self-review` compares changed *lines*, so repairing pre-existing drift on one side trips it even when the files end up identical (root `INSIGHTS.md`, 2026-08-06) | a scripted CRITICAL on a correct mirror edit | expect it, verify the two files by `diff`, and use the override — which section 3 of the gate now honours when `override.reason` is present and the diff digest matches |
 | ordering of the CI Runs list is planner order for rows written in one transaction — `defaultNow()` is the transaction's timestamp (root `CLAUDE.md` § Gotchas) | two runs ingested together appear in an arbitrary order | order by `ran_at` **and** a secondary key; the cap in the NFR table makes the wrong order visible rather than buried |
