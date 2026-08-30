@@ -60,6 +60,42 @@ _None yet._
 
 ## What Doesn't Work
 
+### 2026-08-30 · A plan's own dependency graph can encode an ordering that cannot be executed, and every gate in the plan agrees with it
+
+Trigger:  `specs/plans/L05-pr-brief.md` placed AC-39's integration case in Step 6 — "the two
+          seeded `pr_brief` rows, read through `GET` at `stale: true`". Step 6 builds the
+          integration lane. The rows it reads are written by Step 10. Step 10 `Depends: Step 6`.
+Cause:    the plan had been swept for coverage in three directions — every criterion has a step,
+          no step invents a criterion, and (after a cross-model review round) every *lane* the
+          spec's `How it is checked` column names has a step. All three passed. None of them
+          asks whether the step that owns a lane can actually *run* it: the sweep matches lanes
+          to steps, never the data a lane reads to the step that produces it.
+Takeaway: when a lane asserts against data, check which step writes that data and whether the
+          dependency arrow points the right way. The same shape recurs wherever a test is placed
+          by subject rather than by prerequisite — fixtures, seeds, migrations. In execution the
+          honest fix is to move the case to the step that makes it possible and say so, not to
+          weaken the assertion so it fits where it was asked for.
+Evidence: specs/plans/L05-pr-brief.md · server/test/brief.it.test.ts
+Status:   open
+
+### 2026-08-30 · A plan gate written as `grep -c <symbol> <file>` → N cannot distinguish an import line from a call site
+
+Trigger:  a step's `Verify` read `grep -c "briefStateOf" server/src/modules/brief/service.ts`
+          → **2**, "any other number means the two paths have stopped hashing the same string".
+          The real count is 3, and always would have been.
+Cause:    `grep -c` counts matching *lines*, and the `import { … briefStateOf … }` line is one
+          of them. The floor for "two call sites of an imported function" is three. The gate was
+          unreachable as written, so an implementer following it literally sees a mismatch with
+          no way to tell a regression from the plan being wrong.
+Takeaway: a gate meant to count call sites greps for the call — `grep -c "symbol("` — or states
+          its arithmetic out loud ("2 call sites plus 1 import = 3"). More generally, a gate a
+          plan writes for itself is never run before the plan is approved, so any gate with a
+          hard-coded number should be executed against the current tree while the plan is being
+          written, even when the code it will check does not exist yet: the count of what is
+          already there is checkable today.
+Evidence: specs/plans/L05-pr-brief.md · server/src/modules/brief/service.ts:21,87,124
+Status:   open
+
 ### 2026-08-01 · Docs drift found during the first full repo walkthrough
 
 Trigger:  onboarding pass over the whole repository
@@ -213,7 +249,10 @@ Takeaway: for a feature whose module is being written now, `getFeatureModelOverr
           code behind them.
 Evidence: server/src/vendor/shared/contracts/platform.ts:73-79;
           server/src/modules/settings/feature-models.ts:30-35; specs/L02-conventions-extractor.md
-Status:   open — `resolveFeatureModel` still has no caller; the first one should re-check this
+Status:   → promoted to `server/CLAUDE.md` § Conventions on 2026-08-30, at its second sighting:
+          `risk_brief` was already in `FeatureModelId` with an `openai / gpt-4.1` default and a
+          rendered Settings row pointing at nothing, so the PR brief CLAIMED the slot rather than
+          creating one. `resolveFeatureModel` still has no caller; the first one should re-check this
 
 ### 2026-08-05 · One dependency-cruiser run over `server/src` also polices `reviewer-core`'s purity
 

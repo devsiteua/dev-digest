@@ -92,6 +92,37 @@ Status:   open — deliberately not fixed in L02; the spec sentence is the thing
 
 ## Codebase Patterns
 
+### 2026-08-30 · `@fastify/rate-limit` is not registered at all under `NODE_ENV=test`, so a per-route limit cannot be exercised by a normal integration test
+
+Trigger:  an acceptance criterion of the form "the 11th POST in a minute gets 429". The route
+          carries `config: { rateLimit: { max: 10, timeWindow: '1 minute' } }`, and the test
+          sailed past 11 requests without ever tripping.
+Cause:    `src/app.ts:95` skips the plugin entirely when `nodeEnv === 'test'`. A per-route
+          `config.rateLimit` is not a limiter — it is configuration handed to a plugin that,
+          in the test lane, is not there to read it.
+Takeaway: an `.it.test.ts` case about rate limiting has to build its app with
+          `{ ...config(), nodeEnv: 'production' }`, and should say in a comment that it is the
+          one case in the file doing so. Without that, the criterion passes by never being
+          exercised — the worst kind of green.
+Evidence: server/src/app.ts:95 · server/test/brief.it.test.ts:464
+Status:   open
+
+### 2026-08-30 · `ReviewRepository.getPrFiles` returns rows in planner order, while its neighbour sorts and says why
+
+Trigger:  building an assembler whose output has to be byte-identical across two calls, because
+          its hash is a cache key.
+Cause:    `pull.repo.ts` selects `pr_files` with no `orderBy`, so the order is whatever the
+          planner chose. `BlastRepository.pathsForPr` sorts by `path` and its doc comment
+          explains the reason — an unordered list reaches the index as an unordered `IN (...)`
+          and two identical requests can disagree. Nothing on the `getPrFiles` side says it does
+          not do the same.
+Takeaway: never assume a repository read is ordered because a sibling read is. A pure function
+          whose determinism is load-bearing sorts its own inputs rather than trusting the row
+          order it was handed — that keeps purity a property of the function instead of a
+          property of a query it does not own.
+Evidence: server/src/modules/reviews/repository/pull.repo.ts:28-33 · server/src/modules/brief/helpers.ts
+Status:   open
+
 ### 2026-08-29 · A new key in a PERSISTED-SNAPSHOT contract needs `.default()`, or every existing row 500s — and no test in this repo can see it
 
 Trigger:  adding `project_context: z.boolean()` to `AgentVersionConfig`, exactly as a live-row
@@ -195,6 +226,47 @@ Status:   open — the service that builds that map lands next session
 > plus any resolved entry an open one points at.
 
 ## Tool & Library Notes
+
+### 2026-08-30 · `pnpm db:generate` can emit a migration that does not run, and reading the new file is the wrong test for an unchanged constraint
+
+Trigger:  Step 1 of the L05 plan turned `pr_brief` from a `pr_id`-keyed row into a history.
+          `pnpm db:generate` succeeded, wrote one clean-looking `.sql`, and the file was
+          inapplicable.
+Cause:    drizzle-kit cannot resolve the name of a primary key that was created unnamed
+          (`pr_id uuid PRIMARY KEY` in `0000_init.sql:212`), so it emits its own drop
+          **commented out** with a `"<constraint_name>"` placeholder and a paragraph telling
+          you to fill it in — then adds the new key anyway. Postgres answers
+          `ERROR: multiple primary keys for table "pr_brief" are not allowed`.
+          The second half of the same surprise: the step also asked to confirm the
+          `onDelete: cascade` was "in" `0015`. It is not, and cannot be — the FK never changed,
+          so drizzle-kit correctly emitted nothing for it.
+Takeaway: a step that pairs `db:generate` with `db:migrate` must treat *reading the SQL* as a
+          gate that can fail, not as documentation. Completing drizzle-kit's own placeholder is
+          the intended workflow and does not diverge from the snapshot, which already describes
+          the new key — but it is the one place where "generated, never hand-edited" and the
+          tool's own output disagree, so do it visibly. And verify an unchanged constraint with
+          the post-apply `\d`, never by grepping the newest migration: that produces a false
+          alarm for everything the tool was right to leave alone.
+Evidence: server/src/db/migrations/0015_massive_imperial_guard.sql:16 · server/src/db/migrations/0000_init.sql:212,386
+Status:   open
+
+### 2026-08-30 · The tokenizer has two ways to count wrong in silence, and a feature that HASHES what it counted turns both into permanent staleness
+
+Trigger:  wiring `container.tokenizer.count` into the PR brief's budget ladder, whose
+          `state_key` is the SHA-256 of the very string it counted.
+Cause:    two independent traps. (1) `TiktokenTokenizer` falls back to `ceil(chars/4)` when the
+          `cl100k_base` BPE fails to load, and the fallback is **sticky per instance** — a
+          process that failed once counts differently for its whole life. (2) `count` reads
+          `this.enc` and `this.broken`, so passing it as a bare method reference
+          (`briefStateOf(parts, container.tokenizer.count)`) loses `this`: it throws, or
+          silently degrades to the same char heuristic. Pass a closure.
+Takeaway: anywhere a count decides what gets sent AND is hashed, a wrong count is not a wrong
+          number — it is a cache key that never matches again, so the feature reads stale
+          forever and no amount of regenerating clears it. Wrap the counter
+          (`(text) => container.tokenizer.count(text)`), and remember that two processes can
+          legitimately disagree about the same input.
+Evidence: server/src/adapters/tokenizer/index.ts · server/src/modules/brief/service.ts:87,124
+Status:   open
 
 ### 2026-08-29 · `pnpm typecheck` does not see `server/test/**`, so a broken server fixture surfaces only at vitest runtime
 

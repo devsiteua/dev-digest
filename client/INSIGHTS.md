@@ -7,6 +7,28 @@ see the root [`../INSIGHTS.md`](../INSIGHTS.md).
 
 ## What Works
 
+### 2026-08-30 · A rule that lives in a callback the page hands down can only be seen by a PAGE test — the component under it renders whatever it is given
+
+Trigger:  a criterion said switching tabs must clear `file`, `line` and `findingId` from the
+          URL. The implementation was right; the only thing verifying it was a `grep` for a
+          string in `page.tsx`.
+Cause:    `setTab` is a closure inside the page. `PrDetailHeader` calls whatever `onSetTab` it
+          is handed, so no test of the header can see which params that callback drops — and a
+          grep cannot tell `setTab` from `openFinding`, cannot see the patch reach
+          `router.replace`, and stays green if one navigation becomes two.
+Takeaway: this repo already paid for the lesson once and wrote it down in the test itself:
+          `src/app/skills/[id]/page.test.tsx` exists because "the SkillEditor renders whatever
+          `tab` it is handed, so its tests passed while the PAGE quietly rejected two of the
+          four keys". Copy that mock shape (mock `next/navigation`, `AppShell` and the hook
+          modules, render inside the intl provider). The lever that makes a page test cheap is
+          the tab you start on: `?tab=diff` needs six module mocks, `?tab=overview` also pulls
+          the brief and intent hooks, and a `?trace=` in the URL silently mounts the run-trace
+          drawer with three more.
+          And prove it is not a grep in disguise — revert the rule, watch the test go red,
+          restore.
+Evidence: client/src/app/repos/[repoId]/pulls/[number]/page.test.tsx · client/src/app/skills/[id]/page.test.tsx
+Status:   open
+
 _None yet._
 
 > Archived 2026-08-29 → [`../docs/insights-archive.md`](../docs/insights-archive.md), verbatim
@@ -66,6 +88,22 @@ Status:   open — the copy is wrong on a re-scan; not changed in L02
 
 ## Codebase Patterns
 
+### 2026-08-30 · A design component adopted "as given" can carry an interaction hole the mock never had to answer for
+
+Trigger:  building `RiskPillRow` from the design reference, which renders a risk's file
+          references through `MonoLink`.
+Cause:    in the prototype those references have no handler — the mock only has to look right.
+          `MonoLink` renders a `<button>`, and every other use of it in this tree supplies an
+          `href` or an `onClick`. Copying the design literally would have shipped three buttons
+          that do nothing, which is worse than plain text: it is a control that promises a
+          destination.
+Takeaway: "adopted as given" settles how something LOOKS, never what it does. When taking a
+          component from the design reference, check every primitive it uses for an implied
+          interaction the mock was never obliged to wire, and decide that interaction
+          deliberately — a real destination, or an element that is not a control.
+Evidence: client/src/app/repos/[repoId]/pulls/[number]/_components/PrBriefCard/_components/RiskPillRow/RiskPillRow.tsx
+Status:   open
+
 ### 2026-08-05 · `CLAUDE.md` and `docs/component-anatomy.md` disagree on how many files a component folder needs
 
 Trigger:  writing the `frontend-architecture` skill's acceptance criteria for "add a new
@@ -92,6 +130,19 @@ Status:   open — one of the two sentences should be reworded; not done here to
 > entry an open one points at.
 
 ## Tool & Library Notes
+
+### 2026-08-30 · `noUncheckedIndexedAccess` is on in `client/`, and `pnpm test` cannot see it
+
+Trigger:  a new page test read `replace.mock.calls[0][0]`. Green under vitest, red under `tsc`.
+Cause:    vitest transpiles without typechecking, and the client's `tsconfig` turns every
+          indexed access into `T | undefined`. Mock-call assertions index twice, so they hit it
+          constantly.
+Takeaway: a client test is not finished until BOTH `pnpm test` and `pnpm typecheck` have run.
+          Reach for a named helper that throws on the missing case rather than a `!` — the
+          throw names what was expected when a mock was not called at all, which is the real
+          failure hiding behind the index.
+Evidence: client/tsconfig.json · client/src/app/repos/[repoId]/pulls/[number]/page.test.tsx
+Status:   open
 
 ### 2026-08-22 · `@testing-library/user-event` is not installed — every RTL guide you will read assumes it is
 
