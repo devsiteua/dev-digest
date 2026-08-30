@@ -53,9 +53,12 @@ spec.
 
 - **No criterion covers a finding whose review has no agent.** The spec has AC-03 (no
   decision) and AC-04 (case already exists) but nothing for "there is no agent to own this
-  case". **I take:** the creation route refuses with a named reason, same shape as AC-06's
-  refusal. No new `AC-NN` is invented here — it is recorded as a decision.
-  → `spec-creator` if it should be a criterion.
+  case". **I took:** the creation route refuses with a named reason, same shape as AC-06's
+  refusal. No new `AC-NN` was invented here — it was recorded as a decision.
+  **Closed at `2378d54`: the caller made it `AC-30`**, on the ground that `reviews.agent_id`
+  is nullable (`server/src/db/schema/reviews.ts:28`, verified) while `eval_cases.owner_id` is
+  `notNull` (`schema/eval.ts:13`), so the case is reachable by any review written before an
+  agent existed — not only by the demo row Step 4 backfills. It is now covered by Step 5.
 
 - **AC-20 requires denominators to be persisted, and nothing today can hold them.**
   `eval_runs` has `recall`, `precision`, `citation_accuracy`, `duration_ms`, `cost_usd`, `pass`
@@ -443,10 +446,15 @@ Do:       Three blocks, each guarded on **its own absence** and outside `if (!pr
           `input_meta` `EvalCaseMeta`.
           The integration test: `seed(db)` twice, then assert ≥8 findings carrying a decision
           and that the count does **not** double (AC-09), ≥8 `eval_cases` for the seeded agent
-          (AC-01), and that every seeded `expected_output` parses under `EvalExpectation` —
-          which is what keeps the seed's literal and the service's writer one shape.
+          (AC-01), that the demo review's `agent_id` is **non-null** after both runs — the third
+          population AC-09 names since `2378d54` — and that every seeded `expected_output`
+          parses under `EvalExpectation`, which is what keeps the seed's literal and the
+          service's writer one shape.
 Verify:   `cd server && pnpm exec vitest run .it.test` (Docker) — the new file green, and
-          `test/integration.it.test.ts`'s existing idempotence case (`:69-71`) still green ·
+          `test/integration.it.test.ts`'s existing idempotence case (`:69-71`) still green.
+          AC-09 now names three populations, so the lane asserts three counters, not one:
+          decided findings ≥8, `eval_cases` ≥8, and the demo review's `agent_id` non-null —
+          none of them doubling on the second seed ·
           `cd server && pnpm db:seed && pnpm db:seed` on a live database, then re-run the lane —
           AC-09's own two-run check ·
           **e2e literal gate, obliged by root `CLAUDE.md` § Gotchas.** Before the edit,
@@ -472,13 +480,21 @@ Files:    `server/src/modules/evals/repository.ts` (new) ·
 Skills:   onion-architecture, fastify-best-practices, zod, drizzle-orm-patterns
 Do:       `POST /eval-cases` with body `{ finding_id }`; `GET /agents/:id/eval-cases`;
           `DELETE /eval-cases/:id`. Service: load the finding and its review, refuse when the
-          review has no `agent_id` (§ Gaps), derive the expectation with
+          review has no `agent_id` (AC-30), derive the expectation with
           `expectationFromFinding` (AC-02), assemble the **whole** PR diff through
           `loadDiff(container, repo, ws, pull, repoRow)` — the same path a review takes
           (`src/modules/reviews/diff-loader.ts:12`) — then `serializeDiff` it (AC-05), refuse
           above `MAX_INPUT_DIFF_CHARS` **without truncating** (AC-06), and return the existing
           case instead of creating a second when `input_meta->>'source_finding_id'` already
           matches (AC-04).
+          The owner refusal is AC-30 and takes the same shape as AC-06's oversize refusal:
+          `reviews.agent_id` is nullable (`server/src/db/schema/reviews.ts:28`) while
+          `eval_cases.owner_id` is `notNull` (`schema/eval.ts:13`), so when the finding's review
+          names no agent the service throws
+          `AppError('eval_case_no_owner', <message naming the missing agent>, 409)` **before any
+          write** — the same `AppError(code, message, statusCode)` route AC-06 reports through,
+          for the same reason (a Zod route schema can only ever answer 422), and no case is
+          created without an owner.
           Every rejection is `AppError(code, message, statusCode)` thrown from the **service**,
           not the route schema — `server/INSIGHTS.md` (2026-08-29): a Zod route schema can only
           ever answer 422. Document the exception in the route, in the service class comment
@@ -493,17 +509,29 @@ Do:       `POST /eval-cases` with body `{ finding_id }`; `GET /agents/:id/eval-c
           >100 000-char PR is refused and stores nothing (AC-06); delete the PR, re-read the
           set — the case is still there (AC-07); delete a case that has `eval_runs` rows and
           both disappear (AC-08).
+          **AC-30 brings its own fixture and must not undo Step 4.** After Step 4 the seeded
+          workspace has no agent-less review left — the backfill is `where agent_id is null`,
+          so it removes exactly the row this lane needs. The test therefore *inserts* one:
+          a `reviews` row on the seeded PR with `agentId` omitted, plus one finding on it. That
+          is the ordinary fixture idiom in this lane, already used at
+          `test/reviews.it.test.ts:417,461`, `test/smart-diff.it.test.ts:147` and
+          `test/skills.it.test.ts:574`. Assert the route refuses **and** that
+          `select count(*) from eval_cases` is unchanged across the call.
 Verify:   `cd server && pnpm exec vitest run .it.test` (Docker) — the new file green and
           the lane no worse than before. If an **unrelated** integration file goes red, re-run
           the reduced lane **at least five times** before concluding anything: the
           `skills.it.test.ts` race is ~20% at 13–14 containers regardless of the newest file
           (`server/INSIGHTS.md` 2026-08-28 + its 2026-08-29 correction) ·
+          **AC-30's case explicitly**: with a locally inserted agent-less review, the route
+          returns the refusal and the message names the missing agent, and `eval_cases` holds
+          the same number of rows after the call as before it — counted on both sides of the
+          request, not merely "no new row for this finding" ·
           `cd server && pnpm exec vitest run --exclude '**/*.it.test.ts'` ·
           `cd server && pnpm verify:l06` · `cd server && pnpm typecheck` ·
           `cd server && pnpm arch:check` — output reads `✔ no dependency violations found`;
           a `warn no-cross-module-import` line is a **failure** here even though the exit code
           is 0 (`server/INSIGHTS.md` 2026-08-06)
-Covers:   AC-02, AC-04, AC-05, AC-06, AC-07, AC-08
+Covers:   AC-02, AC-04, AC-05, AC-06, AC-07, AC-08, AC-30
 Depends:  Step 4
 Commit:   `feat(evals): a decided finding becomes a frozen case in one call`
 
@@ -809,13 +837,17 @@ Built from the spec's ids, in order — not from the steps.
 | AC-12 | 9 | AC-27 | 2 |
 | AC-13 | 6 *(index in 1)* | AC-28 | 6 |
 | AC-14 | 6 | AC-29 | 3 *(re-run by every later server step)* |
-| AC-15 | 6 | | |
+| AC-15 | 6 | AC-30 | 5 |
 
-**29 of 29 criteria have a step. Uncovered: none.**
+**30 of 30 criteria have a step. Uncovered: none.**
 
 **Reverse sweep.** No step's `Covers:` names an id the spec does not carry. Steps 1, 7 and 14
 were checked hardest: 1 and 7 claim `none — enabling work` rather than borrowing a criterion
 they only make possible, and 14 claims only AC-26, which the spec itself marks unautomatable.
+Re-run over Step 5 after the `2378d54` amendment: `AC-30` **is** in the spec (`:199`), so
+Step 5's enlarged `Covers:` invents nothing. AC-01 and AC-09 were re-read against their new
+wording — both still land on the steps that already held them, and AC-09's third population
+(`reviews.agent_id` non-null) is work Step 4 already did, now also asserted by its lane.
 
 **Data-versus-lane sweep** — the check root `INSIGHTS.md` (2026-08-30) says the three coverage
 directions do not perform. Every integration lane below, matched to the step that writes the
@@ -825,6 +857,7 @@ rows it reads:
 |---|---|---|---|
 | Step 4 — AC-01, AC-09 | `seed()` output | Step 4 | self ✓ |
 | Step 5 — AC-02, AC-04, AC-05, AC-06, AC-07, AC-08 | seeded **decided findings** | Step 4 | 5 depends on 4 ✓ |
+| Step 5 — **AC-30** | a review with `agent_id` **null** | **no step — the test inserts it** | see below ✓ |
 | Step 6 — AC-10, AC-13, AC-14, AC-15, AC-20 | seeded **eval case set** | Step 4 | 6 depends on 5 depends on 4 ✓ |
 | Step 7 — the two read endpoints | batches written by Step 6's executor | Step 6 | 7 depends on 6 ✓ |
 | Step 13 — the e2e flow | the hermetic stack's seed + the finished screens | Steps 4, 8–12 | 13 depends on 12 ✓ |
@@ -832,6 +865,15 @@ rows it reads:
 
 The seed is Step **4**, not Step 10 — that inversion is the whole reason it sits third from the
 front rather than where `In scope` lists it.
+
+**AC-30's row is the one that needed thought, and it inverts in an unusual direction.** Step 4
+backfills the demo review `where agent_id is null`, so it *destroys* the only agent-less review
+the seeded workspace would otherwise have had. A lane that read seeded data here would be
+unrunnable after the step it depends on — the mirror image of the L05 trap, and invisible to a
+sweep that only asks "which step writes this row". The resolution keeps both: **AC-30's lane
+depends on no step for its fixture**, because it inserts its own agent-less `reviews` row, as
+four existing integration files already do. Step 4 stays exactly as written, and nothing about
+the demo workspace is weakened to make a test pass.
 
 ---
 
