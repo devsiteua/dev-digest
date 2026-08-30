@@ -20,7 +20,34 @@ cd reviewer-core && npm test      # npm, not pnpm
 cd mcp && pnpm test               # hermetic MCP tools; fetch is injected and stubbed
 cd mcp && pnpm test:live          # needs the API on :3001; self-skips when it is down
 cd e2e && pnpm e2e:hermetic       # isolated stack on ports 5433/3101/3100
+cd evals && pnpm eval:quality     # static harness gate, no model, no cost
+cd evals && pnpm eval:repeat <suite> -n 2 --label <name>   # a series (capped at 2 runs)
+cd evals && pnpm eval:delta <label-a> <label-b>            # two series, per-practice
 ```
+
+## Which eval follows which change
+
+A skill, an agent and a routing rule are all code that is executed by a model, and
+they regress the same way code does. This table is the minimum after each kind of
+change; CI enforces the first row and reports the rest
+([`.github/workflows/evals.yml`](.github/workflows/evals.yml), routing implemented once in
+`evals/scripts/ci-detect.mjs`).
+
+| Change | Minimum check |
+|---|---|
+| `.claude/skills/**` | `pnpm eval:quality` **and** that skill's own eval |
+| `.claude/agents/**` | that agent's eval **and** the workflow case that dispatches it |
+| `CLAUDE.md`, `<pkg>/CLAUDE.md`, any routing rule | `pnpm eval:workflow` |
+| an eval case, a fixture, or a grader | re-calibrate the baseline — the old series is not comparable |
+
+Two rules the table cannot state and this repository learned the hard way:
+
+- **A green is not a result until you have read the trace.** A workflow case whose control
+  read the very document it must not read still reported 100%, and a reviewer agent scored
+  100% on a negative case by refusing to start. Check what the session actually did.
+- **Two runs, and read the per-practice rate, not the score.** Removing one rule drops the
+  expectation tied to that rule while the case-level score does not move — that is the
+  signal. A single green proves nothing about a probabilistic check.
 
 ## Map
 
