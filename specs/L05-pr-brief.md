@@ -1,7 +1,7 @@
 # L05 — PR Brief (Why + Risk)
 
 Spec ID: L05-PR-BRIEF
-Status: in-progress
+Status: done
 Supersedes: none
 Owner: devsiteua
 Packages touched: server, client, e2e (`@devdigest/shared` contracts in both mirror copies)
