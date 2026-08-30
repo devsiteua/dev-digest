@@ -5,9 +5,9 @@
  * marked spot below, in this one file).
  */
 
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, mkdirSync, copyFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { test, expect } from "vitest";
 import { DEFAULT_THRESHOLD } from "../config.js";
 import { skillTask, agentTask, workflowTask } from "../tasks.js";
@@ -15,6 +15,7 @@ import { runClaude, type Result, type RunOptions } from "../runtime/run-claude.j
 import { patternMatch } from "../scoring/pattern-match.js";
 import { llmJudge, type Verdict } from "../scoring/llm-judge.js";
 import { logTrace, logVerdict } from "../logging/log.js";
+import { REPO_ROOT } from "../artifacts/paths.js";
 import { record } from "../records/record.js";
 
 // --- Case shapes ------------------------------------------------------------
@@ -51,6 +52,14 @@ export type WorkflowCase =
       name: string;
       prompt: string;
       expectFileRead: string;
+      /**
+       * Repo-relative files copied into the control's sandbox at the SAME relative path before it
+       * runs. Without this the control is an EMPTY directory, which confounds the two things the
+       * case is trying to separate: "nothing routed me to the document" and "the document was not
+       * there at all". Seeding the target doc makes the routing rule the only variable — the
+       * control can reach the document, and the question is whether anything tells it to.
+       */
+      controlSeed?: string[];
       tools?: string[];
       maxTurns?: number;
     }
@@ -126,21 +135,23 @@ export function runWorkflowCases(cases: WorkflowCase[]): void {
           stopWhen: (p) => p.subagents.includes(expect1),
         });
         logTrace(c.name, result);
+        const dispatched = result.subagents.includes(c.expectSubagent);
         try {
           expect(result.subagents, `subagents: ${result.subagents.join(", ")}`).toContain(c.expectSubagent);
         } finally {
-          record(c.name, { result });
+          record(c.name, { result, outcome: dispatched });
         }
       } else if (c.kind === "activation") {
         const result = await workflowTask(c.prompt, { maxTurns: c.maxTurns });
         logTrace(c.name, result);
+        const asExpected = activated(result, c.skill) === c.shouldActivate;
         try {
           expect(
             activated(result, c.skill),
             `skills: ${result.skillsInvoked.join(", ")} | reads: ${result.filesRead.join(", ")}`,
           ).toBe(c.shouldActivate);
         } finally {
-          record(c.name, { result });
+          record(c.name, { result, outcome: asExpected });
         }
       } else if (c.kind === "trace") {
         // One session, many asserts — every provided expectation is checked against the same trace.
@@ -160,6 +171,11 @@ export function runWorkflowCases(cases: WorkflowCase[]): void {
             files.every((f) => p.filesRead.some((r) => r.includes(f))),
         });
         logTrace(c.name, result);
+        const traceHeld =
+          !result.isError &&
+          subs.every((x) => result.subagents.includes(x)) &&
+          skls.every((x) => activated(result, x)) &&
+          files.every((f) => result.filesRead.some((r) => r.includes(f)));
         try {
           for (const sub of c.expectSubagents ?? []) {
             expect(result.subagents, `subagents: ${result.subagents.join(", ")}`).toContain(sub);
@@ -178,29 +194,52 @@ export function runWorkflowCases(cases: WorkflowCase[]): void {
           }
           expect(result.isError).toBe(false);
         } finally {
-          record(c.name, { result });
+          record(c.name, { result, outcome: traceHeld });
         }
       } else {
-        // contrast: treatment (real harness) vs control (empty tmpdir, no on-disk config).
+        // contrast: treatment (real harness) vs control (sandbox, no on-disk config).
         const tools = c.tools ?? ["Read", "Grep", "Glob"];
         const treatment = await workflowTask(c.prompt, { allowedTools: tools, maxTurns: c.maxTurns });
-        const emptyCwd = mkdtempSync(join(tmpdir(), "eval-control-"));
+        const controlCwd = mkdtempSync(join(tmpdir(), "eval-control-"));
+        for (const rel of c.controlSeed ?? []) {
+          const dest = join(controlCwd, rel);
+          mkdirSync(dirname(dest), { recursive: true });
+          copyFileSync(join(REPO_ROOT, rel), dest);
+        }
         const control = await runClaude(c.prompt, {
           allowedTools: tools,
           maxTurns: c.maxTurns,
-          cwd: emptyCwd,
+          cwd: controlCwd,
           settingSources: [],
         });
         logTrace(`${c.name} [treatment]`, treatment);
         logTrace(`${c.name} [control]`, control);
         try {
+          // The recorded reason this case was downgraded (see review-workflow.cases.ts) is that a
+          // control in a temp directory could still reach the LIVE repo by absolute path — which
+          // makes the control and the treatment the same run wearing two labels. That is now a loud
+          // failure instead of a silent one: if the control read anything under REPO_ROOT, the
+          // isolation did not hold and no conclusion may be drawn from this pair.
+          const escaped = control.filesRead.filter((f) => f.startsWith(REPO_ROOT));
+          expect(escaped, `control escaped its sandbox and read the live repo: ${escaped.join(", ")}`).toEqual([]);
+
           const treatmentRead = treatment.filesRead.some((f) => f.includes(c.expectFileRead));
           const controlRead = control.filesRead.some((f) => f.includes(c.expectFileRead));
           expect(treatmentRead, `treatment reads: ${treatment.filesRead.join(", ")}`).toBe(true);
           expect(controlRead, `control reads: ${control.filesRead.join(", ")}`).toBe(false);
         } finally {
-          record(`${c.name} [treatment]`, { result: treatment });
-          record(`${c.name} [control]`, { result: control });
+          // Each side records its OWN verdict: the treatment must read the doc, the control must
+          // not — and the control additionally fails if it escaped its sandbox.
+          record(`${c.name} [treatment]`, {
+            result: treatment,
+            outcome: treatment.filesRead.some((f) => f.includes(c.expectFileRead)),
+          });
+          record(`${c.name} [control]`, {
+            result: control,
+            outcome:
+              !control.filesRead.some((f) => f.includes(c.expectFileRead)) &&
+              !control.filesRead.some((f) => f.startsWith(REPO_ROOT)),
+          });
         }
       }
     });

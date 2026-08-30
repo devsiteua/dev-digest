@@ -31,6 +31,14 @@ export interface RecordData {
   verdict?: Verdict;
   grounded?: number;
   threshold?: number;
+  /**
+   * Explicit pass/fail, for a tier that has neither a grounding gate nor a judge. Without it the
+   * fallback below is `!result.isError` — "the SESSION ran", which for the whole workflow tier is
+   * not the same question as "the ASSERTION held". Every workflow pass rate `eval:repeat` and
+   * `eval:delta` printed was therefore measuring session success: a contrast whose control read the
+   * document it must not read still reported 100%.
+   */
+  outcome?: boolean;
   extra?: Record<string, unknown>;
 }
 
@@ -44,14 +52,17 @@ export function record(label: string, data: RecordData): void {
   const state = expect.getState();
   const nodeid = `${state.testPath ?? "?"} > ${state.currentTestName ?? label}`;
 
-  // outcome: grounding gate failure short-circuits to false; else the judge threshold; else
-  // "did the run itself succeed" (workflow tests have neither grounding nor a judge verdict).
+  // outcome: an explicit verdict from the caller wins (the workflow tier passes one); else a
+  // grounding-gate failure short-circuits to false; else the judge threshold; else, as a last
+  // resort, "did the run itself succeed".
   const outcome =
-    grounded !== undefined && grounded < 1
-      ? false
-      : verdict && threshold !== undefined
-        ? verdict.score >= threshold
-        : !result.isError;
+    data.outcome !== undefined
+      ? data.outcome
+      : grounded !== undefined && grounded < 1
+        ? false
+        : verdict && threshold !== undefined
+          ? verdict.score >= threshold
+          : !result.isError;
 
   const outDir = join(OUTPUTS, RUN_ID);
   mkdirSync(outDir, { recursive: true });
