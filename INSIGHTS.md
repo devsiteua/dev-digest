@@ -60,6 +60,69 @@ _None yet._
 
 ## What Doesn't Work
 
+### 2026-08-30 · A plan can verify that a shared contract EXISTS and never that it can hold what the plan asks it to carry
+
+Trigger:  `specs/plans/export-to-ci.md` § Requirements review checked that `CiFile` was mirrored in
+          both packages and concluded "no new contract (`CiFile` is already in both mirrors)". Four
+          later passages — AC-03, the NFR table, Step 4 and Step 9 — then specified a **byte size**
+          per runner file. `CiFile` is `{ path, contents, editable }`
+          (`server/src/vendor/shared/contracts/eval-ci.ts:137`) and has no numeric field. Step 3
+          stopped dead. One step later the identical defect recurred: AC-24 requires a repository
+          column and `CiRun` carries `ci_installation_id` but no `repo`.
+Cause:    the existing producer sweep (`grep -rn ": <Type> = {"`, 2026-08-29 below) answers "who
+          builds this type today", which is a question about *call sites*. Nothing answers "can this
+          type carry the fields the plan is about to populate", which is a question about the
+          *schema*. Both spec and plan agreed with each other about the byte size, and two
+          mutually-consistent requirement statements read as verified when neither was ever checked
+          against the Zod object.
+Takeaway: a plan step that says "returns `X[]`" lists the fields it will populate against the fields
+          `X` actually declares, and the check is `sed -n` over the schema, not a grep for the name.
+          Do it for every contract the plan claims needs no change — that claim is the one nobody
+          re-reads. When it is missed and an implementer hits it mid-run, the fix is a decision
+          broadcast to every agent at once (see the entry below on parallel test authors), not a
+          field name invented locally.
+Evidence: server/src/vendor/shared/contracts/eval-ci.ts:137-143,207-221 · specs/plans/export-to-ci.md
+          § Requirements review · commits 0f3a09a (`CiFile.bytes`), efa48e5 (`CiRun.repo`)
+Status:   open
+
+### 2026-08-30 · A subagent's `git add -A` lands a PARALLEL agent's files in its own commit, under a message that names neither
+
+Trigger:  two agents ran at once on disjoint file sets — `test-writer` on `server/test/ci.it.test.ts`
+          (Step 7), an implementer on 21 client files (Step 8). Both were told to stage explicitly by
+          path. The test author staged broadly anyway, and commit `0055503`
+          "test(ci): install, refusal and ingest against real Postgres" contained all 22 files. The
+          tree was correct and `git status` was clean, so nothing downstream noticed; only reading
+          `git show --stat` did.
+Cause:    a broad stage is the reflex, and the working tree of a git worktree is shared by every
+          agent in the session — there is no per-agent view of it. The instruction not to do it is
+          advice a subagent can silently skip, and the result still passes every test.
+Takeaway: with more than one agent writing at once, the coordinator verifies the split rather than
+          the tree: `git show --stat <sha>` per commit, not `git status`. Recovering is cheap while
+          the commit is still the tip — `git reset --soft HEAD~1`, `git reset`, then stage each
+          step's paths and commit twice — and it is worth doing, because a test commit that carries
+          a feature is exactly the attribution the plan's "tests are their own commits" rule exists
+          to preserve. Cheaper still: give concurrent agents non-overlapping steps only when the
+          commit boundaries are also non-overlapping, or have the coordinator do all the committing.
+Evidence: commits 51e81d5 and f99d470 (the split of 0055503) · specs/plans/export-to-ci.md § Commit plan
+Status:   resolved — split by hand in the same session
+
+### 2026-08-30 · A criterion of the form "the string appears NOWHERE in the output" is tripped by your own explanatory comment
+
+Trigger:  AC-09 requires the generated GitHub Actions workflow never to contain `pull_request_target`.
+          The natural way to document the job-level fork guard is a comment saying why
+          `pull_request_target` is not used — which put the literal into the generated file and
+          failed the criterion the comment was explaining.
+Cause:    a "string absent" assertion runs over the whole artefact, and generated artefacts carry
+          the generator's comments into the output. The clearer the explanation, the more certainly
+          it names the forbidden token.
+Takeaway: when a criterion forbids a literal anywhere in generated output, the reason for avoiding it
+          is documented in the GENERATOR's source, never in the text it emits — or phrased in the
+          emitted comment without naming the token. Worth knowing before writing the comment: the
+          failure appears only once the unit test exists, which is usually a step later and a
+          different agent.
+Evidence: server/src/modules/ci/workflow.ts:59-64 · server/test/ci-workflow.test.ts:144 · specs/export-to-ci.md AC-09
+Status:   resolved
+
 ### 2026-08-30 · A RESUMED subagent's context is a snapshot from when it stopped — instructing it relative to "the end of the file" appends into the past
 
 Trigger:  `spec-creator` was resumed to apply three amendments to `specs/export-to-ci.md` and told
