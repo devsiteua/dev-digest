@@ -86,10 +86,15 @@ export interface CaseScore {
   matchedCount: number;
   /** `must_find` expectations asserted — 1 for `must_find`, 0 for `must_not_flag`. */
   expectedCount: number;
-  /** Every finding the run reported for this case: precision's denominator share. */
+  /** Every finding the run reported for this case. Descriptive, not a denominator. */
   reportedCount: number;
-  /** Reported findings that landed on a `must_find` expectation: precision's numerator. */
+  /** Findings that landed on a `must_find` range: precision's numerator. */
   correctCount: number;
+  /**
+   * Findings that landed on a `must_not_flag` range — noise the reviewer was
+   * told, by a decision someone actually made, to stop reporting.
+   */
+  violationCount: number;
 }
 
 /**
@@ -97,9 +102,22 @@ export interface CaseScore {
  *
  * `must_find` passes when at least one finding lands on the expected range.
  * `must_not_flag` passes when NO finding does — and it contributes nothing to
- * recall's denominator, because it asserts an absence, not a discovery. Its
- * findings still count against precision: a report on a range the reviewer was
- * told to stop flagging is a false positive by definition.
+ * recall's denominator, because it asserts an absence, not a discovery.
+ *
+ * **What counts against precision, and what does not.** Only findings this set
+ * has an opinion about: a hit on a `must_find` range is right, a hit on a
+ * `must_not_flag` range is noise, and everything else the agent reported is
+ * UNJUDGED — nobody ever accepted or dismissed it, so it is neither.
+ *
+ * Charging every unjudged finding to precision was the first reading, and it is
+ * wrong twice over. A case stores the whole PR diff while asserting one
+ * expectation, so the agent legitimately reports findings the case says nothing
+ * about; counting those as false positives makes precision a measure of how
+ * talkative the model is, pins it near zero, and — the part that matters — makes
+ * it move for reasons that have nothing to do with the prompt under test. Under
+ * this reading, deliberately breaking a prompt so the agent starts flagging what
+ * was dismissed moves precision DOWN, visibly, which is the behaviour the whole
+ * dismissed half of the dataset exists to produce.
  */
 export function scoreCase(expectation: EvalExpectation, findings: LocatedFinding[]): CaseScore {
   const hits = findings.filter((f) => matches(f, expectation));
@@ -112,6 +130,7 @@ export function scoreCase(expectation: EvalExpectation, findings: LocatedFinding
       expectedCount: 1,
       reportedCount: findings.length,
       correctCount: hits.length,
+      violationCount: 0,
     };
   }
 
@@ -121,6 +140,7 @@ export function scoreCase(expectation: EvalExpectation, findings: LocatedFinding
     expectedCount: 0,
     reportedCount: findings.length,
     correctCount: 0,
+    violationCount: hits.length,
   };
 }
 
@@ -169,7 +189,9 @@ export interface BatchScore {
  * The three denominators are the ones the spec names, and they are different
  * populations on purpose:
  *   recall     — `must_find` EXPECTATIONS asserted by the set
- *   precision  — FINDINGS the run reported
+ *   precision  — findings this set has an OPINION about: hits on a `must_find`
+ *                range plus hits on a `must_not_flag` one. Not every finding
+ *                reported; see `scoreCase`
  *   citation   — FINDINGS the model produced, before the grounding gate
  *
  * The two lists are matched positionally by the caller; a batch with no cases
@@ -179,13 +201,13 @@ export function scoreBatch(cases: CaseScore[], grounding: GroundingCounts[]): Ba
   let matched = 0;
   let expected = 0;
   let correct = 0;
-  let reported = 0;
+  let violations = 0;
 
   for (const c of cases) {
     matched += c.matchedCount;
     expected += c.expectedCount;
     correct += c.correctCount;
-    reported += c.reportedCount;
+    violations += c.violationCount;
   }
 
   let grounded = 0;
@@ -197,7 +219,7 @@ export function scoreBatch(cases: CaseScore[], grounding: GroundingCounts[]): Ba
 
   return {
     recall: ratio(matched, expected),
-    precision: ratio(correct, reported),
+    precision: ratio(correct, correct + violations),
     citationAccuracy: ratio(grounded, grounded + dropped),
   };
 }

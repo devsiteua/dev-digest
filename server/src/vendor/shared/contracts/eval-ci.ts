@@ -115,6 +115,13 @@ export const EvalRunRecord = z.object({
    * exists, never a fabricated percentage.
    */
   reported_count: z.number().int().nullable(),
+  /**
+   * `precision`'s denominator for this row: findings that landed on one of the
+   * set's expectations, right or wrong. `reported_count` above is every finding
+   * the agent produced and is descriptive only — most of a whole-PR diff is
+   * unjudged, and charging it to precision measures how talkative the model is.
+   */
+  precision_denominator: z.number().int().nullable(),
   duration_ms: z.number().int().nullable(),
   cost_usd: z.number().nullable(),
 });

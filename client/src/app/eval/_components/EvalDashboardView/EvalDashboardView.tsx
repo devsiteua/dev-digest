@@ -108,7 +108,7 @@ export function EvalDashboardView() {
                         must_not_flag case asserts none. */}
                     <span style={s.cell}>{cellPercent(r.recall, r.expected_count, r.status)}</span>
                     <span style={s.cell}>
-                      {cellPercent(r.precision, r.reported_count, r.status)}
+                      {cellPercent(r.precision, r.precision_denominator, r.status)}
                     </span>
                     <span style={s.cell}>
                       {cellPercent(r.citation_accuracy, r.reported_count, r.status)}

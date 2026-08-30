@@ -239,6 +239,7 @@ export class EvalsRepository {
     citationAccuracy?: number | null;
     matchedCount?: number | null;
     expectedCount?: number | null;
+    precisionDenominator?: number | null;
     durationMs?: number | null;
     costUsd?: number | null;
   }): Promise<EvalRunRow> {
@@ -272,6 +273,7 @@ export class EvalsRepository {
         citationAccuracy: t.evalRuns.citationAccuracy,
         matchedCount: t.evalRuns.matchedCount,
         expectedCount: t.evalRuns.expectedCount,
+        precisionDenominator: t.evalRuns.precisionDenominator,
         durationMs: t.evalRuns.durationMs,
         costUsd: t.evalRuns.costUsd,
         caseName: t.evalCases.name,

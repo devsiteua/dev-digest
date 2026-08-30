@@ -81,6 +81,7 @@ export class EvalRunExecutor {
           citationAccuracy: single.citationAccuracy.value,
           matchedCount: score.matchedCount,
           expectedCount: score.expectedCount,
+          precisionDenominator: single.precision.denominator,
           durationMs: Date.now() - caseStart,
           costUsd: outcome.costUsd ?? null,
         });

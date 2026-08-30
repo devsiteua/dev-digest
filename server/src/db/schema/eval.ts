@@ -124,6 +124,15 @@ export const evalRuns = pgTable('eval_runs', {
   /** The per-case numerator/denominator behind `recall`, for the comparison list. */
   matchedCount: integer('matched_count'),
   expectedCount: integer('expected_count'),
+  /**
+   * `precision`'s denominator for this row: findings that landed on ANY of the
+   * set's expectations. Not the count of findings reported — a case stores the
+   * whole PR diff, so most of what the agent says is unjudged and belongs in
+   * neither half of the ratio. Stored rather than derived because the drop lists
+   * it would need are not persisted, and a screen with no denominator renders
+   * the vacuous 1 as a confident 100%.
+   */
+  precisionDenominator: integer('precision_denominator'),
   durationMs: integer('duration_ms'),
   costUsd: doublePrecision('cost_usd'),
 });

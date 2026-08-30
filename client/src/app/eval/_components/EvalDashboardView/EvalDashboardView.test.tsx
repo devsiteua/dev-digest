@@ -79,6 +79,7 @@ const POPULATED: EvalDashboard = {
       matched_count: 1,
       expected_count: 1,
     reported_count: 3,
+    precision_denominator: 1,
       duration_ms: 1200,
       cost_usd: 0.005,
     },
@@ -98,6 +99,7 @@ const POPULATED: EvalDashboard = {
       matched_count: null,
       expected_count: null,
     reported_count: null,
+    precision_denominator: null,
       duration_ms: 90,
       cost_usd: null,
     },
@@ -174,6 +176,7 @@ describe("EvalDashboardView (AC-23)", () => {
           matched_count: 0,
           expected_count: 0,
           reported_count: 0,
+          precision_denominator: 0,
         },
       ],
     };

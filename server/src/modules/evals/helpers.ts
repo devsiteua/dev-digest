@@ -304,6 +304,7 @@ export interface EvalRunRowLike {
   citationAccuracy: number | null;
   matchedCount: number | null;
   expectedCount: number | null;
+  precisionDenominator: number | null;
   durationMs: number | null;
   costUsd: number | null;
 }
@@ -338,6 +339,7 @@ export function toEvalRunRecord(row: EvalRunRowLike): EvalRunRecord {
     citation_accuracy: row.citationAccuracy,
     matched_count: row.matchedCount,
     expected_count: row.expectedCount,
+    precision_denominator: row.precisionDenominator,
     reported_count: reportedCountOf(row.actualOutput),
     duration_ms: row.durationMs,
     cost_usd: row.costUsd,

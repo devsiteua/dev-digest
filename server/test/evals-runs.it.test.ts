@@ -125,8 +125,15 @@ d('L06 eval runs (Testcontainers pg)', () => {
     expect(settled.recallDenominator).toBe(5);
     expect(settled.recall).toBeCloseTo(1 / 5, 6);
 
-    expect(settled.precisionDenominator).toBe(8);
-    expect(settled.precision).toBeCloseTo(1 / 8, 6);
+    // Precision counts only what the SET has an opinion about: the one finding
+    // that landed on a `must_find` range, plus any that landed on a
+    // `must_not_flag` one. The fixture reports eight findings in total — one per
+    // case — but seven of them sit on lines nobody ever accepted or dismissed,
+    // and an unjudged finding is not a false positive. Were they charged here,
+    // precision would read 1/8 and would move whenever the model got chattier,
+    // which is the opposite of a regression signal.
+    expect(settled.precisionDenominator).toBe(1);
+    expect(settled.precision).toBeCloseTo(1, 6);
 
     // Every finding grounded, none dropped.
     expect(settled.citationDenominator).toBe(8);

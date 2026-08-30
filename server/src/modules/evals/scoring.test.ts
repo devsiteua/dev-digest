@@ -126,7 +126,7 @@ describe('empty denominators (AC-20)', () => {
 });
 
 describe('scoreBatch', () => {
-  it('sums recall over must_find expectations and precision over reported findings', () => {
+  it('recall counts the misses; an UNJUDGED finding is not charged to precision', () => {
     const cases = [
       // found it
       scoreCase(expectation(), [at('src/middleware/ratelimit.ts', 11, 11)]),
@@ -137,7 +137,33 @@ describe('scoreBatch', () => {
     ];
     const b = scoreBatch(cases, []);
     expect(b.recall).toEqual({ value: 0.5, numerator: 1, denominator: 2 });
-    expect(b.precision).toEqual({ value: 0.5, numerator: 1, denominator: 2 });
+    // The second case's finding sits on lines nobody ever accepted or dismissed.
+    // It is not evidence of imprecision — it is evidence of nothing, and recall
+    // above has already recorded the miss. Charging it here would make precision
+    // a count of how much the model says, which moves for reasons that have
+    // nothing to do with the prompt under test.
+    expect(b.precision).toEqual({ value: 1, numerator: 1, denominator: 1 });
+  });
+
+  it('a must_not_flag violation is what drives precision DOWN', () => {
+    // The behaviour the dismissed half of the dataset exists to produce, and the
+    // one a deliberately broken prompt has to show: an agent that starts
+    // reporting what someone already dismissed loses precision, while recall —
+    // which knows nothing about must_not_flag — does not move at all.
+    const forbidden = expectation({ kind: 'must_not_flag', start_line: 40, end_line: 44 });
+    const clean = [
+      scoreCase(expectation(), [at('src/middleware/ratelimit.ts', 11, 11)]),
+      scoreCase(forbidden, []),
+    ];
+    const noisy = [
+      scoreCase(expectation(), [at('src/middleware/ratelimit.ts', 11, 11)]),
+      scoreCase(forbidden, [at('src/middleware/ratelimit.ts', 41, 41)]),
+    ];
+
+    expect(scoreBatch(clean, []).precision).toEqual({ value: 1, numerator: 1, denominator: 1 });
+    expect(scoreBatch(noisy, []).precision).toEqual({ value: 0.5, numerator: 1, denominator: 2 });
+    // and the regression is visible in precision alone
+    expect(scoreBatch(noisy, []).recall).toEqual(scoreBatch(clean, []).recall);
   });
 });
 
