@@ -138,6 +138,9 @@ export const CiFile = z.object({
   path: z.string(),
   contents: z.string(),
   editable: z.boolean().default(true),
+  /** Byte size of a file listed but not carried (the runner bundle).
+   *  Null for generated files, whose bytes are in `contents`. */
+  bytes: z.number().int().nullish(),
 });
 export type CiFile = z.infer<typeof CiFile>;
 
