@@ -38,6 +38,12 @@ const EnvSchema = z.object({
   API_PORT: z.coerce.number().int().default(3001),
   WEB_PORT: z.coerce.number().int().default(3000),
   DEVDIGEST_CLONE_DIR: z.string().optional(),
+  // Directory holding the built runner bundle that Export-to-CI copies into the
+  // target repository (`agent-runner/dist`, produced by `pnpm build`). It is a
+  // DIRECTORY and not a file because the export ships all three files `ncc`
+  // emits. Overridable so the refusal when the bundle is absent can be tested
+  // without deleting a real build.
+  DEVDIGEST_RUNNER_DIR: z.string().optional(),
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   // `.env` (and .env.example) ship `LOG_LEVEL=` empty; an empty string is not a
   // valid enum member, so coerce '' → undefined to fall through to the default.
@@ -55,6 +61,12 @@ export type AppConfig = {
   cloneDir: string;
   /** Absolute path to the writable secrets store (BYO keys from the UI). */
   secretsPath: string;
+  /**
+   * Absolute path to the built runner bundle exported into a target repository
+   * (`agent-runner/dist`). A directory, not a file: all three files `ncc` emits
+   * are shipped, including the `package.json` that scopes the ESM module type.
+   */
+  runnerBundleDir: string;
   nodeEnv: 'development' | 'test' | 'production';
   logLevel: string;
   /** Allowed CORS origin for the Next.js dev server. */
@@ -83,12 +95,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const cloneDirRaw =
     parsed.DEVDIGEST_CLONE_DIR ?? join(homedir(), '.devdigest', 'workspace');
   const cloneDir = isAbsolute(cloneDirRaw) ? cloneDirRaw : resolve(process.cwd(), cloneDirRaw);
+  const runnerDirRaw = parsed.DEVDIGEST_RUNNER_DIR ?? '../agent-runner/dist';
+  const runnerBundleDir = isAbsolute(runnerDirRaw)
+    ? runnerDirRaw
+    : resolve(process.cwd(), runnerDirRaw);
   return {
     databaseUrl: parsed.DATABASE_URL,
     apiPort: parsed.API_PORT,
     webPort: parsed.WEB_PORT,
     cloneDir,
     secretsPath: join(homedir(), '.devdigest', 'secrets.json'),
+    runnerBundleDir,
     nodeEnv: parsed.NODE_ENV,
     logLevel: parsed.LOG_LEVEL ?? (parsed.NODE_ENV === 'test' ? 'silent' : 'info'),
     webOrigin: `http://localhost:${parsed.WEB_PORT}`,

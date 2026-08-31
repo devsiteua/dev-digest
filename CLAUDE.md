@@ -61,7 +61,9 @@ cd e2e && pnpm e2e:hermetic       # isolated stack on ports 5433/3101/3100
 - `docker compose down -v` destroys the volume with every imported repo and review.
 - The DB schema is complete from day 1: an empty table (`skills`, `eval_*`, `memory`,
   `ci_*`, `multi_agent_runs`, …) is a future lesson, not dead code. Do not drop it.
-- `.gitignore` references `agent-runner/` — that package does not exist yet (returns in L06).
+- `agent-runner/` builds to a **directory**, not a file: `pnpm build` emits `index.js`, a lazy
+  chunk `300.index.js`, and a `package.json` of `{"type": "module"}` that is what makes the
+  ESM bundle runnable outside this repo. Copy all three, or it dies on the consumer.
 
 ## Do not touch
 

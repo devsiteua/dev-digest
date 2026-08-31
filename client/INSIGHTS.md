@@ -131,6 +131,25 @@ Status:   open — one of the two sentences should be reworded; not done here to
 
 ## Tool & Library Notes
 
+### 2026-08-30 · `@devdigest/ui` answers `getByRole(…, { name })` for a Checkbox and refuses `getByLabelText` for every SelectInput — opposite answers, no clue at the call site
+
+Trigger:  writing the Configure-step assertions for the Export Wizard. `getByRole("checkbox",
+          { name: "pull_request: opened" })` resolved; `getByLabelText("Publish mode")` for the
+          neighbouring select in the same form did not, and the query that works is
+          `getByRole("combobox")`.
+Cause:    `Checkbox` puts `role="checkbox"` on a `<button>` inside a bare `<label>`, and `<button>`
+          is a labelable element, so the accessible name is computed from the wrapping label.
+          `FormField` renders its `<label>` with no `htmlFor` and does not wrap its child, so
+          nothing associates the two — the select has a visible label and no accessible one.
+Takeaway: in this design system, reach a checkbox by its role AND name, and a select by
+          `getByRole("combobox")` plus position or its options; `getByLabelText` is available only
+          for the controls that carry an explicit `aria-label` (the repo input is one). There is no
+          way to tell which case you are in from the JSX, so check the primitive before writing the
+          query rather than after the test goes red.
+Evidence: client/src/app/agents/[id]/_components/AgentEditor/_components/ExportWizard/ExportWizard.test.tsx:193
+          · client/src/vendor/ui — `Checkbox`, `FormField`, `SelectInput`
+Status:   open
+
 ### 2026-08-30 · `noUncheckedIndexedAccess` is on in `client/`, and `pnpm test` cannot see it
 
 Trigger:  a new page test read `replace.mock.calls[0][0]`. Green under vitest, red under `tsc`.

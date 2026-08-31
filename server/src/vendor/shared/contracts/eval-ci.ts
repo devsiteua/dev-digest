@@ -138,6 +138,9 @@ export const CiFile = z.object({
   path: z.string(),
   contents: z.string(),
   editable: z.boolean().default(true),
+  /** Byte size of a file listed but not carried (the runner bundle).
+   *  Null for generated files, whose bytes are in `contents`. */
+  bytes: z.number().int().nullish(),
 });
 export type CiFile = z.infer<typeof CiFile>;
 
@@ -209,6 +212,8 @@ export type CiRunStatus = z.infer<typeof CiRunStatus>;
 export const CiRun = z.object({
   id: z.string(),
   ci_installation_id: z.string().nullable(),
+  /** "owner/name" of the installation's repository, joined for the list. */
+  repo: z.string().nullish(),
   pr_number: z.number().int().nullable(),
   ran_at: z.string().nullable(),
   status: z.string().nullable(),
@@ -237,6 +242,51 @@ export const CiResultArtifact = z.object({
   pr_number: z.number().int().nullish(),
 });
 export type CiResultArtifact = z.infer<typeof CiResultArtifact>;
+
+/**
+ * Request body for `POST /ci/ingest` — what a CI job posts back after a review.
+ *
+ * Strict on purpose (both here and on `result`): an unknown key is a runner the
+ * studio does not understand, and silently dropping it would record a run whose
+ * numbers nobody can explain.
+ */
+export const CiIngestInput = z
+  .object({
+    /** "owner/name" of the repository the job ran in. */
+    repo: z.string().min(1),
+    pr_number: z.number().int(),
+    /** Full 40-character head SHA the job reviewed. */
+    commit_sha: z.string().regex(/^[0-9a-f]{40}$/),
+    /**
+     * Link to the Actions job that produced the artifact.
+     *
+     * The scheme is checked as well as the syntax: `z.string().url()` defers to
+     * `new URL()`, which accepts `javascript:` and `data:` — and this value is
+     * persisted verbatim and later rendered as an `<a href>` in CI Runs and on
+     * the agent's CI tab. The body arrives from a job in somebody else's
+     * repository, so an unrestricted scheme here is stored XSS in the studio.
+     */
+    run_url: z
+      .string()
+      .url()
+      .refine((u) => /^https?:\/\//i.test(u), {
+        message: 'run_url must be an http(s) URL',
+      }),
+    /** The runner's own exit code — rendered, never re-derived. */
+    exit_code: z.number().int(),
+    result: CiResultArtifact.strict(),
+  })
+  .strict();
+export type CiIngestInput = z.infer<typeof CiIngestInput>;
+
+/** Response of `GET /agents/:id/ci` — everything the agent's CI tab renders. */
+export const AgentCiView = z.object({
+  installations: z.array(CiInstallation),
+  runs: z.array(CiRun),
+  /** Version of the runner bundle the studio would export today. */
+  runner_version: z.string(),
+});
+export type AgentCiView = z.infer<typeof AgentCiView>;
 
 // ===========================================================================
 // Conformance (PRD ↔ PR) — API record (the analysis shape is `Conformance`)

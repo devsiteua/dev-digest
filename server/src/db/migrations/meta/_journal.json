@@ -113,6 +113,13 @@
       "when": 1788078654441,
       "tag": "0015_massive_imperial_guard",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1788101952380,
+      "tag": "0016_fixed_leo",
+      "breakpoints": true
     }
   ]
 }

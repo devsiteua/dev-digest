@@ -1,5 +1,6 @@
 import { pgTable, uuid, text, integer, timestamp, doublePrecision } from 'drizzle-orm/pg-core';
 import { agents } from './agents';
+import { agentRuns } from './runs';
 
 export const ciInstallations = pgTable('ci_installations', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -23,4 +24,8 @@ export const ciRuns = pgTable('ci_runs', {
   costUsd: doublePrecision('cost_usd'),
   githubUrl: text('github_url'),
   source: text('source'),
+  /** The local `agent_runs` row this CI result was ingested into. */
+  agentRunId: uuid('agent_run_id').references(() => agentRuns.id, { onDelete: 'set null' }),
+  /** Head commit the CI job reviewed, as reported by the runner. */
+  commitSha: text('commit_sha'),
 });
