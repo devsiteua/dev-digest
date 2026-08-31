@@ -13,3 +13,4 @@ export * from "./blast";
 export * from "./reviews";
 export * from "./trace";
 export * from "./repo-intel";
+export * from "./evals";

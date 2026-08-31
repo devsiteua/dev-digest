@@ -84,6 +84,18 @@ export interface ReviewInput {
   task?: string;
   /** Override the structured-output retry budget. */
   maxRetries?: number;
+  /**
+   * Override the wall-clock budget for each model call, in ms.
+   *
+   * Optional, and omitting it keeps the provider's own default — nothing about
+   * an ordinary review changes. It exists for a caller whose input is
+   * systematically larger than one PR hunk and whose measurement is corrupted,
+   * not merely delayed, by a timeout: an eval replays whole-PR snapshots, and a
+   * budget that trips on a quarter of them gives two runs different denominators
+   * and makes them incomparable, which is the one property that feature exists
+   * to guarantee.
+   */
+  timeoutMs?: number;
   /** Override the map-reduce line threshold. */
   mapThresholdLines?: number;
   /**
@@ -194,6 +206,7 @@ export async function reviewPullRequest(input: ReviewInput): Promise<ReviewOutco
       schemaName: 'Review',
       messages: a.messages,
       maxRetries,
+      ...(input.timeoutMs != null ? { timeoutMs: input.timeoutMs } : {}),
       ...(input.sessionId ? { sessionId: input.sessionId } : {}),
     });
     tokensIn += res.tokensIn;

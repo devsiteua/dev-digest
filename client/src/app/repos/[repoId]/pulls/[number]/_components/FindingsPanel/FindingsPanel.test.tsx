@@ -6,9 +6,18 @@ import messages from "../../../../../../../../messages/en/prReview.json";
 
 // Hoisted so the SAME spy survives every render — the panel calls the hook on
 // each one, and a factory returning a fresh `vi.fn()` could never be asserted on.
-const { mutate } = vi.hoisted(() => ({ mutate: vi.fn() }));
+const { mutate, createEvalCase } = vi.hoisted(() => ({
+  mutate: vi.fn(),
+  createEvalCase: vi.fn(),
+}));
 vi.mock("../../../../../../../lib/hooks/reviews", () => ({
   useFindingAction: () => ({ mutate, isPending: false }),
+}));
+// The eval-case hook calls `useQueryClient()`, which throws without a provider.
+// Mocked for the same reason the reviews hook is: this file tests the panel's
+// filtering and keyboard behaviour, not React Query's wiring.
+vi.mock("../../../../../../../lib/hooks/evals", () => ({
+  useCreateEvalCase: () => ({ mutate: createEvalCase, isPending: false }),
 }));
 
 import { FindingsPanel } from "./FindingsPanel";
@@ -19,6 +28,7 @@ afterEach(() => {
   // reset inside the one test that currently needs it means the next test to
   // assert on `mutate` silently inherits whatever the tests before it dispatched.
   mutate.mockClear();
+  createEvalCase.mockClear();
 });
 
 function finding(o: Partial<FindingRecord> & { id: string }): FindingRecord {

@@ -1,0 +1,47 @@
+diff --git a/server/src/modules/reviews/service.ts b/server/src/modules/reviews/service.ts
+index 3f1a02c..b91d7ee 100644
+--- a/server/src/modules/reviews/service.ts
++++ b/server/src/modules/reviews/service.ts
+@@ -1,8 +1,10 @@
++import type { FastifyReply } from 'fastify';
+ import type { Container } from '../../platform/container.js';
+ import { AppError, NotFoundError } from '../../platform/errors.js';
+ import type { AgentRow } from '../../db/rows.js';
+ import { ReviewRepository } from './repository.js';
++import { OctokitGitHubClient } from '../../adapters/github/octokit.js';
+ import { reviewToDto } from './helpers.js';
+ 
+ export class ReviewService {
+   constructor(private readonly container: Container) {}
+@@ -40,6 +42,18 @@ export class ReviewService {
+     return reviewToDto(row);
+   }
+ 
++  /** Publishes the finished review back to the pull request. */
++  async publish(workspaceId: string, reviewId: string, reply: FastifyReply): Promise<void> {
++    const github = new OctokitGitHubClient(process.env.GITHUB_TOKEN ?? '');
++    const row = await this.container.reviewRepository.byId(workspaceId, reviewId);
++    if (!row) throw new NotFoundError('review');
++    await github.createReview({
++      owner: row.owner,
++      repo: row.repo,
++      body: reviewToDto(row).summary_md,
++    });
++    reply.code(202).send({ published: true });
++  }
+ }
+diff --git a/server/src/modules/reviews/helpers.ts b/server/src/modules/reviews/helpers.ts
+index 7c02a91..1ee3b40 100644
+--- a/server/src/modules/reviews/helpers.ts
++++ b/server/src/modules/reviews/helpers.ts
+@@ -3,8 +3,9 @@
+  * their arguments — no DB / network / `this`).
+  */
+ import type { Finding, ProjectContextDoc } from '@devdigest/shared';
+ import type { SkillRow } from '../../db/rows.js';
++import { reviews, findings } from '../../db/schema.js';
+ import { wrapUntrusted } from '@devdigest/reviewer-core';
+ import { MAX_SKILLS_CHARS, MAX_PROJECT_CONTEXT_CHARS } from './constants.js';
+ 
++/** Column list used when a caller wants the summary projection. */
++export const SUMMARY_COLUMNS = [reviews.id, reviews.summaryMd, findings.severity];

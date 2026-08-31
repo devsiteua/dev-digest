@@ -1,0 +1,250 @@
+# Harness evals — the checks that run when a skill, an agent, or a routing rule changes.
+#
+# Two jobs, deliberately asymmetric, because they are not the same KIND of check:
+#
+#  - quality: `pnpm eval:quality`. Static, no model, no secrets, deterministic. BLOCKING.
+#    Runs on forks too, because it needs nothing that a fork must not have.
+#  - model-runs: the LLM tiers. Probabilistic, costs tokens, needs a credential.
+#    NON-BLOCKING (`continue-on-error`) — it publishes a report and a comparison against the
+#    baseline instead of gating. A threshold on a probabilistic check is the wrong shape for a
+#    hard gate: it turns a flaky case into a blocked merge, and people learn to re-run until green.
+#
+# Fork safety. A fork PR never reaches the model job at all: the `if` below requires the head repo
+# to be this repository, so no secret is exposed to code the maintainers have not read. That is
+# belt-and-braces with GitHub's own rule that secrets are withheld from `pull_request` runs of a
+# fork — the explicit guard is what makes the intent readable, and it also covers the case where
+# someone later converts this to `pull_request_target` without thinking it through.
+#
+# Permissions. `contents: read` for the checkout, `actions: read` so the baseline artifact from
+# main can be downloaded for the comparison. Nothing writes: the report goes to the job summary
+# and an artifact, NOT to a PR comment, precisely so that no write scope is needed here.
+name: evals
+
+on:
+  push:
+    branches: [main]
+    # GitHub Actions does not support YAML anchors, so this list is duplicated below
+    # rather than aliased — same reason server-unit.yml repeats its own filter.
+    paths:
+      - '.claude/skills/**'
+      - '.claude/agents/**'
+      - 'CLAUDE.md'
+      - '.claude/CLAUDE.md'
+      - 'evals/**'
+      - '.github/workflows/evals.yml'
+  pull_request:
+    paths:
+      - '.claude/skills/**'
+      - '.claude/agents/**'
+      - 'CLAUDE.md'
+      - '.claude/CLAUDE.md'
+      - 'evals/**'
+      - '.github/workflows/evals.yml'
+  workflow_dispatch:
+    inputs:
+      model:
+        description: 'Model under test (EVAL_MODEL)'
+        type: string
+        default: 'claude-haiku-4-5'
+      judge_model:
+        description: 'Judge model (EVAL_JUDGE_MODEL) — keep a stronger family than the model under test'
+        type: string
+        default: 'claude-sonnet-5'
+      trials:
+        description: 'Trials per configuration (eval:repeat -n). The runner caps this at 2.'
+        type: string
+        default: '2'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: evals-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Tier 0: static, blocking ────────────────────────────────────────────────
+  quality:
+    name: eval:quality (blocking)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: evals
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: evals/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+
+      # Exits 1 only on a FAIL verdict. `WARN no eval file` is the normal state for a skill that
+      # carries no suite yet and must NOT fail the job — that is the "logs a skip" rule, and it is
+      # already how src/skill-quality.ts counts (`failures` counts FAIL, not WARN).
+      - name: Static skill-quality gate
+        run: pnpm eval:quality
+
+      - run: pnpm typecheck
+
+  # ── Tiers 1-2: model runs, reported not enforced ────────────────────────────
+  model-runs:
+    name: model tiers (report only)
+    needs: quality
+    # No fork ever gets here — see the header. `github.repository` is the canonical repo; for a
+    # push or a manual dispatch there is no head repo to compare, so those always run.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    env:
+      # Budget knobs, all switchable from the dispatch inputs — nothing about model selection
+      # belongs on a UI, so it lives here and in the workflow inputs only.
+      EVAL_MODEL: ${{ inputs.model || 'claude-haiku-4-5' }}
+      EVAL_JUDGE_MODEL: ${{ inputs.judge_model || 'claude-sonnet-5' }}
+      EVAL_MAX_TURNS: '8'
+      EVAL_QUIET: '1'
+      TRIALS: ${{ inputs.trials || '2' }}
+      # The default backend is the Claude Code SUBSCRIPTION, and `src/runtime/env.ts` deletes
+      # ANTHROPIC_API_KEY so the spawned CLI uses the login. There is no login in CI, so the
+      # subscription path cannot authenticate here — CI must use the OpenRouter backend.
+      EVAL_BACKEND: openrouter
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+    defaults:
+      run:
+        working-directory: evals
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: evals/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+
+      - name: Fail fast if the backend has no credential
+        run: |
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "::warning::OPENROUTER_API_KEY is not set — the model tiers cannot run." >&2
+            echo "SKIPPED=1" >> "$GITHUB_ENV"
+          fi
+
+      # Which suites does THIS change require? The mapping is the routing table in CLAUDE.md,
+      # implemented once in scripts/ci-detect.mjs so the rule is not restated in YAML.
+      - name: Detect which evals this change requires
+        id: detect
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+            HEAD="${{ github.event.pull_request.head.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+            HEAD="${{ github.sha }}"
+          fi
+          if ! git cat-file -e "$BASE" 2>/dev/null; then BASE=$(git rev-list --max-parents=0 HEAD | tail -1); fi
+          CHANGED_FILES="$(git diff --name-only "$BASE" "$HEAD")"
+          export CHANGED_FILES
+          node scripts/ci-detect.mjs
+
+      # A changed artifact with no suite is a visible SKIP, never a failure.
+      - name: Report skipped artifacts
+        run: |
+          {
+            echo "## Eval coverage"
+            for s in ${{ steps.detect.outputs.skipped_skills }}; do echo "- SKIP skill \`$s\` — no eval suite"; done
+            for a in ${{ steps.detect.outputs.skipped_agents }}; do echo "- SKIP agent \`$a\` — no eval suite"; done
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Baseline from main (for the comparison)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RUN=$(gh run list --workflow evals.yml --branch main --status success \
+                  --limit 1 --json databaseId --jq '.[0].databaseId' 2>/dev/null || true)
+          if [ -n "$RUN" ]; then
+            gh run download "$RUN" --name eval-baseline --dir results || echo "no baseline artifact on that run"
+          else
+            echo "no successful main run yet — first series becomes the baseline"
+          fi
+
+      - name: Run the required suites
+        if: env.SKIPPED != '1'
+        run: |
+          set -o pipefail
+          LABEL="ci-${GITHUB_SHA::7}"
+          for s in $(echo '${{ steps.detect.outputs.skills }}' | tr -d '[]"' | tr ',' ' '); do
+            echo "::group::skill $s"; pnpm eval:repeat "skills/$s" -n "$TRIALS" --label "$LABEL" || true; echo "::endgroup::"
+          done
+          for a in $(echo '${{ steps.detect.outputs.agents }}' | tr -d '[]"' | tr ',' ' '); do
+            echo "::group::agent $a"; pnpm eval:repeat "agents/$a" -n "$TRIALS" --label "$LABEL" || true; echo "::endgroup::"
+          done
+          if [ "${{ steps.detect.outputs.run_workflow }}" = "true" ]; then
+            echo "::group::workflow tier"; pnpm eval:repeat workflow -n "$TRIALS" --label "$LABEL" || true; echo "::endgroup::"
+          fi
+
+      - name: Publish the report and the baseline comparison
+        if: env.SKIPPED != '1'
+        run: |
+          LABEL="ci-${GITHUB_SHA::7}"
+          {
+            echo "## Eval report — \`$EVAL_MODEL\` (judge: \`$EVAL_JUDGE_MODEL\`, n=$TRIALS)"
+            echo
+            echo '```'
+            cat "results/repeat-$LABEL.json" 2>/dev/null | node -e '
+              let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+                if(!s.trim()){console.log("(no series produced)");return}
+                const j=JSON.parse(s);
+                for(const [id,t] of Object.entries(j.tests)){
+                  console.log(`${String(Math.round(t.pass.rate*100)).padStart(3)}%  ${id.split(" > ").pop()}`);
+                  for(const [p,st] of Object.entries(t.practices)) console.log(`      ${String(Math.round(st.rate*100)).padStart(3)}%  ${p.slice(0,90)}`);
+                }});' || echo "(no series produced)"
+            echo '```'
+            echo
+            if [ -f results/repeat-baseline.json ]; then
+              echo "### vs baseline"
+              echo '```'
+              pnpm -s eval:delta baseline "$LABEL" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' || echo "(delta failed)"
+              echo '```'
+            else
+              echo "_No baseline to compare against yet._"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # On main, this series BECOMES the baseline the next PR compares against.
+      - name: Publish this series as the new baseline
+        if: github.ref == 'refs/heads/main' && env.SKIPPED != '1'
+        run: cp "results/repeat-ci-${GITHUB_SHA::7}.json" results/repeat-baseline.json || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-baseline
+          path: evals/results/repeat-*.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-run-outputs
+          path: |
+            evals/results/records.jsonl
+            evals/results/outputs/
+          if-no-files-found: ignore
+          retention-days: 14

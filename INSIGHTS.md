@@ -60,6 +60,243 @@ _None yet._
 
 ## What Doesn't Work
 
+### 2026-08-31 · Same-prompt eval variance is CITATION DRIFT, not a change of judgement — and expectation width is the dial nobody chose
+
+Trigger:  two live runs of the same 8-case set, minutes apart, byte-identical prompt
+          (verified by comparing `system_prompt_snapshot` of both batches). Recall went
+          67% → 0%. It reads as the agent having stopped finding things.
+Cause:    it had not. It found the SAME defects both times and cited them one to three
+          lines off:
+            `src/config.ts`            12-12 → 13-13   (expectation 12-12)
+            `src/api/public/index.ts`  16-16 → 12-14   (expectation 15-17)
+          Same titles, same file, same defect — "Hardcoded Stripe secret key",
+          "Health endpoint incorrectly rate-limited". A match is file equality plus
+          range INTERSECTION (`rangesOverlap`), so 13-13 against 12-12 is a miss by one
+          line and 12-14 against 15-17 is a miss by one. Two of three `must_find` cases
+          flipped `pass` → `fail` without the model changing its mind about anything.
+          The width of the expectation is what decides this, and nobody chose it: it is
+          copied from the source finding's own `start_line`/`end_line`, which for a
+          seeded finding is often a SINGLE line. A one-line expectation gives the model
+          no tolerance at all for where it anchors a defect that spans a hunk.
+Takeaway: before reading a recall drop as a behaviour change, diff the CITATIONS, not
+          the scores — join `eval_runs.actual_output->'findings'` for one case across
+          two batches and compare `file`/`start_line`. If the titles match and only the
+          lines moved, the agent did not regress and the metric is measuring its
+          citation habit. This is the mechanism behind the same-prompt disagreement
+          recorded on 2026-08-30 under Tool & Library Notes; that entry saw the symptom.
+          It also sets the floor on how blunt a prompt experiment must be: the
+          deliberately broken prompt of the L06 demo moved recall 33% → 17% and
+          precision 75% → 50%, a real move, but no larger than drift alone produced on
+          an unchanged prompt. A match tolerance of a few lines — or expectations
+          widened to the hunk rather than the line — would separate the two, and is the
+          obvious next change to this scoring rule.
+Evidence: server/src/modules/evals/scoring.ts (`rangesOverlap`, `matches`);
+          eval_cases.expected_output (start_line/end_line copied from the finding);
+          server/src/modules/evals/routes.ts (case creation from a finding)
+Status:   open — nothing is broken, the trade-off is deliberate and documented in
+          `scoring.ts`; what was not known is how much of a metric move it can
+          manufacture on its own
+
+### 2026-08-30 · A criterion verified on ONE surface reads as MET while another surface breaks it — and a shared guard component is what hides it
+
+Trigger:  AC-21 of the eval pipeline: "a metric with an empty denominator renders —,
+          never 100%". `plan-verifier` returned it MET. `/pr-self-review`'s frontend
+          lane then found the Eval Dashboard printing a confident RECALL 100% on a set
+          that had asserted nothing.
+Cause:    two failures that reinforce each other. (1) The criterion is implemented on
+          THREE screens — the Evals tab, the dashboard and the comparison — and the
+          verification asked "is there a test for this AC", found `EvalsTab.test.tsx`
+          asserting exactly the right thing, and stopped. One surface's test answered
+          for three. (2) The shared component was not the guard it looked like:
+          `MetricRow` renders `—` when `denominator === 0`, correct and covered, and two
+          of its three callers handed it `traces_total` — the count of rows that RAN,
+          which is not any metric's denominator. A set built only from dismissed
+          findings has `recall_denominator` 0 and a full `traces_total`, so the guard
+          was live, tested, and never fired. Extracting the rule into a component moved
+          the defect from the rule to the ARGUMENT, where nothing was looking.
+Takeaway: for any criterion phrased about "a screen", enumerate the screens before
+          accepting a verdict — `grep` for the component or the contract field rather
+          than trusting the one test the matrix names. And when a rule is extracted into
+          a shared component, the test that matters is not "does the component obey the
+          rule" but "does every caller pass it the input the rule is about": assert the
+          rendered output at each call site, or the extraction has bought a false sense
+          of coverage. The regression tests written for this were watched failing
+          against the old code first, which is the only reason they are worth anything.
+Evidence: client/src/components/metric-row/MetricRow.tsx;
+          client/src/app/eval/_components/EvalDashboardView/EvalDashboardView.tsx;
+          server/src/vendor/shared/contracts/eval-ci.ts (EvalDashboard.current)
+Status:   open — the pattern is general; only this instance is fixed
+
+### 2026-08-30 · Three assertions in one test needed their literals updated, and the fourth looked identical — updating it would have deleted the control
+
+Trigger:  `seed.ts` now decides ten findings instead of four, so the per-file `finding_lines`
+          expectations in `smart-diff.it.test.ts` had to move.
+Cause:    three of them are DESCRIPTIVE — they record what the seed happens to contain, and
+          editing the literal is the correct repair. The fourth,
+          `expect(lines['src/server.ts']).toEqual([])` at `:179`, is the negative half of "an
+          older review does not leak its findings": the test plants a finding on
+          `src/server.ts` in a SUPERSEDED review and asserts the current review reports none
+          there. Seeding a finding onto that file turns it red too — loudly, not silently — and
+          the obvious repair, updating the literal exactly as the other three needed, converts
+          a control into a tautology that can never fail again. The right repair was to move
+          the seeded finding off that file.
+Takeaway: when one data change makes several assertions in a file go red, sort them into
+          descriptive and control BEFORE editing any. The tell is an expectation whose value is
+          empty or absent: a control usually asserts that nothing is there, so "update the
+          expected value" is precisely the move that destroys it. Sibling of the
+          data-versus-lane sweep below — that one asks which step destroys a fixture, this one
+          asks which step makes the obvious REPAIR destroy the control.
+Evidence: server/test/smart-diff.it.test.ts:127-134,177-180; server/src/db/seed-evals.ts
+Status:   open
+
+### 2026-08-30 · A zero-count grep gate fires on prose and on type unions — and it is right both times
+
+Trigger:  two gates the L06 plan wrote for itself, both of the form "grep this file for the
+          vocabulary of X → 0". Both fired on first contact with the finished code.
+Cause:    AC-17's gate (the scoring module must name nothing to do with a model) fired because
+          the file's own DOC COMMENT used the word "container" while explaining that it must
+          never reach for one. AC-28's (nothing writes `owner_kind` `'skill'`) fired on
+          `ownerKind: 'skill' | 'agent'` — a type union in a signature, not a write.
+Takeaway: fix the code, not the gate — and both fixes were improvements: the comment was
+          reworded, and the inline union became the shared `EvalOwnerKind`, removing an inline
+          re-declaration root `CLAUDE.md` § Gotchas already warns about. A zero-count gate
+          cannot tell code from prose or a write from a type, and that is the same property
+          that makes it reachable where a positive count is not (the entry below). Expect one
+          to fire the first time it meets real code; that is the gate working, not a false
+          alarm.
+Evidence: server/src/modules/evals/scoring.ts:11-15; specs/plans/eval-pipeline.md § Step 3, Step 6
+Status:   open
+
+### 2026-08-30 · `allowedTools` is not a permission boundary under `bypassPermissions` — an eval run rewrote a committed file
+
+Trigger:  running the workflow tier of `evals/`. Afterwards `git status` showed
+          `server/INSIGHTS.md` modified: the `engineering-insights` activation case had called
+          `Edit`, DELETED the real "tokenizer has two ways to count wrong" entry, and written one
+          invented from the eval's own prompt — with an `Evidence:` line pointing at
+          `server/src/adapters/pgvector/repo-intel.ts`, a file that does not exist.
+Cause:    `Edit` is not in `WORKFLOW_ALLOWED_TOOLS`; neither are `Bash` or `SendMessage`, and the
+          traces show all three were used. `runClaude` sets `permissionMode: "bypassPermissions"`,
+          and bypassing permissions is exactly what bypasses the machinery that would have enforced
+          `allowedTools`. The list is a hint to the model, not a boundary. `tasks.ts` asserted the
+          opposite in a comment — "keep allowedTools a read-only allow-list ... a fresh session with
+          bypassPermissions could otherwise take real actions in the repo" — and that comment is
+          what made the gap invisible: the list looks like a guard and denies nothing.
+Takeaway: `disallowedTools` IS enforced independently of `permissionMode` — that is the only list
+          that holds. Any headless session pointed at a real working tree needs a hard deny, not an
+          allow-list, and the check that it works is `git status` before and after, not the trace.
+          Distinct from the skill-frontmatter `allowed-tools` field (2026-08-05, below): same name,
+          different mechanism, and that one does restrict.
+Evidence: evals/src/config.ts:43 (EVAL_DENIED_TOOLS); evals/src/runtime/run-claude.ts:65,69
+Status:   resolved — hard deny added and verified by re-running the offending case: the session
+          still tries to write, the tree is unchanged, the skill still activates
+
+### 2026-08-30 · An eval that names a path is testing its own fixture until you check the path exists
+
+Trigger:  L06 experiments 3 and 4. Both shipped suites looked runnable and measured nothing.
+Cause:    every path they asserted was absent from this repository. The agent fixtures described
+          `server/src/modules/checkout/**` and `reviewer-core/src/pipeline/run.ts`; all three
+          workflow trace cases asserted `server/docs/api-contracts.md`,
+          `reviewer-core/docs/pipeline.md` and `reviewer-core/insights/gotchas.md`. Worse, the
+          agent practices demanded the rule identifiers `inward-only-dependencies`, `di-discipline`,
+          `reviewer-core-zero-io` and `reviewer-core-ground-findings-gate`, none of which exists —
+          the real names are in `server/.dependency-cruiser-onion.cjs` (`no-fastify-below-delivery`,
+          `no-concrete-adapter-in-app-layer`, `core-stays-pure`, …). So the one practice the whole
+          A/B rested on could pass only by hallucinating an invented string, and scored 0% in BOTH
+          variants: an agent citing the REAL rule was graded FAIL.
+Takeaway: before trusting any series, resolve every path and every identifier a case asserts against
+          the tree — one `for f in ...; do [ -e "$f" ]` loop costs seconds and a wrong one costs a
+          full run to discover. A tool-using agent makes this worse, not better: it goes looking,
+          fails to find the files, and correctly REFUSES, so its most correct behaviour scores zero.
+Evidence: evals/agents/architecture-reviewer/architecture-reviewer.cases.ts (header);
+          evals/workflow/review-workflow.cases.ts (header); server/.dependency-cruiser-onion.cjs:25-96
+Status:   resolved — both suites rebuilt against paths and rule names that exist
+
+### 2026-08-30 · Deleting one statement of a rule does not delete the rule — the onion skill states its DI requirement three times
+
+Trigger:  L06 experiment 2 — remove the DI-container rule from `onion-architecture/SKILL.md` and
+          watch the tied expectation fall. The delta was ZERO on every practice.
+Cause:    not a weak case, a lenient grader, or a strong base model — the three causes the lesson
+          names. The rule was redundantly encoded. With the requirement sentence gone the model
+          still reconstructed it from the ring map (ring 2 imports rings 0-1, so a service
+          instantiating a ring-3 class is already illegal) AND from the surviving composition-root
+          DESCRIPTION, which still named `platform/container.ts` as where wiring lives. Its own
+          words: "Application layer should not instantiate Infrastructure classes ... add it to the
+          container in `platform/container.ts`". Removing the whole paragraph moved the tied
+          expectation 100% → 50% with all six controls flat and the case score unchanged.
+Takeaway: before breaking an artifact to measure it, grep the artifact for every restatement of the
+          rule and remove the rule, not one sentence of it. A null delta is evidence about the
+          ARTIFACT's redundancy before it is evidence about the model. The same audit is cheap
+          insurance the other way: `architecture-reviewer` states its citation rule exactly once, so
+          one deletion there was a real break.
+Evidence: .claude/skills/onion-architecture/SKILL.md § Ring map + § Forbidden imports item 3
+Status:   open — the redundancy is a strength in production and a confound in evals; not "fixed"
+
+### 2026-08-30 · A routing row written with a package-relative path sends the model to the repo root
+
+Trigger:  the workflow eval's package-local routing case passed 1 of 2 runs.
+Cause:    `reviewer-core/CLAUDE.md:54` writes its target as `` `docs/prompt-contract.md` `` —
+          relative to the package. In BOTH runs the model first tried `docs/prompt-contract.md` from
+          the repo root, which does not exist; run 1 gave up and read `src/prompt.ts` instead, run 2
+          recovered and found `reviewer-core/docs/prompt-contract.md`. The rule is ambiguous about
+          its own anchor, and a package `CLAUDE.md` is loaded into a session whose cwd is the repo.
+Takeaway: write every path in a `Read when` row so it resolves from the REPO ROOT, even in a package
+          file. The root `CLAUDE.md`'s rows do this already; the package ones do not.
+Evidence: reviewer-core/CLAUDE.md:54; evals/workflow/review-workflow.cases.ts
+Status:   open — same shape likely in the other `<pkg>/CLAUDE.md` files; not swept
+
+### 2026-08-30 · Every integration lane in this repo runs `seed()` — and a step that UN-writes a fixture inverts the ordering check that catches it
+
+Trigger:  planning `specs/eval-pipeline.md`. Two ordering faults, one the mirror of the other.
+          `In scope` listed the seed extension tenth; the plan put it at Step 4. Then AC-30's
+          lane — "a finding whose review has no agent is refused" — needed a row that Step 4
+          had just deleted.
+Cause:    (a) `server/test/integration.it.test.ts:7,47` imports `seed` and runs it — and so does
+          every other file in the lane: `grep -L "db/seed" server/test/*.it.test.ts` returns
+          nothing, **15 of 15**. So EVERY integration lane asserts against seed output, whatever
+          its subject is, and every step owning such a lane depends on the seed step even when
+          nothing in its description mentions the seed.
+          (b) Step 4 backfills the demo review's `agent_id` `where agent_id is null`. AC-30's
+          lane needs a review WITH `agent_id` null. The lane would have been unrunnable *after*
+          the step it depends on — not before it, which is the direction the 2026-08-30 entry
+          below describes and the only direction its sweep can see. A sweep asking "which step
+          writes this row" returns nothing, because the answer is that a step removes it.
+Takeaway: two checks, and the second is the one nobody runs. First: in this repository the seed
+          step is a prerequisite of every persisted-row lane, so it belongs at the FRONT of a
+          plan regardless of where the spec lists it. Second: for each lane, also ask which step
+          DESTROYS its fixture — a backfill, a de-duplication, a `NOT NULL` migration, a cleanup
+          all qualify, and each is invisible to the write-side sweep. The fix is for the lane to
+          insert its own fixture (`t.reviews` with `agentId` omitted, the idiom already at
+          `server/test/reviews.it.test.ts:417`, `smart-diff.it.test.ts:147`,
+          `skills.it.test.ts:574`), never to weaken the step that does the destroying.
+Evidence: server/test/integration.it.test.ts:7,47; server/test/reviews.it.test.ts:417;
+          specs/plans/eval-pipeline.md § Coverage → the data-versus-lane sweep
+Status:   open — sharpens the entry below rather than replacing it; that one still owns the
+          write-side direction
+
+### 2026-08-30 · A requirements gap can sit BETWEEN two sections, with both of them reading correctly alone
+
+Trigger:  `specs/eval-pipeline.md` passed its own eight-point self-check — ids sequential, one
+          EARS pattern per row, no empty `How it is checked`, zero `[NEEDS CLARIFICATION]` — and
+          was approved and committed. `implementation-planner` then could not build Step 4 from
+          it.
+Cause:    § In scope promised the seed leaves "at least eight findings with real decisions";
+          AC-01 required a case set of ≥8 and its check counted `eval_cases`. Two different
+          populations, and eight decided findings do not become eight cases by themselves —
+          nothing else writes `eval_cases` during a seed. Each sentence is correct in isolation,
+          so no per-section check can fail: the defect exists only in the relation between them.
+          Pulling on it surfaced a real missing criterion (`reviews.agent_id` is nullable at
+          `server/src/db/schema/reviews.ts:28` while `eval_cases.owner_id` is `notNull` at
+          `schema/eval.ts:13`, so a finding can have no owner to give a case) which became AC-30
+          — after the spec had been called complete.
+Takeaway: a spec self-check that walks sections one at a time cannot find this class. Add one
+          cross-section pass: for every noun a prose section promises to produce, find the
+          criterion that counts it and check they count the SAME population. Cheap heuristic —
+          any two places naming the same number (here "eight") are the pair most likely to
+          disagree. Expect the planner to be the first reader who has to satisfy both at once;
+          that is not a planning failure, it is where this defect is designed to surface.
+Evidence: specs/eval-pipeline.md § In scope + AC-01, AC-09, AC-30; commits 2038e95 → 2378d54
+Status:   open
+
 ### 2026-08-30 · A plan's own dependency graph can encode an ordering that cannot be executed, and every gate in the plan agrees with it
 
 Trigger:  `specs/plans/L05-pr-brief.md` placed AC-39's integration case in Step 6 — "the two
@@ -121,44 +358,39 @@ Status:   open — fix opportunistically when touching those files
 
 ## Codebase Patterns
 
-### 2026-08-29 · `.default()` on a Zod contract field is optional on input and REQUIRED on `z.infer` — a "purely additive" mirror edit breaks every literal in both packages
+### 2026-08-30 · The seed-literal obligation is wider than `e2e/specs/*.json` — an integration test reads those literals too
 
-Trigger:  adding `project_context: z.boolean().default(true)` to `Agent` in
-          `vendor/shared/contracts/knowledge.ts` and its mirror. The edit looked additive; the
-          next `pnpm typecheck` was red in **both** packages with four `TS2741 Property
-          'project_context' is missing` — one server mapper and three client test fixtures.
-Cause:    `.default()` makes a field optional for `.parse()` **input** and required on the
-          inferred output type. Every place that builds the object as a literal — rather than
-          parsing one — must gain the key in the same breath.
-Takeaway: before adding any field to a shared contract, sweep the producers:
-          `grep -rn ": <Type> = {" server/src server/test client/src`. Every pure literal it
-          finds belongs to the same step and the same commit as the contract edit; a *mapper*
-          may be deferred only if a later step is named for it out loud. A plan step whose
-          `Verify` runs `pnpm typecheck` but whose `Files:` omits those literals asserts a gate
-          it cannot pass, and stops a correct implementation dead.
-Evidence: server/src/vendor/shared/contracts/knowledge.ts:381; server/src/modules/agents/helpers.ts:20;
-          client/src/app/agents/_components/AgentCard/AgentCard.test.tsx:11
-Status:   resolved — the sweep is now a rule in `specs/plans/L05-project-context-folder.md` § Gate discipline
+Trigger:  editing `seed.ts` to decide ten findings, and looking for everything that would
+          break.
+Cause:    root `CLAUDE.md` § Gotchas names exactly one obligation: after editing `seed.ts`,
+          grep `e2e/specs/*.json` for the values changed. The L06 plan quoted that rule, swept
+          only `e2e/`, and concluded "exactly one flow asserts a seed-derived count" — true,
+          and incomplete. `server/test/smart-diff.it.test.ts` hard-codes seed-derived
+          `finding_lines` per file, and went red on values no flow mentions. The rule is
+          narrower than the fact it describes, and a plan that trusts it inherits the gap.
+Takeaway: after editing `seed.ts`, grep the WHOLE repository for the literals changed — not
+          one package, and not the one package a gotcha happens to name. `check:e2e-contract`
+          only enforces the e2e half, so nothing automated covers the rest.
+Evidence: server/test/smart-diff.it.test.ts:127-134; e2e/specs/04-pr-findings.flow.json:3,14;
+          root CLAUDE.md § Gotchas
+Status:   open — the `CLAUDE.md` gotcha still names only `e2e/specs`
 
-### 2026-08-29 · `wrapUntrusted` is applied by `assemblePrompt`, not by its callers — and it escapes, so a server-side pre-wrap corrupts what the user sees
+### 2026-08-30 · `skillContent()` injects SKILL.md plus a `references/` DIRECTORY — a skill's sibling pages never reach the model
 
-Trigger:  a plan step said "every body through `wrapUntrusted()`" before handing documents to
-          `PromptParts.specs`. Doing that would have been wrong.
-Cause:    `assemblePrompt` already wraps each `parts.specs[i]` as `spec-N`
-          (`reviewer-core/src/prompt.ts:149-151`), and `wrapUntrusted` **escapes** any
-          `</untrusted>` inside its input (`:29-32`). A pre-wrap therefore does not merely
-          double-delimit — the outer wrap escapes the inner one, and the mangled `<\/untrusted>`
-          is persisted into `run_traces.prompt_assembly`, which the Run Trace drawer renders to
-          the user. `renderSkillBlocks` **does** wrap, correctly, because the engine does *not*
-          wrap `parts.skills`. The two renderers look symmetrical and are not.
-Takeaway: check which slots `assemblePrompt` wraps before wrapping anything yourself. Today:
-          `specs`, `repoMap`, `callers` and `diff` are wrapped by the engine; `skills` is not.
-          Pin the decision with a test that asserts the block leaves the server unwrapped **and**
-          that exactly one delimiter reaches the assembled prompt, so a later well-meaning wrap
-          fails loudly instead of quietly corrupting a trace.
-Evidence: reviewer-core/src/prompt.ts:29-32,149-151,161-162; server/src/modules/reviews/helpers.ts:181-207;
-          server/test/context-prompt.test.ts:88-116
-Status:   resolved
+Trigger:  designing the L06 experiment-2 break, and needing to know whether editing
+          `onion-architecture/SKILL.md` was actually a controlled variable.
+Cause:    `skillContent()` reads `SKILL.md` and then, only if a `references/` **directory** exists,
+          every `*.md` inside it. `onion-architecture` keeps its extra pages as sibling FILES —
+          `tooling.md`, `references.md` — so neither is injected. That matters because
+          `tooling.md:22` restates the DI-container rule the experiment removes; had it been loaded,
+          the break would have been invisible for a reason nobody would have found. Note also that
+          frontmatter is NOT stripped for skills (it is for agents, via `agentContent`), so a
+          skill's `description` and trigger terms are always in the payload.
+Takeaway: a skill eval measures SKILL.md and a `references/` directory, nothing else. Before drawing
+          any conclusion from a skill eval, check where that skill's content actually lives — and
+          remember the content-tier runs with NO tools, so the model cannot go read the rest.
+Evidence: evals/src/artifacts/load.ts:19-31; .claude/skills/onion-architecture/tooling.md:22
+Status:   open
 
 ### 2026-08-28 · Three silent narrowings sit between a real call site and a row in the blast map
 
@@ -227,32 +459,6 @@ Evidence: server/src/db/schema/reviews.ts (findings); server/src/db/schema/runs.
           server/src/vendor/shared/contracts/knowledge.ts (SkillStats);
           specs/L02-skills.md § Round 2 → Decisions
 Status:   open — the approximation ships with an on-screen caveat until L06
-
-### 2026-08-06 · `FEATURE_MODELS` says its defaults "mirror each module's constants" — for `conventions` there is no module to mirror
-
-Trigger:  picking the model for the conventions extractor, and reaching for
-          `resolveFeatureModel(container, ws, 'conventions')` because that is the function with
-          the obvious name
-Cause:    the registry's own doc comment (`contracts/platform.ts:31-36`) promises "the defaults
-          MIRROR each module's constants, so behaviour is unchanged until a model is explicitly
-          picked". Four of the five entries are `gpt-4.1` or a deepseek flash. `conventions` is
-          `openai / gpt-5.4` — the priciest default in the file — and it mirrors nothing, because
-          no conventions module existed to have a constant. `resolveFeatureModel` would have
-          silently bought that model on every scan. The escape is already documented one file over
-          (`modules/settings/feature-models.ts:30-35`: "callers that keep their own dynamic default
-          (e.g. conventions) use this directly"), but it reads as a style note, not a bill.
-Takeaway: for a feature whose module is being written now, `getFeatureModelOverride` + a
-          module-local constant — never `resolveFeatureModel`. Check the registry's default before
-          trusting the "unchanged behaviour" promise: it only holds where the old constant exists.
-          Note the registry is duplicated in `client/src/lib/feature-models.ts` (the client cannot
-          import the runtime value), so the Settings row is already visible for features with no
-          code behind them.
-Evidence: server/src/vendor/shared/contracts/platform.ts:73-79;
-          server/src/modules/settings/feature-models.ts:30-35; specs/L02-conventions-extractor.md
-Status:   → promoted to `server/CLAUDE.md` § Conventions on 2026-08-30, at its second sighting:
-          `risk_brief` was already in `FeatureModelId` with an `openai / gpt-4.1` default and a
-          rendered Settings row pointing at nothing, so the PR brief CLAIMED the slot rather than
-          creating one. `resolveFeatureModel` still has no caller; the first one should re-check this
 
 ### 2026-08-05 · One dependency-cruiser run over `server/src` also polices `reviewer-core`'s purity
 
@@ -355,7 +561,141 @@ Status:   open — harmless as long as nothing enumerates the UI type
 > this section: 2026-08-28, 2026-08-23, 2026-08-21, 2026-08-02. What stays here is `open`,
 > plus any resolved entry an open one points at.
 
+> Archived 2026-08-30 → [`docs/insights-archive.md`](docs/insights-archive.md), verbatim under
+> this section: 2026-08-06, 2026-08-29. Moved because each is `resolved`/`→ promoted`, has shipped, and no
+> open entry points at it.
+
 ## Tool & Library Notes
+
+### 2026-08-31 · The `pr-self-review` gate always resolves its base as `origin/main`, so a STACKED pull request cannot be unblocked by a verdict written against its real base
+
+Trigger:  L06's pull request targets `lesson-05`, because L05's own PR (#5) is still
+          open. A full self-review was run with that base, the verdict was written with
+          `base: lesson-05`, and `gh pr create` was still denied — with the findings
+          printed, and nothing said about the base.
+Cause:    `pr-self-review-gate.sh` honours an override only when the verdict's
+          `diff_sha` equals the one it recomputes itself, and it resolves the base by
+          calling `scripts/pr-self-review-hash.sh --print-base` with NO argument. That
+          default is `origin/main`. A verdict written against any other base has a
+          different digest, so the gate treats it as describing some other diff and
+          ignores the override entirely. Both halves are correct in isolation — binding
+          the override to a digest is the whole safety property — but together they
+          make a hand-picked base a silent no-op.
+Takeaway: when writing the verdict the gate must honour, never pass a base ref to
+          `pr-self-review-hash.sh`; let it resolve its own, and put the real pull
+          request base in `coverage` prose instead. Accept the consequence and say it
+          out loud in `coverage`: on a stacked PR the verdict covers a WIDER diff than
+          the PR contains — here 255 files against `origin/main` versus the 130 the PR
+          actually proposes — so "reviewed" in that file does not mean "reviewed what
+          this PR changes" unless the coverage line separates them.
+Evidence: scripts/pr-self-review-gate.sh (OV_SHA / SAVED_SHA comparison);
+          scripts/pr-self-review-hash.sh (--print-base, BASE_REF defaulting)
+Status:   open — the gate is not wrong, but it assumes every PR targets main; the next
+          stacked PR pays the same 20 minutes unless the skill grows a `--base` that
+          both sides agree on
+
+### 2026-08-30 · A whole-PR model call is 39-92 s, so the 60 s default was clipping the distribution — and two runs of the SAME prompt still disagree
+
+Trigger:  the first two live eval runs over the seeded eight-case set, on
+          `deepseek-v4-flash`. Both came back `partial`: 6 of 8, then 7 of 8.
+Cause:    two different things wearing the same clothes, and only one is a fault.
+          (a) `reviewer-core`'s `DEFAULT_TIMEOUT_MS` is 60 s and `ReviewInput` had no
+          way to override it, while a case replays the WHOLE PR diff and measured
+          39-92 s per call — the budget was sitting on top of the distribution, not
+          above it, so it clipped whatever landed in the tail. That is NOT the honest
+          failure AC-14 is for: it drops a random quarter of the set on every run, so
+          two runs of one set measure two different populations and stop being
+          comparable, which is the single property an eval exists to provide.
+          (b) With the budget at 180 s one case still died, at exactly 180 021 ms —
+          a genuine OpenRouter stall, the shape the 2026-08-06 entry recorded. That
+          one IS AC-14 working, and leaving it is correct.
+Takeaway: size a wall-clock budget from a measured distribution, never from the
+          "healthy call" figure — the 14-28 s in the 2026-08-06 entry was measured on
+          smaller inputs and does not transfer to a whole-PR call. And separate the
+          two readings before touching anything: a budget below the tail is a
+          measurement defect, a budget above it that still trips is a provider stall.
+          **Expect one stalled case per eight-case run**; both runs had one.
+          Second, harder finding: two runs on the BYTE-IDENTICAL prompt disagreed
+          per case — `src/middleware/ratelimit.ts:19` passed in one and failed in the
+          other. Same-prompt variance is real and is not small, so any prompt
+          experiment on a set this size needs a BLUNT intervention; a subtle edit
+          cannot be distinguished from noise at n=1, and the honest read of a single
+          pair of runs is "this moved" only when the move is large.
+Evidence: reviewer-core/src/llm/openrouter.ts:28 (DEFAULT_TIMEOUT_MS);
+          server/src/modules/evals/constants.ts (EVAL_CASE_TIMEOUT_MS);
+          reviewer-core/src/review/run.ts (ReviewInput.timeoutMs)
+Status:   resolved for (a) — `ReviewInput.timeoutMs` added, absent by default so no
+          ordinary review changes, and the eval executor passes 180 s. (b) and the
+          variance finding stay open: neither is fixable, both are facts to plan around
+
+### 2026-08-30 · Three ways `evals/` prints a number that is not the measurement
+
+Trigger:  the L06 lab. Each one produced a confident, plausible, wrong result.
+Cause:    (1) `record()` computes `outcome` from the judge threshold when there is a verdict and
+          otherwise falls back to `!result.isError` — "did the session run". EVERY workflow case has
+          no grounding gate and no judge, so the whole tier's pass rates measured session success: a
+          contrast whose control read the very document it must not read reported **100%**, and a
+          negative-activation "50%" was a session error, not a failed assertion.
+          (2) On a subscription limit the SDK returns the string
+          `You've hit your session limit · resets 7:10pm` as the model's OUTPUT; `record()` persists
+          it and the judge grades it, yielding a clean-looking 0% with no indication the run never
+          happened. The tell is `tok_out: 0` with `turns: 1` and a sub-second duration.
+          (3) In `runQualityCases` the `await task(...)` sits OUTSIDE the try/finally, so when
+          `runClaude` throws, `record()` never fires and the case silently vanishes from the series —
+          a "2 runs" series reporting `n=1` on one case, with nothing saying so.
+Takeaway: check `tok_out` and the record COUNT before reading any eval summary, and for the workflow
+          tier read `trace.reads` / `trace.subagents` / `trace.skills` and evaluate the assertion
+          yourself. A green from this harness is a hypothesis until the trace confirms it.
+Evidence: evals/src/records/record.ts:59-65; evals/src/dsl/case.ts:95
+Status:   resolved for (1) — `RecordData.outcome` added and each workflow runner passes its own
+          verdict; (2) and (3) remain open
+
+### 2026-08-30 · `eval:delta` keys on the full vitest nodeid, so it cannot compare two agents
+
+Trigger:  L06 experiment 3 — `pnpm eval:delta ar-strict ar-lite`, exactly as the lab prescribes.
+          Every row rendered `—% -> n/a`.
+Cause:    the nodeid embeds the eval file path and the `describe()` name, so
+          `.../architecture-reviewer/... > agent:architecture-reviewer > <case>` never matches
+          `.../architecture-reviewer-lite/... > agent:architecture-reviewer-lite > <case>` — even
+          though `architecture-reviewer-lite.eval.ts` imports the strict variant's cases precisely so
+          the two share every case. The A/B the package is built for is the one comparison the CLI
+          cannot render.
+Takeaway: for a cross-artifact A/B, compare the two `results/repeat-<label>.json` files by the LAST
+          segment of the nodeid (`id.split(" > ").pop()`), which is the shared case name. Harder
+          evidence still is to count the thing itself in `results/outputs/` — grepping the emitted
+          rule identifiers showed strict 2/2 and lite 0/2 where the graded delta said 100% → 50%,
+          because the judge had passed a lite answer naming one identifier against a practice asking
+          for two.
+Evidence: evals/src/delta.ts:66; evals/agents/architecture-reviewer-lite/architecture-reviewer-lite.eval.ts
+Status:   open — a `--by-name` flag would fix it; not written
+
+### 2026-08-30 · A per-lesson worktree boots its web UI on the one port its own API refuses
+
+Trigger:  preparing the L06 implementation handoff and checking what `./scripts/dev.sh` would
+          actually do in the `dev-digest-l06` worktree, whose `server/.env` sets
+          `API_PORT=3061` / `WEB_PORT=3060`.
+Cause:    the two halves read the port from different places and only one of them reads `.env`.
+          The API does: `config.ts:38-39` parses `API_PORT`/`WEB_PORT`, so Fastify listens on
+          3061 — `scripts/dev.sh:104` printing "starting API on :3001" is hard-coded prose that
+          has never been true in a worktree with an override. The client does NOT:
+          `client/package.json:6` is `next dev -p 3000`, a literal that neither `WEB_PORT` nor
+          `PORT` can move. And CORS is a strict single-origin allow-list built from the value
+          the client ignores — `app.ts:90` registers `origin: [config.webOrigin]` where
+          `webOrigin` is `http://localhost:${WEB_PORT}` (`config.ts:94`). Net effect: web on
+          3000, API on 3061, allow-list holding 3060 — every browser request is blocked, while
+          `client/.env`'s `NEXT_PUBLIC_API_BASE=http://localhost:3061` is correct and makes the
+          setup look right. Nothing logs a mismatch; the failure appears only in the browser.
+Takeaway: in a worktree with a `WEB_PORT` override, start the client as
+          `cd client && pnpm exec next dev -p $WEB_PORT` — `pnpm dev` is the wrong command
+          there, whatever `dev.sh` says. Two durable fixes if this bites twice: make
+          `client/package.json`'s script read the variable, or widen `app.ts:90` to accept both
+          origins in development. Do NOT "fix" it by setting `WEB_PORT=3000`, which is what
+          every parallel lesson worktree would then collide on. `scripts/e2e.sh:32-41` is the
+          one place that already does this correctly — it exports both ports because "the API
+          derives its origin from WEB_PORT", which is the same trap, solved.
+Evidence: client/package.json:6; server/src/app.ts:90; server/src/platform/config.ts:38-39,94;
+          scripts/dev.sh:104,109; scripts/e2e.sh:32-41
+Status:   open
 
 ### 2026-08-06 · `seed.ts` never converges on rename: a skill dropped from `SEED_SKILLS` survives, still linked, and its checklist is still in the prompt
 
@@ -427,42 +767,6 @@ Status:   resolved 2026-08-30 — a scan did not time out, but a BRIEF did, and 
           `req.maxRetries` for schema reprompts while network retries come from the SDK
           constructor.
 
-### 2026-08-06 · `/pr-self-review --override` cannot unblock a scripted CRITICAL, though both the skill and the checks say it can
-
-Trigger:  L02 ended with three scripted CRITICALs, all verified false positives — a
-          user-authorised `vendor/ui/nav.ts` edit, a contract mirror whose two copies are now
-          byte-identical, and a schema change `pnpm db:generate` confirms needs no migration
-Cause:    `scripts/pr-self-review-gate.sh` section 3 re-runs the checks and `exit 2`s on any
-          CRITICAL **before** it ever opens `last-verdict.json`. The override lives in that
-          file and is only consulted in section 6, which section 3 never reaches. So the
-          escape hatch the checks themselves advertise ("or run: /pr-self-review --override")
-          does nothing for the findings that print it. Verified by feeding the gate a
-          `gh pr create` payload: exit 2 with an override recorded.
-Takeaway: for a scripted CRITICAL there are only two real options — change the code so the
-          check stops firing (the right answer for the secret-literal one: a test fixture did
-          not need a credential-shaped string), or `DEVDIGEST_SKIP_PR_REVIEW=1`. Three of the
-          twelve checks are heuristics that cannot see intent: `check:contract-mirror`
-          compares changed LINES, so repairing pre-existing drift on one side trips it even
-          though the files end up identical; `check:schema-migration` cannot tell a DDL change
-          from a TS-only enum widening. Either teach section 3 about the override, or stop
-          suggesting it there.
-Evidence: scripts/pr-self-review-gate.sh:60-78, .claude/skills/pr-self-review/SKILL.md §7
-Status:   resolved 2026-08-30 — section 3 now reads the override before it blocks, taking the
-          entry's own first option ("teach section 3 about the override"). It is honoured only
-          when `override.reason` is present AND the verdict's `diff_sha` equals the current
-          digest, so it still retires itself on the next edit; a digest that cannot be computed
-          is not a match, deliberately unlike the file's general "an internal error allows the
-          command" policy, because here an error would wave a CRITICAL through.
-          `scripts/test-pr-self-review.sh` goes 41 passed / 4 failed → 42 / 3: it fixes
-          "a recorded override releases a failing verdict" and breaks nothing. The three that
-          remain share one cause the suite names itself in its first line —
-          "clean worktree already fires: check:vendor-ui" — the same authorised `nav.ts` edit,
-          which makes the two "a passing verdict allows" cases fail downstream. They go green
-          when that edit stops firing, not through this file.
-          The second half of the takeaway still stands and is NOT done: `check:contract-mirror`
-          comparing changed lines, and `check:schema-migration` unable to tell DDL from a TS-only
-          enum widening, are still heuristics that cannot see intent.
-
 ### 2026-08-02 · The seed now creates one `agent_run`, and the guard that made it upgradeable
 
 Trigger:  closing the entry below, so the timeline counters could be demoed at all
@@ -518,6 +822,10 @@ Status:   open — the lock is stale in both directions; left untouched on purpo
 > Archived 2026-08-29 → [`docs/insights-archive.md`](docs/insights-archive.md), verbatim under
 > this section: 2026-08-28 ×4, 2026-08-25, 2026-08-22 ×2, 2026-08-06. What stays here is
 > `open`, plus any resolved entry an open one points at.
+
+> Archived 2026-08-30 → [`docs/insights-archive.md`](docs/insights-archive.md), verbatim under
+> this section: 2026-08-06. Moved because each is `resolved`/`→ promoted`, has shipped, and no
+> open entry points at it.
 
 ## Recurring Errors & Fixes
 

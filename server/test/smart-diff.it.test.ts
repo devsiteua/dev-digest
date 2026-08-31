@@ -124,10 +124,14 @@ d('L03 smart diff (Testcontainers pg)', () => {
     const lines = Object.fromEntries(
       body.groups.flatMap((g) => g.files.map((f) => [f.path, f.finding_lines])),
     );
-    expect(lines['src/config.ts']).toEqual([12]);
+    // The seed's L06 block decides ten findings on the demo review, so three of
+    // these files carry two. `src/server.ts` is deliberately left without any —
+    // the "older review does not leak" case below uses it as its control.
+    expect(lines['src/config.ts']).toEqual([12, 16]);
     expect(lines['src/api/public/webhooks.ts']).toEqual([61]);
     expect(lines['src/api/users.ts']).toEqual([45]);
-    expect(lines['src/middleware/ratelimit.ts']).toEqual([28]);
+    expect(lines['src/middleware/ratelimit.ts']).toEqual([19, 28]);
+    expect(lines['src/api/public/index.ts']).toEqual([8, 15]);
     expect(lines['package-lock.json']).toEqual([]);
     expect(lines['src/server.ts']).toEqual([]);
   });
@@ -175,7 +179,7 @@ d('L03 smart diff (Testcontainers pg)', () => {
       body.groups.flatMap((g) => g.files.map((f) => [f.path, f.finding_lines])),
     );
     expect(lines['src/server.ts']).toEqual([]);
-    expect(lines['src/config.ts']).toEqual([12]);
+    expect(lines['src/config.ts']).toEqual([12, 16]);
 
     await pg.handle.db.delete(t.reviews).where(eq(t.reviews.id, older!.id));
   });

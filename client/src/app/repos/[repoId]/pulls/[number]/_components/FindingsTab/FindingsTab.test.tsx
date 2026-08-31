@@ -8,6 +8,10 @@ vi.mock("../../../../../../../lib/hooks/reviews", () => ({
   useFindingAction: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteReview: () => ({ mutate: vi.fn(), isPending: false }),
 }));
+// `useCreateEvalCase` reaches for a QueryClient this tree does not provide.
+vi.mock("../../../../../../../lib/hooks/evals", () => ({
+  useCreateEvalCase: () => ({ mutate: vi.fn(), isPending: false }),
+}));
 
 import { FindingsTab } from "./FindingsTab";
 

@@ -8,6 +8,7 @@ import type {
   FeatureModelChoice,
   FeatureModelId,
   LLMProvider,
+  UnifiedDiff,
 } from '@devdigest/shared';
 import type { AppConfig } from './config.js';
 import type { Db } from '../db/client.js';
@@ -37,6 +38,9 @@ import {
   type ProjectContextApi,
 } from '../modules/context/service.js';
 import { ProjectContextRepository } from '../modules/context/repository.js';
+import { EvalsService, type EvalsApi } from '../modules/evals/service.js';
+import { EvalsRepository } from '../modules/evals/repository.js';
+import { loadDiff } from '../modules/reviews/diff-loader.js';
 import { getFeatureModelOverride } from '../modules/settings/feature-models.js';
 import type { RepoIntel } from '../modules/repo-intel/types.js';
 import { RepoIntelService } from '../modules/repo-intel/service.js';
@@ -104,6 +108,11 @@ export interface ContainerOverrides {
    * indexed repository.
    */
   blast?: BlastApi;
+  /**
+   * The eval pipeline (L06). Injected as the verb set rather than the class, for
+   * the reason every entry above it is.
+   */
+  evals?: EvalsApi;
 }
 
 export class Container {
@@ -130,6 +139,7 @@ export class Container {
   private _intent?: IntentApi;
   private _projectContext?: ProjectContextApi;
   private _blast?: BlastApi;
+  private _evals?: EvalsApi;
   private _reviewRepo?: ReviewRepository;
   private _repoIntel?: RepoIntel;
   private _depgraph?: DepGraph;
@@ -208,6 +218,41 @@ export class Container {
 
   get reviewRepo(): ReviewRepository {
     return (this._reviewRepo ??= new ReviewRepository(this.db));
+  }
+
+  /**
+   * The eval pipeline (L06), brokered for the same reason `intent`,
+   * `projectContext` and `blast` are.
+   *
+   * The repository is constructed HERE: this is the composition root, and the
+   * service takes the container only because it needs `reviewRepo` and
+   * `loadPrDiff` — everything else it owns.
+   */
+  get evals(): EvalsApi {
+    if (this.overrides.evals) return this.overrides.evals;
+    this._evals ??= new EvalsService(this, new EvalsRepository(this.db));
+    return this._evals;
+  }
+
+  /**
+   * The unified diff of one pull request, by the SAME path a review takes.
+   *
+   * It lives here rather than in `modules/evals/` because `diff-loader.ts`
+   * belongs to `modules/reviews/`, and a module importing a sibling module is
+   * `no-cross-module-import` — a rule declared `severity: 'warn'`, so
+   * `arch:check` would exit 0 and nobody would be told. The composition root is
+   * allowed to see every ring at once, which is exactly what it is for.
+   *
+   * Sharing the path with the reviewer is the point, not a convenience: a case
+   * frozen from a diff assembled differently from the one the reviewer is later
+   * given would measure the agent against an input it never sees.
+   */
+  async loadPrDiff(workspaceId: string, prId: string): Promise<UnifiedDiff | null> {
+    const pull = await this.reviewRepo.getPull(workspaceId, prId);
+    if (!pull) return null;
+    const repoRow = await this.reviewRepo.getRepo(pull.repoId);
+    if (!repoRow) return null;
+    return loadDiff(this, this.reviewRepo, workspaceId, pull, repoRow);
   }
 
   /**

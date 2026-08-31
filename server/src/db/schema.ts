@@ -40,7 +40,13 @@ import {
   onboarding,
   projectContextDocs,
 } from './schema/context';
-import { evalCases, evalRuns, conformanceChecks, composedReviews } from './schema/eval';
+import {
+  evalCases,
+  evalRunBatches,
+  evalRuns,
+  conformanceChecks,
+  composedReviews,
+} from './schema/eval';
 import { ciInstallations, ciRuns } from './schema/ci';
 import { agentRuns, runTraces, multiAgentRuns } from './schema/runs';
 import { jobs, installedPlugins, digests } from './schema/ops';
@@ -79,6 +85,7 @@ export const schema = {
   onboarding,
   projectContextDocs,
   evalCases,
+  evalRunBatches,
   evalRuns,
   conformanceChecks,
   composedReviews,

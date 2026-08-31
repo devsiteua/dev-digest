@@ -53,11 +53,24 @@ export interface MockLLMOptions {
   structuredBySchema?: Record<string, unknown>;
   completionText?: string;
   embedding?: number[];
+  /**
+   * 1-based `completeStructured` call numbers that should THROW.
+   *
+   * The existing failure path is per-`schemaName`, which cannot express "fail
+   * one case of a set and let the rest through" — and that is exactly the shape
+   * an eval batch needs to prove a failed case is not a failed run (AC-14).
+   * Additive and off by default, so no existing test changes behaviour; the
+   * counter is per-instance, so a test that wants call 2 to fail must hand the
+   * same provider to every call.
+   */
+  failStructuredOnCall?: number[];
 }
 
 export class MockLLMProvider implements LLMProvider {
   readonly id: 'openai' | 'anthropic';
   public calls: { method: string; req: unknown }[] = [];
+  /** 1-based counter behind `failStructuredOnCall`. */
+  private structuredCalls = 0;
 
   constructor(
     id: 'openai' | 'anthropic' = 'openai',
@@ -88,6 +101,12 @@ export class MockLLMProvider implements LLMProvider {
 
   async completeStructured<T>(req: StructuredRequest<T>): Promise<StructuredResult<T>> {
     this.calls.push({ method: 'completeStructured', req });
+    this.structuredCalls += 1;
+    if (this.opts.failStructuredOnCall?.includes(this.structuredCalls)) {
+      throw new Error(
+        `MockLLMProvider: failing completeStructured call #${this.structuredCalls} on request`,
+      );
+    }
     const fixture = this.opts.structuredBySchema?.[req.schemaName] ?? this.opts.structured ?? {};
     const parsed = (req.schema as z.ZodType<T>).safeParse(fixture);
     if (!parsed.success) {

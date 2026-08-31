@@ -1,0 +1,1 @@
+ALTER TABLE "eval_runs" ADD COLUMN "precision_denominator" integer;
