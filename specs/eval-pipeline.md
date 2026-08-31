@@ -1,7 +1,7 @@
 # Eval Pipeline — regression protection for the product's own review agents
 
 Spec ID: EVAL-PIPELINE
-Status: in-progress
+Status: done
 Supersedes: none
 Owner: devsiteua
 Packages touched: server, client, reviewer-core (read-only reuse), e2e

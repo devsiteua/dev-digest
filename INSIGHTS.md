@@ -60,6 +60,43 @@ _None yet._
 
 ## What Doesn't Work
 
+### 2026-08-31 · Same-prompt eval variance is CITATION DRIFT, not a change of judgement — and expectation width is the dial nobody chose
+
+Trigger:  two live runs of the same 8-case set, minutes apart, byte-identical prompt
+          (verified by comparing `system_prompt_snapshot` of both batches). Recall went
+          67% → 0%. It reads as the agent having stopped finding things.
+Cause:    it had not. It found the SAME defects both times and cited them one to three
+          lines off:
+            `src/config.ts`            12-12 → 13-13   (expectation 12-12)
+            `src/api/public/index.ts`  16-16 → 12-14   (expectation 15-17)
+          Same titles, same file, same defect — "Hardcoded Stripe secret key",
+          "Health endpoint incorrectly rate-limited". A match is file equality plus
+          range INTERSECTION (`rangesOverlap`), so 13-13 against 12-12 is a miss by one
+          line and 12-14 against 15-17 is a miss by one. Two of three `must_find` cases
+          flipped `pass` → `fail` without the model changing its mind about anything.
+          The width of the expectation is what decides this, and nobody chose it: it is
+          copied from the source finding's own `start_line`/`end_line`, which for a
+          seeded finding is often a SINGLE line. A one-line expectation gives the model
+          no tolerance at all for where it anchors a defect that spans a hunk.
+Takeaway: before reading a recall drop as a behaviour change, diff the CITATIONS, not
+          the scores — join `eval_runs.actual_output->'findings'` for one case across
+          two batches and compare `file`/`start_line`. If the titles match and only the
+          lines moved, the agent did not regress and the metric is measuring its
+          citation habit. This is the mechanism behind the same-prompt disagreement
+          recorded on 2026-08-30 under Tool & Library Notes; that entry saw the symptom.
+          It also sets the floor on how blunt a prompt experiment must be: the
+          deliberately broken prompt of the L06 demo moved recall 33% → 17% and
+          precision 75% → 50%, a real move, but no larger than drift alone produced on
+          an unchanged prompt. A match tolerance of a few lines — or expectations
+          widened to the hunk rather than the line — would separate the two, and is the
+          obvious next change to this scoring rule.
+Evidence: server/src/modules/evals/scoring.ts (`rangesOverlap`, `matches`);
+          eval_cases.expected_output (start_line/end_line copied from the finding);
+          server/src/modules/evals/routes.ts (case creation from a finding)
+Status:   open — nothing is broken, the trade-off is deliberate and documented in
+          `scoring.ts`; what was not known is how much of a metric move it can
+          manufacture on its own
+
 ### 2026-08-30 · A criterion verified on ONE surface reads as MET while another surface breaks it — and a shared guard component is what hides it
 
 Trigger:  AC-21 of the eval pipeline: "a metric with an empty denominator renders —,
@@ -529,6 +566,33 @@ Status:   open — harmless as long as nothing enumerates the UI type
 > open entry points at it.
 
 ## Tool & Library Notes
+
+### 2026-08-31 · The `pr-self-review` gate always resolves its base as `origin/main`, so a STACKED pull request cannot be unblocked by a verdict written against its real base
+
+Trigger:  L06's pull request targets `lesson-05`, because L05's own PR (#5) is still
+          open. A full self-review was run with that base, the verdict was written with
+          `base: lesson-05`, and `gh pr create` was still denied — with the findings
+          printed, and nothing said about the base.
+Cause:    `pr-self-review-gate.sh` honours an override only when the verdict's
+          `diff_sha` equals the one it recomputes itself, and it resolves the base by
+          calling `scripts/pr-self-review-hash.sh --print-base` with NO argument. That
+          default is `origin/main`. A verdict written against any other base has a
+          different digest, so the gate treats it as describing some other diff and
+          ignores the override entirely. Both halves are correct in isolation — binding
+          the override to a digest is the whole safety property — but together they
+          make a hand-picked base a silent no-op.
+Takeaway: when writing the verdict the gate must honour, never pass a base ref to
+          `pr-self-review-hash.sh`; let it resolve its own, and put the real pull
+          request base in `coverage` prose instead. Accept the consequence and say it
+          out loud in `coverage`: on a stacked PR the verdict covers a WIDER diff than
+          the PR contains — here 255 files against `origin/main` versus the 130 the PR
+          actually proposes — so "reviewed" in that file does not mean "reviewed what
+          this PR changes" unless the coverage line separates them.
+Evidence: scripts/pr-self-review-gate.sh (OV_SHA / SAVED_SHA comparison);
+          scripts/pr-self-review-hash.sh (--print-base, BASE_REF defaulting)
+Status:   open — the gate is not wrong, but it assumes every PR targets main; the next
+          stacked PR pays the same 20 minutes unless the skill grows a `--base` that
+          both sides agree on
 
 ### 2026-08-30 · A whole-PR model call is 39-92 s, so the 60 s default was clipping the distribution — and two runs of the SAME prompt still disagree
 
