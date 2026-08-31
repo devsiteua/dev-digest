@@ -4,6 +4,7 @@ import React from "react";
 import { SectionLabel } from "@devdigest/ui";
 import { PrBriefCard } from "../PrBriefCard";
 import { IntentCard } from "../IntentCard";
+import { MultiAgentPicker } from "../MultiAgentPicker";
 import { s } from "./styles";
 
 interface OverviewTabProps {
@@ -42,6 +43,12 @@ export function OverviewTab({ prId, prBody, onOpenFile }: OverviewTabProps) {
       </section>
       <section>
         <IntentCard prId={prId} />
+      </section>
+      {/* The multi-agent picker's first mount point: this PR is already fixed, so
+          no PR control is handed in. The second is the Multi-Agent Review route's
+          landing state, which passes one. */}
+      <section>
+        <MultiAgentPicker prId={prId} />
       </section>
       {prBody && (
         <section>

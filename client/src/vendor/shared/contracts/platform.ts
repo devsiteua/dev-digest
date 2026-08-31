@@ -317,8 +317,19 @@ export const ProjectContextReorder = z.object({
 export type ProjectContextReorder = z.infer<typeof ProjectContextReorder>;
 
 // ---- Run request (review trigger; owned by A2, contract lives here) ----
+/**
+ * Exactly ONE of the three forms must be present: one agent, a named set, or all.
+ * That exclusivity is NOT expressible here on purpose — a route schema can only
+ * ever answer 422, and the criterion for a malformed request names 400, so the
+ * service counts the forms and throws `invalid_run_request`. An empty `agentIds`
+ * is one of the rejected cases, not "no set given".
+ *
+ * No `.default` on `agentIds`: a defaulted field is optional on input and
+ * REQUIRED on `z.infer`, which would break every literal in both packages.
+ */
 export const RunRequest = z.object({
   agentId: z.string().optional(),
+  agentIds: z.array(z.string()).optional(),
   all: z.boolean().optional(),
 });
 export type RunRequest = z.infer<typeof RunRequest>;

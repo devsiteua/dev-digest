@@ -37,6 +37,31 @@ _None yet._
 
 ## What Doesn't Work
 
+### 2026-08-30 · `router.push` to the route you are already on is a silent no-op, so "one component, two mount points" shipped a dead button that every gate passed
+
+Trigger:  `MultiAgentPicker` was mounted twice by design — inline on the PR page, and as the
+          landing state of `/repos/[repoId]/multi-agent`. On the PR page its button worked. On
+          the multi-agent route, pressing it looked like nothing happened, so a human pressed it
+          four times and started four real, billable three-agent runs.
+Cause:    the success path was `router.push(resultsHref(repoId, prNumber))`. From the PR page
+          that is a different route and it navigates. From the results route it pushes the URL
+          the browser is already on, which Next.js treats as a no-op — no re-render, no state
+          change — so the parent's `configuring` flag stayed `true` and the picker never closed.
+          The mutation was fine and had already fired; only the transition was missing.
+Takeaway: a component reused at two mount points needs a test PER MOUNT POINT, because the
+          branch that differs is exactly the one nobody exercises. Here the component test
+          asserted `push` was called (the working mount) and the page test rendered the results,
+          never driving the picker mounted inside it — so 372 client tests, 186 integration
+          tests, 11 e2e flows and two clean architecture reviews all passed over it. More
+          narrowly: never let navigation BE the state transition when the destination may be the
+          current route. Hand the parent a callback (`onStarted`) and let it own the change;
+          navigate only when the parent did not. The regression test asserts the callback fires
+          and `push` does NOT — and was confirmed red with the fix reverted, per the entry above
+          about proving a test is not a grep in disguise.
+Evidence: client/src/app/repos/[repoId]/pulls/[number]/_components/MultiAgentPicker/MultiAgentPicker.tsx (startRun, onStarted);
+          client/src/app/repos/[repoId]/multi-agent/page.tsx (configuring); commit 1be6ab8
+Status:   resolved — found by hand during the L07-A 1-vs-3 measurement, not by any suite
+
 ### 2026-08-29 · The L05 scaffold did not merely sit unused — it was WRONG, and three of its four pieces would have shipped a lie
 
 Trigger:  building Project Context, expecting the dormant-scaffold pattern the root
@@ -57,7 +82,18 @@ Takeaway: the 2026-08-02 rule ("grep for the feature's vocabulary before buildin
           it calls: a hook can be green under `tsc` and still describe an endpoint that never
           answered that shape.
 Evidence: client/src/lib/hooks/core.ts:123,131 (both deleted); client/messages/en/context.json (rewritten)
-Status:   resolved — deleted in the same commit that added their replacement (`7685882`)
+Status:   → promoted to `client/CLAUDE.md` § Gotchas on 2026-08-30, at its second sighting:
+          `messages/en/runs.json` § `page` (`:110-134`) ships the Multi-Agent Review screen's
+          copy before the screen exists, and it asserts a MECHANISM rather than a shape —
+          `"fan-out via p-queue"` (`:121`) and `"every enabled agent in parallel"` (`:112,124`)
+          on an executor that runs agents one at a time
+          (`server/src/modules/reviews/run-executor.ts:122-129`). Sharper than the L05 case in
+          one way: `p-queue` really is a dependency of this repo (`server/package.json:40`),
+          just not on the review path, so the copy survives a keyword grep. Scaffold copy is
+          evidence of INTENT and never of behaviour — the L07-A plan reuses these keys and
+          rewrites those two strings rather than trusting them.
+          Originally: resolved — deleted in the same commit that added their replacement
+          (`7685882`)
 
 ### 2026-08-07 · "The model proposed N rules" is derived, not measured — and a re-scan inflates it by every previously-decided row
 

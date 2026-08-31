@@ -34,6 +34,14 @@ export const agentRuns = pgTable('agent_runs', {
   score: integer('score'),
   /** Findings that tripped the agent's gate (severity ≥ ciFailOn). */
   blockers: integer('blockers'),
+  /**
+   * The multi-agent run this run belongs to, when it was started as part of one.
+   * Null for a single-agent review. `set null` rather than `cascade`: deleting the
+   * parent must not delete the runs whose traces and findings are the durable record.
+   */
+  multiAgentRunId: uuid('multi_agent_run_id').references(() => multiAgentRuns.id, {
+    onDelete: 'set null',
+  }),
 });
 
 /** Whole trace of one run as a SINGLE jsonb document. */

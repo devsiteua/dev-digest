@@ -122,6 +122,8 @@ export async function createAgentRun(
     prId: string;
     provider: string | null;
     model: string | null;
+    /** The multi-agent run this run belongs to. Null/absent for a single-agent review. */
+    multiAgentRunId?: string | null;
   },
 ): Promise<string> {
   const [row] = await db
@@ -134,8 +136,29 @@ export async function createAgentRun(
       model: values.model,
       status: 'running',
       source: 'local',
+      multiAgentRunId: values.multiAgentRunId ?? null,
     })
     .returning({ id: t.agentRuns.id });
+  return row!.id;
+}
+
+/**
+ * Create the parent row a set of `agent_runs` belongs to, and return its id.
+ *
+ * This is the ONLY writer of `multi_agent_runs` in the codebase. It lives beside
+ * `createAgentRun` because the two are one write: the module that creates the
+ * child runs is the module that must stamp them with the parent id, and splitting
+ * that across two modules to satisfy a naming intuition would buy nothing.
+ * `modules/multi-agent` reads this table and never writes it.
+ */
+export async function createMultiAgentRun(
+  db: Db,
+  values: { workspaceId: string; prId: string },
+): Promise<string> {
+  const [row] = await db
+    .insert(t.multiAgentRuns)
+    .values({ workspaceId: values.workspaceId, prId: values.prId })
+    .returning({ id: t.multiAgentRuns.id });
   return row!.id;
 }
 

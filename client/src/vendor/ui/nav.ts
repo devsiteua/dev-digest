@@ -19,15 +19,16 @@ export interface NavGroup {
 }
 
 /**
- * Two sections, as in the design: what you review lives under WORKSPACE, what
+ * Three sections, as in the design: what you review lives under WORKSPACE, what
  * reviews it lives under SKILLS LAB. The split is not decoration — an agent, a
  * skill and a convention are one workflow (write a rule → attach it → extract
  * more from the code), and a flat list gave no hint that they belong together.
  *
- * The design's third group (GLOBAL: Memory, Multi-Agent Review, Agent
- * Performance, CI Runs) and its `eval` item are later lessons, so they are
- * absent rather than disabled — a nav entry to a route that does not exist is
- * worse than no entry.
+ * The design's third group, GLOBAL, holds four items and exactly one of them
+ * exists today: Multi-Agent Review (L07). Memory, Agent Performance and CI Runs
+ * are later lessons and stay absent rather than disabled — a nav entry to a
+ * route that does not exist is worse than no entry, which is also why this entry
+ * arrives in the same change as its route.
  *
  * Both consumers (`useGlobalShortcuts`, `useShellCommands`) flatten NAV, so the
  * grouping is a Sidebar concern only and adding a section changes no shortcut.
@@ -48,6 +49,14 @@ export const NAV: NavGroup[] = [
       // Deliberately no `gKey`: "c" is Conventions', and reshuffling a shipped
       // shortcut is a worse change than one nav entry without one (AC-25).
       { key: "context", label: "Project Context", icon: "FileText", href: "/repos/:repoId/context" },
+    ],
+  },
+  {
+    section: "GLOBAL",
+    items: [
+      // `multi-agent` is the key `activeKeyFor` already maps every /multi-agent
+      // path to, and the one `shell.json` already labels — neither file changes.
+      { key: "multi-agent", label: "Multi-Agent Review", icon: "Users", href: "/repos/:repoId/multi-agent", gKey: "m" },
     ],
   },
 ];
@@ -79,6 +88,7 @@ export const SHORTCUTS: ShortcutDef[] = [
   { keys: "g a", label: "Go to Agents", group: "Navigation" },
   { keys: "g s", label: "Go to Skills", group: "Navigation" },
   { keys: "g c", label: "Go to Conventions", group: "Navigation" },
+  { keys: "g m", label: "Go to Multi-Agent Review", group: "Navigation" },
   { keys: "j / k", label: "Next / previous finding", group: "Findings" },
   { keys: "a", label: "Accept finding", group: "Findings" },
   { keys: "d", label: "Dismiss finding", group: "Findings" },

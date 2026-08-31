@@ -10,6 +10,7 @@ export * from "./intent";
 export * from "./brief";
 export * from "./smart-diff";
 export * from "./blast";
+export * from "./multi-agent";
 export * from "./reviews";
 export * from "./trace";
 export * from "./repo-intel";

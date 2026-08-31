@@ -65,6 +65,12 @@ export const ReviewRunResponse = z.object({
   pr_id: z.string(),
   runs: z.array(ReviewRunTarget),
   reviews: z.array(ReviewRecord),
+  /**
+   * The multi-agent run these runs belong to, when the request named a set of
+   * agents. Nullish rather than required: the one-agent and all-agents paths
+   * keep answering exactly as they did, without it.
+   */
+  multi_agent_run_id: z.string().nullish(),
 });
 export type ReviewRunResponse = z.infer<typeof ReviewRunResponse>;
 
